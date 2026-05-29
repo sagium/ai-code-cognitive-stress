@@ -1,0 +1,402 @@
+% Compiles with a stock TeX Live: pdflatex main; bibtex main; pdflatex main; pdflatex main
+% Two-column, self-contained (no external conference class required).
+% To target a specific venue, swap \documentclass for {IEEEtran} (conference)
+% or {acmart} and adjust the title block accordingly.
+\documentclass[10pt,twocolumn]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[margin=0.75in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{cite}
+\usepackage{microtype}
+\usepackage[hidelinks]{hyperref}
+\usepackage{xcolor}
+
+\setlength{\columnsep}{0.28in}
+
+\title{\textbf{Measuring the Cognitive Load of Supervising Parallel
+AI Coding Agents:\\ A Local, Research-Grounded, Individualized Index}}
+
+\author{
+  Marinos Prevenios\\
+  \small Independent Research \quad
+  \small\texttt{github.com/sagium/ai-code-cognitive-stress}
+}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Agentic coding tools have placed software developers in a role that was
+previously confined to specialist operators: one human concurrently
+supervising several semi-autonomous agents at machine pace, interleaving
+prompts, judging outputs, and recovering interrupted trains of thought all
+day. This is a distinct cognitive regime, it accumulates, and existing
+developer-productivity dashboards do not measure it---they count output, not
+cognitive cost. We present a method and an open, \emph{local-only} tool that
+turns the session logs these tools already generate into a daily,
+individualized load index. The index decomposes into three behaviourally
+grounded axes---Concurrent Operational Demand Load (CODL), an Interruption
+Index, and a Closure Deficit---each anchored to an established literature
+(working-memory capacity, supervisory-control fan-out, the interruption and
+attention-residue literature, and the Job Demands--Resources model). A central
+refinement weights concurrency by \emph{engagement}: a session counts at full
+load only while actively driven and at a discounted weight while ``cooking'' in
+the background, a distinction we ground in prospective-memory monitoring costs
+and the cognition of unfulfilled goals. We deliberately frame the work as a
+\emph{taskload} measurement (objective demand from events) rather than
+\emph{workload} (felt experience), state every assumption that is currently
+unvalidated, and devote a substantial part of the paper to challenging our own
+construct. We close with falsifiable predictions and a concrete validation
+roadmap intended to let the community confirm, calibrate, or refute the index.
+\end{abstract}
+
+\section{Introduction}
+Large-language-model coding assistants---Claude Code, OpenAI Codex CLI, Aider,
+and others---are routinely run several at a time, or in many concurrent
+sessions of one. The human operator no longer types most of the code; they
+\emph{supervise}: dispatching tasks, context-switching between agents, judging
+partial results, and re-engaging stalled threads. The closest well-studied
+analogue is supervisory control of multiple semi-autonomous vehicles, where a
+single operator's performance is known to collapse non-linearly past a personal
+``fan-out'' limit, often \emph{before} the operator consciously registers
+overload~\cite{cummings2008,crandall2007,sheridan1992}.
+
+Three properties make this load hard to see from the inside. First, it is
+\emph{concurrent}: holding multiple open agent conversations taxes working
+memory, whose capacity for independent items is famously small (about
+four)~\cite{cowan2001}. Second, it is \emph{interruption-dense}: switching
+between agents and reacting to failures fragments attention and leaves residue
+that slows the resumed task~\cite{mark2008,mark2005,leroy2009,wickens2008}.
+Third, it is \emph{closure-poor}: agentic work spawns many loops that stay open,
+and demands that exceed recoverable resources are the mechanism of burnout in
+the Job Demands--Resources model~\cite{demerouti2001}. Chronic load without
+recovery---not isolated peaks---is what damages people over
+time~\cite{mcewen1998,sonnentag2010}.
+
+Our goal is modest and concrete: to give an individual developer an honest,
+research-grounded, \emph{private} picture of this load over time, scored against
+\emph{their own} historical baseline rather than a population norm. We do not
+claim to measure stress, to diagnose burnout, or to replace validated
+subjective instruments. We claim to make a previously invisible
+\emph{behavioural} quantity visible, on the user's own machine, with every
+threshold traceable to the literature. The contributions are:
+\begin{enumerate}
+  \item A decomposition of agent-supervision taskload into three axes with
+  explicit, citation-anchored thresholds (\S\ref{sec:method}).
+  \item An \emph{engagement-weighted} concurrency measure that distinguishes
+  actively-supervised sessions from background ``cooking'' ones, grounded in
+  prospective-memory and unfulfilled-goal research (\S\ref{sec:codl}).
+  \item An open, dependency-free, local-only reference implementation that
+  serves as a working proof of concept~\cite{acsrepo} (\S\ref{sec:impl}).
+  \item A deliberately adversarial treatment of our own construct
+  (\S\ref{sec:threats}) and a validation roadmap with falsifiable predictions
+  (\S\ref{sec:validation}).
+\end{enumerate}
+
+\section{Background and Related Work}
+\paragraph{Concurrency and working memory.} Cowan's reconsideration places the
+capacity of focal attention for independent chunks at roughly
+four~\cite{cowan2001}; we use this as the reference point past which tracking
+parallel agents should degrade.
+
+\paragraph{Supervisory control and fan-out.} The human-supervisory-control
+tradition models an operator dividing attention across automated
+processes~\cite{sheridan1992}. ``Fan-out'' is the number of robots an operator
+can effectively manage; it is bounded by \emph{neglect time} (how long a process
+runs unattended) and \emph{interaction time}, and an agent's \emph{attention
+demand} is the fraction of operator time it
+consumes~\cite{cummings2008,crandall2007}. This fraction framing directly
+motivates our engagement weighting (\S\ref{sec:codl}).
+
+\paragraph{Interruption and attention residue.} Interrupted work is completed
+faster but at the cost of higher stress and effort~\cite{mark2008}; fragmented
+work and frequent external switches are costly~\cite{mark2005}, with residue
+from an unfinished task impairing the next~\cite{leroy2009}, and cross-modality
+or cross-tool switches costlier than within-tool ones~\cite{wickens2008}.
+
+\paragraph{Demands, recovery, and the optimum.} The Job Demands--Resources model
+frames burnout as demands outstripping recoverable
+resources~\cite{demerouti2001}; allostatic-load theory stresses that
+\emph{sustained} activation, not peaks, causes harm~\cite{mcewen1998}; and
+psychological detachment in off-hours predicts next-day
+well-being~\cite{sonnentag2007,sonnentag2010}. Performance follows an inverted-U
+in arousal/load~\cite{yerkes1908}, the ``flow channel'' between boredom and
+anxiety~\cite{csikszentmihalyi1990}, motivating a \emph{personal optimum} rather
+than a fixed ceiling.
+
+\paragraph{Open loops and monitoring costs.} Two literatures ground the claim
+that a backgrounded task is neither free nor full cost. Unfulfilled goals remain
+active in memory and intrude on unrelated tasks until the goal is closed or a
+concrete plan is made~\cite{masicampo2011}; and maintaining a pending intention
+while doing other work measurably slows that ongoing task---the
+prospective-memory ``monitoring cost,'' on the order of 15--20\%\ of
+baseline~\cite{smith2003}.
+
+\paragraph{What we are \emph{not}.} The validated instrument for subjective
+workload is NASA-TLX~\cite{hart1988}; for diagnosed burnout it is the Maslach
+Burnout Inventory~\cite{maslach1981}. Our index is neither; it is an objective
+behavioural proxy, and \S\ref{sec:threats} treats the gap as the central threat.
+
+\section{Method}\label{sec:method}
+\subsection{Data model}
+Input is the set of local session transcripts a coding tool already writes, plus
+local \texttt{git} history. A pluggable adapter maps each tool's log into a
+common vocabulary of typed events (user message, assistant message, tool use,
+tool result/error) with UTC timestamps. Events are reduced to per-day
+\emph{stream} records: one stream is one session on one day, summarised by its
+first/last event timestamps $[a_s,b_s]$, per-type counts, and the multiset of
+the user's own message timestamps $U_s$. All processing is local; nothing is
+transmitted (\S\ref{sec:impl}).
+
+\subsection{Work window and weekdays}
+Axes are computed inside a fixed daily work window $W=[w_0,w_1]$ (configurable,
+default 09:00--19:00 local). Weekends are never treated as working days;
+weekend and out-of-window activity is surfaced separately as an off-hours
+\emph{recovery} signal. We sample the window at one-minute resolution; let $T$
+be the set of sample instants.
+
+\subsection{Engagement-weighted CODL}\label{sec:codl}
+The naive concurrency count treats a stream as one continuously-active locus
+across its whole $[a_s,b_s]$ span. This over-counts: a session left running
+while the operator is away reads identically to one being actively juggled. We
+instead weight each stream by \emph{engagement} at each instant. Let $g$ be a
+foreground grace window (default $5$ minutes) and $\beta\in[0,1]$ a background
+weight. The instantaneous weight of stream $s$ at time $t$ is
+\begin{equation}
+e_s(t) =
+\begin{cases}
+1 & \text{if } \exists\,u\in U_s:\; 0 \le t-u \le g \\[2pt]
+\beta & \text{else if } a_s \le t \le b_s \\[2pt]
+0 & \text{otherwise.}
+\end{cases}
+\end{equation}
+That is, a session counts fully only within $g$ of one of the operator's own
+messages (\emph{foreground}, actively driven); otherwise, while alive, it is
+``cooking'' in the background at weight $\beta$. Weighted concurrency and the two
+CODL summaries are
+\begin{equation}
+C(t)=\sum_{s} e_s(t),\quad
+\overline{\mathrm{CODL}}=\frac{1}{|T|}\sum_{t\in T} C(t),\quad
+\mathrm{CODL}^{\star}=\max_{t} C(t).
+\end{equation}
+We retain a raw headcount $H(t)=\sum_s \mathbf{1}[a_s\le t\le b_s]$ and its peak
+$\max_t H(t)$ as a descriptive ``sessions open at once,'' but the \emph{scored}
+quantities use the weighted form.
+
+\paragraph{Choosing $\beta$.} A background locus is neither free nor full cost.
+The prospective-memory literature puts the cost of holding a pending intention
+at $\approx$15--20\%\ of ongoing-task capacity~\cite{smith2003}, and unfulfilled
+goals consume working memory until closed~\cite{masicampo2011}; the
+supervisory-control ``attention demand'' fraction makes the same point from the
+operator side~\cite{crandall2007}. We set $\beta=0.25$, the conservative top of
+that empirical band, erring toward a stronger anti-fire-and-forget signal.
+$\beta$ and $g$ are configuration parameters, not hard-coded constants, so the
+assumption is auditable and tunable (\S\ref{sec:validation}).
+
+\subsection{Interruption Index}
+Tool calls \emph{within} an active session are not counted: while an agent
+works, the operator is in a ``waiting'' state in which attention can legitimately
+detach, so counting each call would inflate the rate by orders of magnitude and
+violate the standard definition of an interruption as an unscheduled event
+demanding immediate attention. Two events do pull attention: a tool
+\emph{error} (the operator may need to intervene) and a \emph{cross-stream
+start} (a new session lit up while another was active, forcing a switch). With
+$E^{\mathrm{win}}$ the tool-error count apportioned to the work window, $X$ the
+in-window cross-stream starts, and $h$ the window length in hours,
+\begin{equation}
+I = \frac{1.5\,E^{\mathrm{win}} + 3.0\,X}{h}.
+\end{equation}
+The weights follow the relative cost of external versus self-interruption in the
+interruption literature~\cite{mark2008,mark2005,wickens2008}; the normalization
+ceiling is $10$/hour, well above the $\approx$4.4/hour office
+baseline~\cite{mark2008}.
+
+\subsection{Closure Deficit}
+As a proxy for time spent juggling unclosed loops we take the fraction of work
+samples whose \emph{weighted} concurrency exceeds one:
+\begin{equation}
+\mathrm{ClosureDeficit} = \frac{|\{t\in T : C(t) > 1\}|}{|T|}.
+\end{equation}
+Using $C(t)$ rather than the headcount means background sessions do not, on
+their own, register as juggling. This is a load-presence proxy, not a measure of
+closure \emph{completion}; \S\ref{sec:threats} returns to this.
+
+\subsection{Composite}
+Each axis is normalized to $[0,1]$ and blended with equal weights:
+\begin{equation}
+\mathrm{Composite} = \frac{100}{3}\!\left(
+\min\!\Big(1,\tfrac{\overline{\mathrm{CODL}}}{5}\Big) +
+\min\!\Big(1,\tfrac{I}{10}\Big) +
+\mathrm{clip}(\mathrm{ClosureDeficit},0,1)
+\right).
+\end{equation}
+Equal weights are the explicit \emph{null hypothesis} for this version: we have
+no evidence that one axis dominates felt load, and we prefer to state that than
+to fit weights to a single user's data. Replacing equal weights with empirically
+calibrated ones is a primary validation target (\S\ref{sec:validation}).
+
+\subsection{Personal optimum and recovery}
+Performance follows an inverted-U with load~\cite{yerkes1908,csikszentmihalyi1990}.
+We bucket historical workdays by $\overline{\mathrm{CODL}}$ (width $0.5$) and
+score each bucket by closure achieved against off-hours follow-up; the midpoint
+of the best bucket is reported as the operator's individual ``flow channel''
+target, a line on the chart rather than a ceiling. It requires at least 14
+active workdays to stabilise, below which the report shows ``calibrating.''
+Off-hours and weekend activity are flagged because sustained load without
+detachment, not peaks, predicts harm~\cite{mcewen1998,sonnentag2007,sonnentag2010}.
+
+\section{Implementation}\label{sec:impl}
+The method is realised in an open-source reference
+implementation~\cite{acsrepo} that doubles as the proof of concept for this
+paper: every axis, threshold, and the engagement weighting described here is
+exactly what the released tool computes.\footnote{Source and documentation:
+\url{https://github.com/sagium/ai-code-cognitive-stress}. The repository is
+being prepared for public release; all results in this paper were produced by
+the released code so they are reproducible from a user's own logs.} It is pure
+Python standard library (no third-party runtime dependencies), which keeps the
+trust surface small and the install trivial. It reads only local files, performs no network I/O at any stage, and
+writes a self-contained HTML report plus a machine-readable JSON sibling.
+Per-day aggregates are cached keyed by source-file modification time, so metric
+or weighting changes recompute from cache without re-parsing logs. Adding a new
+coding tool is a single adapter implementing the event protocol; the aggregate,
+metric, optimum, and rendering stages are tool-agnostic. The tool is local-only
+by design: session transcripts frequently contain proprietary code and
+secrets, so the generated artefacts are treated as similarly sensitive and
+never leave the machine.
+
+\section{Illustrative Example}\label{sec:example}
+To make the axes concrete we report one author's own data for a single month
+(19 active workdays). We stress that this is an \emph{illustration of the
+instrument}, not evidence of validity; $n{=}1$, the subject is an author, and
+there is no ground-truth load measure here. Qualitatively, the
+engagement-weighted CODL pulled composite scores down on days dominated by
+background ``cooking'' sessions while leaving interruption-dominated days
+largely unchanged, and the weighted peak $\mathrm{CODL}^{\star}$ separated a day
+of genuine four-way \emph{active} supervision from a day with four sessions
+merely open. This is the behaviour the design intends; whether it tracks
+\emph{felt} load is exactly the open question of \S\ref{sec:validation}.
+
+\section{Threats to Validity and Self-Critique}\label{sec:threats}
+We consider the following the most serious challenges to the method, roughly in
+order of severity. We see no benefit in understating them.
+
+\paragraph{Taskload is not workload.} Every axis is computed from objective event
+streams; none measures felt experience. Objective--subjective workload
+correlations are typically moderate ($r\approx0.4$--$0.6$). A calm composite does
+not prove the operator felt calm, and vice versa. The validated subjective
+instrument is NASA-TLX~\cite{hart1988}; until we correlate against it (or
+experience sampling), the index is an unvalidated proxy for the construct it
+names.
+
+\paragraph{The supervisory-control analogy is borrowed, not established.}
+Fan-out, neglect time, and attention demand were developed for UAV/robot
+operators~\cite{cummings2008,crandall2007}. Their transfer to LLM oversight is
+plausible---both involve one human time-sharing across semi-autonomous
+processes---but unproven. LLM agents differ in failure modes, feedback latency,
+and the verbal/code modality of interaction.
+
+\paragraph{The background weight $\beta$ is imported across domains.} The
+$15$--$20\%$ monitoring cost~\cite{smith2003} and unfulfilled-goal
+effects~\cite{masicampo2011} come from laboratory prospective-memory and
+goal-priming paradigms, not from software supervision. Reusing them to set
+$\beta=0.25$ is a defensible prior, not a measurement. The true value may differ
+by person, task, and tool, and may not be constant within a day.
+
+\paragraph{Equal composite weights are a placeholder.} We assert no axis
+dominates; this is almost certainly false in detail. Without calibration against
+a criterion, the composite's absolute scale is arbitrary and only its
+\emph{relative} movement within one person's history is meaningful.
+
+\paragraph{Closure Deficit measures presence, not closure.} It is the fraction
+of time with weighted concurrency $>1$, i.e.\ a re-expression of concurrency, not
+a count of loops actually closed. Real closure signals (commits, merges, PR
+events) exist in the data but are not yet folded into this axis, so the name
+over-promises relative to the computation.
+
+\paragraph{Engagement is inferred from message timing.} Foreground is proxied by
+proximity to the operator's own messages within a grace window $g$. This misses
+silent engagement (reading, thinking, reviewing diffs without typing) and may
+misclassify a quick acknowledgement as full engagement. The $5$-minute grace is
+uncalibrated.
+
+\paragraph{Cross-tool comparability is unestablished.} Different tools log at
+different granularities (e.g.\ per-keystroke vs.\ per-turn), so event counts and
+stream boundaries are not commensurable across adapters. Aggregating or comparing
+across tools without normalization risks systematic bias.
+
+\paragraph{Single subject and borrowed thresholds.} The capacity threshold
+($\approx 4$~\cite{cowan2001}) and interruption ceiling ($10$/hour) are
+literature values, not fitted to the population of agent-coding developers, who
+may differ. All reported behaviour is $n{=}1$ and from an author.
+
+\paragraph{Modelling and boundary choices.} One-minute sampling, the
+over-approximation of a stream as alive across $[a_s,b_s]$, a fixed work window,
+hard-coded weekend exclusion, and timezone handling are all defaults that could
+materially move scores for shift workers, multi-timezone teams, or bursty users.
+
+\paragraph{Construct and causal claims.} ``Stress'' in the project name is
+aspirational; the composite is a load index. No causal link to burnout outcomes
+(e.g.\ MBI~\cite{maslach1981}) is claimed or shown. Reactivity is also possible:
+surfacing the score may itself change behaviour.
+
+\section{Falsifiable Predictions and Validation Roadmap}\label{sec:validation}
+The above critiques are not fatal; they are a research agenda. We state
+predictions that would, if tested, confirm or refute the design.
+
+\begin{enumerate}
+  \item \textbf{Concurrent validity.} Across a sample of agent-coding
+  developers, daily composite should correlate positively with same-day
+  NASA-TLX~\cite{hart1988} or ecological momentary assessments of effort. A null
+  or negative correlation falsifies the composite as a load proxy.
+  \item \textbf{Engagement-weighting ablation.} Engagement-weighted CODL should
+  correlate with felt load \emph{better} than the flat headcount. If weighting
+  does not improve the correlation, $\beta$ and $g$ add complexity without value.
+  \item \textbf{Weight calibration.} Regressing subjective load on the three
+  normalized axes should yield weights that beat the equal-weight null
+  out-of-sample; the fitted weights become the next version's defaults.
+  \item \textbf{Predictive validity for recovery.} Days high in off-hours
+  activity and composite should predict lower next-day vigor/detachment
+  scores~\cite{sonnentag2010}; absence of this relationship weakens the recovery
+  framing.
+  \item \textbf{$\beta$ recovery from data.} With per-event timestamps and a
+  secondary signal (e.g.\ self-reported ``which sessions were you actually
+  watching''), $\beta$ can be estimated rather than assumed; the estimate's
+  distance from $0.25$ quantifies our prior's error.
+  \item \textbf{Sensitivity analysis.} Composite rankings of days should be
+  stable under reasonable perturbations of $g$, the sampling interval, and the
+  thresholds; instability would indicate over-tuned, non-robust scoring.
+\end{enumerate}
+A modest multi-developer study with experience sampling, plus folding real
+closure events (commits/merges) into the Closure Deficit, would address the
+majority of the threats in \S\ref{sec:threats} and convert this from a
+principled instrument into a validated one.
+
+\section{Ethics and Privacy}
+The tool reads proprietary source and potentially secrets; we therefore treat
+local-only processing as a hard invariant, not a feature, and any future
+data-sharing path would require separate, explicit, opt-in consent. The intended
+use is individual self-reflection. We explicitly warn against managerial or
+comparative use across people: the index is calibrated to an individual's own
+history, the construct is unvalidated, and using an unvalidated load proxy for
+evaluation would be both statistically and ethically unsound.
+
+\section{Conclusion}
+Supervising parallel AI coding agents is a new, accumulating, and largely
+unmeasured cognitive regime. We have presented a local, privacy-preserving,
+literature-anchored method to make its \emph{behavioural} footprint visible to
+the individual who generates it, including an engagement-weighted concurrency
+measure that distinguishes active supervision from background cooking. We have
+been deliberate about what the method does not yet establish, and have laid out
+falsifiable predictions and a validation path. We hope the explicit assumptions
+and the open implementation make the construct easy to challenge---which is the
+fastest way to make it, and any tool built on it, more trustworthy.
+
+\bibliographystyle{plain}
+\bibliography{references}
+
+\end{document}

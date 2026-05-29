@@ -21,6 +21,16 @@ coverage.xml
 # uv (this tool is stdlib-only; uv is an optional convenience, not pinned)
 uv.lock
 
+# LaTeX build artifacts (paper/)
+*.aux
+*.bbl
+*.blg
+*.log
+*.out
+*.toc
+*.synctex.gz
+paper/main.pdf
+
 # Build artifacts
 /dist/
 /build/
