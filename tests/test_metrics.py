@@ -22,7 +22,6 @@ from stress_levels.metrics import (
     _codl_weighted_samples,
     _composite_score,
     _count_cross_stream_starts,
-    _hour_to_time,
     _percentile,
     _stream_weight_at,
     _union_active_minutes,
@@ -91,16 +90,6 @@ def test_percentile_linear_interpolation():
 
 def test_percentile_handles_unsorted_input():
     assert _percentile([5, 1, 3, 2, 4], 0.5) == 3
-
-
-def test_hour_to_time_basic():
-    assert _hour_to_time(9.5) == time(9, 30)
-    assert _hour_to_time(14.25) == time(14, 15)
-
-
-def test_hour_to_time_clips_out_of_range():
-    assert _hour_to_time(-1) == time(0, 0)
-    assert _hour_to_time(25) == time(23, 59, 59)
 
 
 # ---------------------------------------------------------------------------

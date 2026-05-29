@@ -67,7 +67,7 @@ AXES: tuple[AxisMeta, ...] = (
         has_optimum=True,
         technique=(
             "Sweep over per-stream (first_ts, last_ts) intervals sampled at "
-            "1-min resolution within the auto-detected work window."
+            "1-min resolution within the configured work window."
         ),
         basis=(
             "Cowan (2001); Cummings & Mitchell (2008) on supervisory-control "
@@ -215,7 +215,7 @@ class DayView:
     composite_color: str
     advice: str             # one-to-two word read on the level
     work_window: WorkWindow | None
-    work_window_label: str  # "work window: 09:00 – 17:00" | "auto-detected work hours"
+    work_window_label: str  # "work window: 09:00 – 17:00" | "work window: (unknown)"
     hours: list[int]        # 24 per-local-hour concurrent-stream counts
     peak_concurrent: int
     # Cumulative composite at each hour-end of the work window (how the score
@@ -350,7 +350,7 @@ def build_dayview(
 ) -> DayView:
     counts = hour_counts(metrics.day, agg, local_tz)
     ww = None
-    ww_label = "auto-detected work hours"
+    ww_label = "work window: (unknown)"
     if metrics.work_window_local:
         ws, we = metrics.work_window_local
         ww = WorkWindow(

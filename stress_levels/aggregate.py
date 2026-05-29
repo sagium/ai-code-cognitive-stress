@@ -97,8 +97,9 @@ class StreamDayActivity:
     tool_result_count: int = 0
     tool_error_count: int = 0
     branches: tuple[str, ...] = ()
-    # User-message timestamps in UTC. Needed by metrics.py to auto-detect
-    # work windows from the distribution of when the user types.
+    # User-message timestamps in UTC. Needed by metrics.py for CODL engagement
+    # weighting: _stream_weight_at uses them to detect foreground vs background
+    # activity within the grace window.
     user_msg_timestamps: tuple[datetime, ...] = ()
 
     @property

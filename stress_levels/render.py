@@ -667,7 +667,7 @@ def _render_day_section(
     if metrics is None:
         return ""
     agg = aggregates.get(day)
-    window_label = "auto-detected work hours"
+    window_label = "work window: (unknown)"
     if metrics.work_window_local:
         ws, we = metrics.work_window_local
         window_label = f"work window: {ws.strftime('%H:%M')} – {we.strftime('%H:%M')}"
@@ -699,7 +699,7 @@ def _render_day_chart(day: date, agg: DayAggregate, metrics: DayMetrics) -> str:
 
     Includes a Y-axis with integer ticks + grid lines, an X-axis with
     3-hour labels, value labels on each bar, and a soft green shade over
-    the auto-detected work-window hours so the user can see which bars
+    the configured work-window hours so the user can see which bars
     fall inside their typical work day.
     """
     if not agg.streams:

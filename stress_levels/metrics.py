@@ -37,10 +37,11 @@ Personal optimum (Yerkes-Dodson 1908 / Csíkszentmihályi 1990):
     as the user's flow channel target. Returns None when there's
     insufficient data ("calibrating").
 
-Work windows are auto-detected per local weekday from the p10/p90 of
-user-message hours-of-day across the baseline window. Days with too few
-samples fall back to a default 09:00–18:00. Detection runs in the user's
-local timezone — that is the only place TZ enters the metrics pipeline.
+The work window is FIXED (not auto-detected): a single configurable band
+(config.json `work_window`, default 09:00–19:00 local) is applied to every
+weekday, so every calculation and chart shares one stable window. The band
+is interpreted in the user's local timezone — the only place TZ enters the
+metrics pipeline.
 """
 
 from __future__ import annotations
@@ -144,7 +145,7 @@ def is_weekend(day: date) -> bool:
 
 @dataclass(frozen=True, slots=True)
 class WorkWindow:
-    """One weekday's auto-detected work-hour band (in local time)."""
+    """One weekday's configured work-hour band (in local time)."""
     weekday: int          # Mon=0 … Sun=6
     start: time
     end: time
@@ -669,15 +670,3 @@ def _percentile(sorted_values: Iterable[float], q: float) -> float:
 
 def _is_sorted(xs: list[float]) -> bool:
     return all(xs[i] <= xs[i + 1] for i in range(len(xs) - 1))
-
-
-def _hour_to_time(hour_float: float) -> time:
-    """Clamp a fractional hour-of-day to a time(). Out-of-range values are
-    clipped to 00:00:00 / 23:59:59."""
-    if hour_float < 0:
-        return time(0, 0, 0)
-    if hour_float >= 24:
-        return time(23, 59, 59)
-    h = int(hour_float)
-    m = int((hour_float - h) * 60)
-    return time(h, m, 0)
