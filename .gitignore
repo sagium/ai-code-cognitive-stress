@@ -29,7 +29,7 @@ uv.lock
 *.out
 *.toc
 *.synctex.gz
-paper/main.pdf
+paper/*.pdf
 
 # Build artifacts
 /dist/

@@ -14,14 +14,24 @@ Needs a TeX distribution (`pdflatex` + `bibtex`):
 
 ```bash
 cd paper
-pdflatex main && bibtex main && pdflatex main && pdflatex main
-# → main.pdf  (6 pages)
+make pdf          # → ai-code-cognitive-stress-paper.pdf
+```
+
+Manual fallback (no `make`):
+
+```bash
+cd paper
+pdflatex -interaction=nonstopmode -jobname=ai-code-cognitive-stress-paper main.tex
+bibtex ai-code-cognitive-stress-paper
+pdflatex -interaction=nonstopmode -jobname=ai-code-cognitive-stress-paper main.tex
+pdflatex -interaction=nonstopmode -jobname=ai-code-cognitive-stress-paper main.tex
+# → ai-code-cognitive-stress-paper.pdf
 ```
 
 Or, if you have `latexmk`:
 
 ```bash
-latexmk -pdf main.tex
+latexmk -pdf -jobname=ai-code-cognitive-stress-paper main.tex
 ```
 
 ## Targeting a specific venue
