@@ -260,10 +260,16 @@ Each axis is normalized to $[0,1]$ and blended with equal weights:
 \mathrm{clip}(\mathrm{ClosureDeficit},0,1)
 \right).
 \end{equation}
+The CODL ceiling is set to $5$---one above Cowan's $\approx 4$ capacity limit---so a day operating \emph{at} the working-memory boundary scores $0.8$ (the warning band) rather than saturating the axis at $1.0$.
 Equal weights are the explicit \emph{null hypothesis} for this version: we have
 no evidence that one axis dominates felt load, and we prefer to state that than
 to fit weights to a single user's data. Replacing equal weights with empirically
 calibrated ones is a primary validation target (\S\ref{sec:validation}).
+The reference implementation colors and ranks each day against the
+operator's \emph{own} percentile distribution (p50/p75/p90) computed over
+active weekdays in the baseline window---never a population norm---reinforcing
+that only relative movement within one person's history is interpreted
+(see the corresponding caveat in \S\ref{sec:threats}).
 
 \subsection{Personal optimum and recovery}
 Performance follows an inverted-U with load~\cite{yerkes1908,csikszentmihalyi1990}.
@@ -286,8 +292,9 @@ implementation~\cite{acsrepo} that doubles as the proof of concept for this
 paper: every axis, threshold, and the engagement weighting described here is
 exactly what the released tool computes.\footnote{Source and documentation:
 \url{https://github.com/sagium/ai-code-cognitive-stress}. The repository is
-being prepared for public release; all results in this paper were produced by
-the released code so they are reproducible from a user's own logs.} It is pure
+being prepared for public release; the qualitative behaviour described in this
+section was produced by the released code and is reproducible from a user's own
+logs.} It is pure
 Python standard library (no third-party runtime dependencies), which keeps the
 trust surface small and the install trivial. It reads only local files, performs no network I/O at any stage, and
 writes a self-contained HTML report plus a machine-readable JSON sibling.
@@ -316,12 +323,12 @@ We consider the following the most serious challenges to the method, roughly in
 order of severity. We see no benefit in understating them.
 
 \paragraph{Taskload is not workload.} Every axis is computed from objective event
-streams; none measures felt experience. Objective--subjective workload
-correlations are typically moderate ($r\approx0.4$--$0.6$). A calm composite does
-not prove the operator felt calm, and vice versa. The validated subjective
-instrument is NASA-TLX~\cite{hart1988}; until we correlate against it (or
-experience sampling), the index is an unvalidated proxy for the construct it
-names.
+streams; none measures felt experience. Correlation with felt overload is only
+moderate, and objective and subjective workload are known to dissociate. A calm
+composite does not prove the operator felt calm, and vice versa. The validated
+subjective instrument is NASA-TLX~\cite{hart1988}; until we correlate against
+it (or experience sampling), the index is an unvalidated proxy for the construct
+it names.
 
 \paragraph{The supervisory-control analogy is borrowed, not established.}
 Fan-out, neglect time, and attention demand were developed for UAV/robot
@@ -377,6 +384,10 @@ may differ. All reported behaviour is $n{=}1$ and from an author.
 over-approximation of a stream as alive across $[a_s,b_s]$, a fixed work window,
 hard-coded weekend exclusion, and timezone handling are all defaults that could
 materially move scores for shift workers, multi-timezone teams, or bursty users.
+Additionally, tool errors are apportioned to the work window by assuming they
+are uniformly distributed across each stream's $[a_s,b_s]$ lifetime---a
+defensible default since the per-day aggregate carries no per-error timestamps,
+but one that could misattribute errors from bursty or session-boundary activity.
 
 \paragraph{Construct and causal claims.} ``Stress'' in the project name is
 aspirational; the composite is a load index. No causal link to burnout outcomes

@@ -1042,8 +1042,8 @@ def _render_methodology(profile: StressProfile, stats: AggregateStats | None) ->
         (1) Supervisory-control research was developed for UAV operators, not LLM
         users — the analogy to LLM oversight is plausible but unvalidated.
         (2) All axes are <em>taskload</em> (objective demand), not <em>workload</em>
-        (subjective experience); correlation with felt overload is moderate
-        (r &asymp; 0.4–0.6 across the HCI literature).
+        (subjective experience); correlation with felt overload is only moderate,
+        and objective and subjective workload are known to dissociate.
         (3) The Closure Deficit nets real git commits/merges against the loops
         opened each work window, but closures are attributed by count, not
         linked to specific sessions; with no git repos configured it falls
