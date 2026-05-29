@@ -8,7 +8,6 @@ from pathlib import Path
 
 import pytest
 
-from stress_levels import __version__
 from stress_levels.aggregate import (
     CACHE_SCHEMA_VERSION,
     DayAggregate,
@@ -453,18 +452,24 @@ def test_cache_invalidates_on_mtime_change(tmp_path):
 
 
 def test_cache_invalidates_on_schema_version_change(tmp_path):
-    """A cache file written under a different schema is ignored."""
+    """A cache file written under a different namespace is ignored.
+
+    Under the new scheme the cache_namespace field (stored in the JSON and
+    embedded in the path) is the single gate.  A file planted under a
+    bogus namespace dir will never be found by _cache_path (which uses
+    CACHE_NAMESPACE), so it is irrelevant — we get a miss.
+    """
+    from stress_levels.aggregate import CACHE_NAMESPACE
     proj = _project(tmp_path)
     _write_session(proj / "s.jsonl", [
         _session_record("user", "2026-05-15T09:00:00.000Z"),
     ])
     cache_dir = tmp_path / "cache"
-    # Plant a cache file that looks valid except for schema_version
+    # Plant a cache file under a stale namespace dir
     target = cache_dir / "v-bogus" / "2026" / "2026-05-15.json"
     target.parent.mkdir(parents=True)
     target.write_text(json.dumps({
-        "schema_version": "v-bogus",
-        "package_version": __version__,
+        "cache_namespace": "v-bogus",
         "cache_key": "anything",
         "day": "2026-05-15",
         "aggregate": {"day": "2026-05-15", "streams": []},
@@ -476,13 +481,18 @@ def test_cache_invalidates_on_schema_version_change(tmp_path):
         now=_utc(2026, 5, 16),
     local_tz=timezone.utc,
     )
-    # We should have missed (cache lookup uses the current schema, so the
+    # We should have missed (cache lookup uses CACHE_NAMESPACE path, so the
     # planted bogus file is at the wrong path and is irrelevant).
     assert stats.cache_misses == 1
 
 
-def test_cache_invalidates_on_package_version_mismatch(tmp_path):
-    """If a cache file's recorded package version doesn't match, ignore it."""
+def test_cache_invalidates_on_namespace_mismatch(tmp_path):
+    """If a cache file's cache_namespace doesn't match CACHE_NAMESPACE, ignore it.
+
+    Under the new scheme, cache_namespace is the single gate (replacing the
+    old schema_version + package_version pair).  Altering it in the stored
+    JSON causes a miss on the next read.
+    """
     proj = _project(tmp_path)
     _write_session(proj / "s.jsonl", [
         _session_record("user", "2026-05-15T09:00:00.000Z"),
@@ -497,14 +507,14 @@ def test_cache_invalidates_on_package_version_mismatch(tmp_path):
         now=_utc(2026, 5, 16),
     local_tz=timezone.utc,
     )
-    # Manually rewrite the cache file with a wrong package_version
+    # Manually rewrite the cache file with a stale cache_namespace
     cache_files = list(cache_dir.rglob("*.json"))
     assert cache_files
     raw = json.loads(cache_files[0].read_text(encoding="utf-8"))
-    raw["package_version"] = "9.99.99-future"
+    raw["cache_namespace"] = "v4-000000000000"
     cache_files[0].write_text(json.dumps(raw), encoding="utf-8")
 
-    # Second run — should miss because package_version mismatches
+    # Second run — should miss because cache_namespace mismatches
     _, stats = get_day_aggregates(
         date(2026, 5, 15), date(2026, 5, 15),
         projects_dir=tmp_path / "projects",
@@ -517,12 +527,13 @@ def test_cache_invalidates_on_package_version_mismatch(tmp_path):
 
 
 def test_corrupt_cache_file_is_ignored(tmp_path):
+    from stress_levels.aggregate import CACHE_NAMESPACE
     proj = _project(tmp_path)
     _write_session(proj / "s.jsonl", [
         _session_record("user", "2026-05-15T09:00:00.000Z"),
     ])
     cache_dir = tmp_path / "cache"
-    target = cache_dir / CACHE_SCHEMA_VERSION / "2026" / "2026-05-15.json"
+    target = cache_dir / CACHE_NAMESPACE / "2026" / "2026-05-15.json"
     target.parent.mkdir(parents=True)
     target.write_text("{ not valid json", encoding="utf-8")
     _, stats = get_day_aggregates(
@@ -534,7 +545,7 @@ def test_corrupt_cache_file_is_ignored(tmp_path):
     )
     assert stats.cache_misses == 1
     # The corrupt file should be overwritten with a valid one
-    assert json.loads(target.read_text(encoding="utf-8"))["schema_version"] == CACHE_SCHEMA_VERSION
+    assert json.loads(target.read_text(encoding="utf-8"))["cache_namespace"] == CACHE_NAMESPACE
 
 
 def test_days_with_no_activity_are_present_as_empty(tmp_path):
@@ -780,3 +791,144 @@ def test_real_git_closure_source_flows_through_aggregate(tmp_path):
     )
     assert aggs[date(2026, 5, 15)].closure_count == 1
     assert aggs[date(2026, 5, 15)].closure_events[0].kind == "commit"
+
+
+# ---------------------------------------------------------------------------
+# Self-versioning cache: _module_fingerprint, CACHE_NAMESPACE, _cache_path
+
+def test_module_fingerprint_returns_12_lowercase_hex():
+    from stress_levels.aggregate import _module_fingerprint
+    fp = _module_fingerprint()
+    assert len(fp) == 12
+    assert fp == fp.lower()
+    assert all(c in "0123456789abcdef" for c in fp)
+
+
+def test_module_fingerprint_is_deterministic():
+    from stress_levels.aggregate import _module_fingerprint
+    assert _module_fingerprint() == _module_fingerprint()
+
+
+def test_cache_namespace_format():
+    import re
+    from stress_levels.aggregate import CACHE_NAMESPACE
+    assert re.match(r"^v\d+-[0-9a-f]{12}$", CACHE_NAMESPACE), (
+        f"CACHE_NAMESPACE {CACHE_NAMESPACE!r} does not match expected pattern"
+    )
+
+
+def test_cache_path_contains_namespace(tmp_path):
+    from stress_levels.aggregate import CACHE_NAMESPACE, _cache_path
+    p = _cache_path(tmp_path / "cache", date(2026, 5, 15))
+    # CACHE_NAMESPACE must appear as a direct segment of the path
+    assert CACHE_NAMESPACE in p.parts
+
+
+# ---------------------------------------------------------------------------
+# _prune_stale_cache_namespaces
+
+def test_prune_removes_stale_namespaces_keeps_current(tmp_path):
+    """Old bare and namespaced dirs are removed; current namespace and
+    non-matching entries (files, unrelated dirs) are preserved."""
+    import re
+    from stress_levels.aggregate import CACHE_NAMESPACE, _prune_stale_cache_namespaces
+
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+
+    # Create stale dirs matching the pattern
+    stale = ["v3", "v4", "v4-deadbeefcafe"]
+    for name in stale:
+        (cache_dir / name).mkdir()
+
+    # Create current namespace dir — must be preserved
+    (cache_dir / CACHE_NAMESPACE).mkdir()
+
+    # Create a non-matching dir — must be preserved
+    (cache_dir / "notes").mkdir()
+
+    # Create a stray file at the top level — must be preserved
+    (cache_dir / "stray.txt").write_text("keep me", encoding="utf-8")
+
+    _prune_stale_cache_namespaces(cache_dir, CACHE_NAMESPACE)
+
+    remaining = {p.name for p in cache_dir.iterdir()}
+    assert CACHE_NAMESPACE in remaining, "Current namespace dir must survive"
+    assert "notes" in remaining, "Non-matching dir must survive"
+    assert (cache_dir / "stray.txt").exists(), "Stray file must survive"
+    for name in stale:
+        assert name not in remaining, f"Stale dir {name!r} should have been pruned"
+
+
+def test_prune_is_noop_when_cache_dir_absent(tmp_path):
+    """_prune_stale_cache_namespaces silently does nothing when cache_dir
+    does not yet exist — no exception raised."""
+    from stress_levels.aggregate import CACHE_NAMESPACE, _prune_stale_cache_namespaces
+    _prune_stale_cache_namespaces(tmp_path / "nonexistent", CACHE_NAMESPACE)
+
+
+# ---------------------------------------------------------------------------
+# Round-trip and cross-namespace rejection
+
+def test_write_then_read_cache_roundtrip(tmp_path):
+    """_write_cache followed by _read_cache returns the original aggregate."""
+    from stress_levels.aggregate import _read_cache, _write_cache
+    cache_dir = tmp_path / "cache"
+    day = date(2026, 5, 15)
+    cache_key = "testkey12345678"
+    agg = DayAggregate(day=day, streams=(), peak_concurrent_streams=0,
+                       closure_events=None)
+    _write_cache(cache_dir, day, cache_key, agg)
+    result = _read_cache(cache_dir, day, cache_key)
+    assert result is not None
+    assert result.day == agg.day
+    assert result.streams == agg.streams
+    assert result.closure_events == agg.closure_events
+
+
+def test_read_cache_rejects_wrong_namespace(tmp_path):
+    """A JSON file whose cache_namespace differs from CACHE_NAMESPACE is rejected."""
+    import json as _json
+    from stress_levels.aggregate import (
+        CACHE_NAMESPACE, _cache_path, _read_cache, _write_cache,
+    )
+    cache_dir = tmp_path / "cache"
+    day = date(2026, 5, 15)
+    cache_key = "testkey12345678"
+    agg = DayAggregate(day=day, streams=(), peak_concurrent_streams=0,
+                       closure_events=None)
+
+    # Write a valid cache entry, then tamper with cache_namespace
+    _write_cache(cache_dir, day, cache_key, agg)
+    path = _cache_path(cache_dir, day)
+    raw = _json.loads(path.read_text(encoding="utf-8"))
+    raw["cache_namespace"] = "v4-000000000000"
+    path.write_text(_json.dumps(raw), encoding="utf-8")
+
+    assert _read_cache(cache_dir, day, cache_key) is None
+
+
+# ---------------------------------------------------------------------------
+# End-to-end: stale namespace dir pruned during get_day_aggregates
+
+def test_get_day_aggregates_prunes_stale_v3_dir(tmp_path):
+    """A pre-existing stale v3/ dir under cache_dir is removed after
+    get_day_aggregates runs."""
+    from stress_levels.aggregate import CACHE_NAMESPACE
+
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+    stale_dir = cache_dir / "v3"
+    stale_dir.mkdir()
+
+    get_day_aggregates(
+        date(2026, 5, 1), date(2026, 5, 1),
+        sources=[],  # no session source — empty aggregates
+        cache_dir=cache_dir,
+        now=_utc(2026, 5, 10),
+        local_tz=timezone.utc,
+    )
+
+    assert not stale_dir.exists(), "v3/ should have been pruned"
+    # Current namespace dir may or may not exist (no events → no cache written),
+    # but the stale one is definitely gone.

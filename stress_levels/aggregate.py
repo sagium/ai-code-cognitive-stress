@@ -7,19 +7,38 @@ Closure Deficit (opened-vs-closed loops, using real git commit/merge
 closure events when a closure source is wired) without re-parsing events.
 
 Past days are cached on disk under
-    ${XDG_CACHE_HOME:-~/.cache}/ai-code-cognitive-stress/<schema>/<YYYY>/<YYYY-MM-DD>.json
-keyed by:
-    1. schema version (CACHE_SCHEMA_VERSION below — bump when DayAggregate
-       shape changes)
-    2. stress_levels package __version__ (bump invalidates when metric
-       definitions change even if the shape didn't)
-    3. SHA-256 of sorted (path, mtime) pairs of session files that produced
-       events on that day — invalidates when source data changes
+    ${XDG_CACHE_HOME:-~/.cache}/ai-code-cognitive-stress/<namespace>/<YYYY>/<YYYY-MM-DD>.json
+where <namespace> = <schema>-<fingerprint> (e.g. "v4-a1b2c3d4e5f6").
+
+  - <schema>       = CACHE_SCHEMA_VERSION — a manually-bumped prefix that
+                     acts as a hard override lever (bump forces a new
+                     namespace regardless of fingerprint).
+  - <fingerprint>  = first 12 hex chars of SHA-256 over the source bytes of
+                     the modules that determine cached DayAggregate *content*
+                     (aggregate.py, ingest.py, every sources/*.py).
+                     The fingerprint auto-rotates whenever the aggregate or
+                     ingest layer changes, so a code change produces a clean
+                     miss and recomputes without manual version bumps.
+                     metrics.py is deliberately NOT part of the fingerprint:
+                     build_profile recomputes metrics from aggregates on every
+                     run, so an axis-formula change takes effect immediately
+                     and must NOT trigger a full re-ingest of past logs.
+
+Each run auto-prunes stale namespace dirs (those matching ^v\\d+(-[0-9a-f]+)?$
+but NOT the current namespace) so orphaned directories from old schema or code
+versions are removed automatically — no manual cache cleanup needed.
+
+The per-day cache entry is also keyed by:
+    - SHA-256 of sorted (source_key, mtime) pairs for session files that
+      contributed events on that day — invalidates when source data changes
+    - local TZ name — avoids serving mis-bucketed days when the user travels
+    - closure-source fingerprint — invalidates when repos are added/removed
 
 Today is never cached: it is always in flux until midnight UTC.
 
 Cache writes are best-effort: an OSError when writing (e.g. disk full) is
 logged into IngestStats.cache_write_errors but does not fail the run.
+Cache prune is best-effort: an OSError on removal is silently ignored.
 """
 
 from __future__ import annotations
@@ -27,6 +46,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
+import shutil
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timezone, tzinfo
@@ -46,6 +67,73 @@ from .ingest import (
 from .sources.base import ClosureEvent
 
 CACHE_SCHEMA_VERSION = "v4"
+
+# Module-level cache for _module_fingerprint so it is computed once per process.
+_MODULE_FINGERPRINT: str | None = None
+
+
+def _module_fingerprint() -> str:
+    """Return a 12-char lowercase-hex SHA-256 fingerprint of the source bytes
+    of every module that determines cached DayAggregate *content*:
+      - aggregate.py  (this file)
+      - ingest.py
+      - every *.py in the sources/ package dir (sorted for determinism)
+
+    metrics.py is deliberately excluded.  The cache stores per-day *aggregates*
+    (stream counts, tool counts, closure events, etc.).  build_profile()
+    recomputes the metric axes (CODL, interruption rate, Closure Deficit) from
+    those aggregates on every run, so a change to an axis formula takes effect
+    immediately and must NOT invalidate the aggregate cache — doing so would
+    needlessly re-ingest all session logs on every axis tweak.
+
+    If any source file cannot be read (e.g. a frozen/zipped install) the hash
+    is computed over a constant fallback marker for that file, so this function
+    never raises and always returns a stable 12-char token.
+
+    The result is memoized in a module-level global because source files do not
+    change within a running process.
+    """
+    global _MODULE_FINGERPRINT
+    if _MODULE_FINGERPRINT is not None:
+        return _MODULE_FINGERPRINT
+
+    h = hashlib.sha256()
+
+    def _read(p: Path) -> bytes:
+        try:
+            return p.read_bytes()
+        except OSError:
+            return b"<unreadable:" + str(p).encode("utf-8", errors="replace") + b">"
+
+    # aggregate.py — this file
+    h.update(_read(Path(__file__)))
+    h.update(b"\n---\n")
+
+    # ingest.py
+    h.update(_read(Path(_ingest.__file__)))
+    h.update(b"\n---\n")
+
+    # sources/*.py — sorted for determinism
+    sources_dir = Path(__file__).parent / "sources"
+    try:
+        source_files = sorted(sources_dir.glob("*.py"))
+    except OSError:
+        source_files = []
+    for sf in source_files:
+        h.update(_read(sf))
+        h.update(b"\n---\n")
+
+    _MODULE_FINGERPRINT = h.hexdigest()[:12]
+    return _MODULE_FINGERPRINT
+
+
+# Namespace used for cache path directories.
+# Format: "<schema>-<fingerprint>", e.g. "v4-a1b2c3d4e5f6".
+# Bumping CACHE_SCHEMA_VERSION forces a new namespace regardless of fingerprint.
+CACHE_NAMESPACE: str = f"{CACHE_SCHEMA_VERSION}-{_module_fingerprint()}"
+
+# Pattern for recognising cache namespace directories to prune.
+_CACHE_NS_RE = re.compile(r"^v\d+(-[0-9a-f]+)?$")
 
 
 def _default_cache_dir() -> Path:
@@ -221,6 +309,7 @@ def get_day_aggregates(
     default to the system local clock + zone.
     """
     cache_dir = cache_dir or DEFAULT_CACHE_DIR
+    _prune_stale_cache_namespaces(cache_dir, CACHE_NAMESPACE)
     local_tz = local_tz or datetime.now().astimezone().tzinfo or timezone.utc
     local_tz_name = str(local_tz)
 
@@ -440,6 +529,35 @@ def _peak_concurrent(streams: tuple[StreamDayActivity, ...]) -> int:
 # ---------------------------------------------------------------------------
 # Cache I/O
 
+def _prune_stale_cache_namespaces(cache_dir: Path, keep: str) -> None:
+    """Remove stale namespace subdirs from *cache_dir*, keeping only *keep*.
+
+    A directory is considered a cache namespace dir when its name matches
+    ``^v\\d+(-[0-9a-f]+)?$`` — this covers:
+      - old bare schema dirs like ``v3``, ``v4``
+      - new namespaced dirs like ``v4-a1b2c3d4e5f6``
+
+    Entries whose names do NOT match the pattern (e.g. a user's ``notes/``
+    folder placed there by mistake) are left completely untouched.
+
+    Each removal is wrapped in ``try/except OSError`` so a permission error or
+    a racing deletion never aborts a run — cache cleanup is always best-effort.
+    """
+    if not cache_dir.exists():
+        return
+    for child in cache_dir.iterdir():
+        if not child.is_dir():
+            continue
+        if not _CACHE_NS_RE.match(child.name):
+            continue
+        if child.name == keep:
+            continue
+        try:
+            shutil.rmtree(child)
+        except OSError:
+            pass
+
+
 def _make_cache_key(
     files: dict[str, float],
     local_tz_name: str,
@@ -476,7 +594,7 @@ def _make_cache_key(
 def _cache_path(cache_dir: Path, day: date) -> Path:
     return (
         cache_dir
-        / CACHE_SCHEMA_VERSION
+        / CACHE_NAMESPACE
         / f"{day.year:04d}"
         / f"{day.isoformat()}.json"
     )
@@ -496,9 +614,7 @@ def _read_cache(
         return None
     if not isinstance(raw, dict):
         return None
-    if raw.get("schema_version") != CACHE_SCHEMA_VERSION:
-        return None
-    if raw.get("package_version") != __version__:
+    if raw.get("cache_namespace") != CACHE_NAMESPACE:
         return None
     if raw.get("cache_key") != expected_key:
         return None
@@ -517,8 +633,9 @@ def _write_cache(
     path = _cache_path(cache_dir, day)
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
-        "schema_version": CACHE_SCHEMA_VERSION,
-        "package_version": __version__,
+        "cache_namespace": CACHE_NAMESPACE,
+        "schema_version": CACHE_SCHEMA_VERSION,   # informational
+        "package_version": __version__,            # informational
         "cache_key": cache_key,
         "day": day.isoformat(),
         "aggregate": _aggregate_to_dict(aggregate),
