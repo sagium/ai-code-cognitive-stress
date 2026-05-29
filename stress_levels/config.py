@@ -46,9 +46,22 @@ class CodlConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class ClosureConfig:
+    """Real closure-event ingestion for the Closure Deficit axis.
+
+    ``repos`` is an explicit, opt-in list of local git repo paths to scan for
+    commit/merge closure events. Empty by default: the tool never auto-walks
+    the disk looking for repos (mirrors ``GitRepoClosureSource``'s "opt in
+    with explicit repos" contract). When empty, the Closure Deficit falls
+    back to the legacy concurrency-presence proxy."""
+    repos: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class Config:
     work_window: WorkWindow
     codl: CodlConfig = CodlConfig()
+    closure: ClosureConfig = ClosureConfig()
 
 
 def _parse_hhmm(value: str) -> time:
@@ -78,9 +91,24 @@ def load_config(path: Path | None = None) -> Config:
     config = Config(
         work_window=WorkWindow(start=start, end=end),
         codl=_parse_codl(data.get("codl") or {}),
+        closure=_parse_closure(data.get("closure") or {}),
     )
     _CONFIG_CACHE[key] = config
     return config
+
+
+def _parse_closure(raw: dict) -> ClosureConfig:
+    """Parse the closure block. ``repos`` must be a list of strings (paths);
+    anything else is rejected. Missing/empty → no closure source (the
+    default, falls back to the legacy proxy)."""
+    repos = raw.get("repos", [])
+    if repos in (None, ""):
+        repos = []
+    if not isinstance(repos, list) or not all(isinstance(r, str) for r in repos):
+        raise ValueError(
+            f"closure.repos must be a list of path strings, got {repos!r}"
+        )
+    return ClosureConfig(repos=tuple(repos))
 
 
 def _parse_codl(raw: dict) -> CodlConfig:

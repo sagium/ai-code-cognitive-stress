@@ -14,6 +14,9 @@ from stress_levels.aggregate import (
     DayAggregate,
     StreamDayActivity,
     _aggregate_events,
+    _aggregate_from_dict,
+    _aggregate_to_dict,
+    _closure_fingerprint,
     _make_cache_key,
     _peak_concurrent,
     get_day_aggregates,
@@ -24,6 +27,8 @@ from stress_levels.ingest import (
     ToolUseEvent,
     UserMessageEvent,
 )
+from stress_levels.sources.base import ClosureEvent
+from stress_levels.sources.git_closure import GitRepoClosureSource
 
 
 # ---------------------------------------------------------------------------
@@ -60,6 +65,24 @@ def _write_session(path: Path, records: list[dict]):
 
 def _utc(year, month, day, hour=12, minute=0):
     return datetime(year, month, day, hour, minute, tzinfo=timezone.utc)
+
+
+class _FakeClosureSource:
+    """In-memory ClosureEventSource double for orchestration tests (no git)."""
+
+    name = "fake-closure"
+
+    def __init__(self, events, repos=("/fake/repo",)):
+        self._events = list(events)
+        self.repos = list(repos)
+
+    def is_available(self):
+        return True
+
+    def collect(self, since, until, stats):
+        for ev in self._events:
+            if since <= ev.ts <= until:
+                yield ev
 
 
 # ---------------------------------------------------------------------------
@@ -141,6 +164,66 @@ def test_stream_count_property_matches_streams_len():
     ]
     agg = _aggregate_events(date(2026, 5, 15), events)
     assert agg.stream_count == 2
+
+
+# ---------------------------------------------------------------------------
+# Closure events — tri-state on the aggregate
+
+def test_closure_events_default_none_when_not_supplied():
+    """No closure source wired → closure_events is None (distinct from [])."""
+    agg = _aggregate_events(date(2026, 5, 15), [
+        UserMessageEvent(ts=_utc(2026, 5, 15, 9), stream_id="s", project="p"),
+    ])
+    assert agg.closure_events is None
+    assert agg.closure_count == 0
+
+
+def test_closure_events_empty_list_preserved_as_empty_tuple():
+    """A wired source that emitted nothing → () (not None) so the metrics
+    layer knows real closure was in play."""
+    agg = _aggregate_events(date(2026, 5, 15), [
+        UserMessageEvent(ts=_utc(2026, 5, 15, 9), stream_id="s", project="p"),
+    ], closures=[])
+    assert agg.closure_events == ()
+    assert agg.closure_count == 0
+
+
+def test_closure_events_attached_and_sorted():
+    closures = [
+        ClosureEvent(ts=_utc(2026, 5, 15, 14), kind="merge", repo="r"),
+        ClosureEvent(ts=_utc(2026, 5, 15, 10), kind="commit", repo="r"),
+    ]
+    agg = _aggregate_events(date(2026, 5, 15), [
+        UserMessageEvent(ts=_utc(2026, 5, 15, 9), stream_id="s", project="p"),
+    ], closures=closures)
+    assert agg.closure_count == 2
+    # Sorted by timestamp ascending.
+    assert [c.ts for c in agg.closure_events] == [
+        _utc(2026, 5, 15, 10), _utc(2026, 5, 15, 14),
+    ]
+
+
+def test_closure_events_on_empty_events_day():
+    """An empty-event day still carries closures if a source emitted them
+    (a commit on a day with no agent sessions)."""
+    closures = [ClosureEvent(ts=_utc(2026, 5, 15, 10), kind="commit", repo="r")]
+    agg = _aggregate_events(date(2026, 5, 15), [], closures=closures)
+    assert agg.streams == ()
+    assert agg.closure_count == 1
+
+
+# ---------------------------------------------------------------------------
+# Closure fingerprint (cache-key component)
+
+def test_closure_fingerprint_empty_for_no_sources():
+    assert _closure_fingerprint([]) == ""
+
+
+def test_closure_fingerprint_changes_with_repos():
+    a = _closure_fingerprint([_FakeClosureSource([], repos=["/a"])])
+    b = _closure_fingerprint([_FakeClosureSource([], repos=["/b"])])
+    assert a != b
+    assert a == _closure_fingerprint([_FakeClosureSource([], repos=["/a"])])
 
 
 # ---------------------------------------------------------------------------
@@ -558,3 +641,142 @@ def test_roundtrip_serialization_preserves_aggregate(tmp_path):
     a2 = aggs2[date(2026, 5, 15)]
     assert a1.streams == a2.streams
     assert a1.peak_concurrent_streams == a2.peak_concurrent_streams
+
+
+# ---------------------------------------------------------------------------
+# Closure-event collection + cache round-trip through get_day_aggregates
+
+def test_closure_sources_fold_events_into_aggregate(tmp_path):
+    """A wired closure source attaches that day's commits/merges to the
+    DayAggregate; days with no closures get () (not None) since a source ran."""
+    proj = _project(tmp_path)
+    _write_session(proj / "s.jsonl", [
+        _session_record("user", "2026-05-15T10:00:00.000Z"),
+    ])
+    closure = ClosureEvent(ts=_utc(2026, 5, 15, 11), kind="commit", repo="r")
+    aggs, _ = get_day_aggregates(
+        date(2026, 5, 14), date(2026, 5, 15),
+        projects_dir=tmp_path / "projects",
+        cache_dir=tmp_path / "cache",
+        now=_utc(2026, 5, 16),
+        local_tz=timezone.utc,
+        closure_sources=[_FakeClosureSource([closure])],
+    )
+    assert aggs[date(2026, 5, 15)].closure_count == 1
+    # 5-14 had a source but no closures → () not None.
+    assert aggs[date(2026, 5, 14)].closure_events == ()
+
+
+def test_no_closure_sources_leaves_closure_events_none(tmp_path):
+    proj = _project(tmp_path)
+    _write_session(proj / "s.jsonl", [
+        _session_record("user", "2026-05-15T10:00:00.000Z"),
+    ])
+    aggs, _ = get_day_aggregates(
+        date(2026, 5, 15), date(2026, 5, 15),
+        projects_dir=tmp_path / "projects",
+        cache_dir=tmp_path / "cache",
+        now=_utc(2026, 5, 16),
+        local_tz=timezone.utc,
+    )
+    assert aggs[date(2026, 5, 15)].closure_events is None
+
+
+def test_cache_roundtrip_preserves_closures(tmp_path):
+    proj = _project(tmp_path)
+    _write_session(proj / "s.jsonl", [
+        _session_record("user", "2026-05-15T10:00:00.000Z"),
+    ])
+    closure = ClosureEvent(ts=_utc(2026, 5, 15, 11), kind="merge", repo="r",
+                           branch="main", title="Merge x")
+    common = dict(
+        projects_dir=tmp_path / "projects",
+        cache_dir=tmp_path / "cache",
+        now=_utc(2026, 5, 16),
+        local_tz=timezone.utc,
+        closure_sources=[_FakeClosureSource([closure])],
+    )
+    aggs1, s1 = get_day_aggregates(date(2026, 5, 15), date(2026, 5, 15), **common)
+    assert s1.cache_misses == 1
+    aggs2, s2 = get_day_aggregates(date(2026, 5, 15), date(2026, 5, 15), **common)
+    assert s2.cache_hits == 1
+    assert aggs1[date(2026, 5, 15)].closure_events == aggs2[date(2026, 5, 15)].closure_events
+    assert aggs2[date(2026, 5, 15)].closure_count == 1
+
+
+def test_cache_invalidates_when_closure_wiring_added(tmp_path):
+    """A day cached without a closure source must not be served once a
+    closure source is wired (the deficit definition would silently differ)."""
+    proj = _project(tmp_path)
+    _write_session(proj / "s.jsonl", [
+        _session_record("user", "2026-05-15T10:00:00.000Z"),
+    ])
+    base = dict(
+        projects_dir=tmp_path / "projects",
+        cache_dir=tmp_path / "cache",
+        now=_utc(2026, 5, 16),
+        local_tz=timezone.utc,
+    )
+    # First run: no closure source.
+    _, s1 = get_day_aggregates(date(2026, 5, 15), date(2026, 5, 15), **base)
+    assert s1.cache_misses == 1
+    # Second run: add a closure source → cache key moves → miss again.
+    closure = ClosureEvent(ts=_utc(2026, 5, 15, 11), kind="commit", repo="r")
+    _, s2 = get_day_aggregates(
+        date(2026, 5, 15), date(2026, 5, 15),
+        closure_sources=[_FakeClosureSource([closure])], **base,
+    )
+    assert s2.cache_misses == 1
+    assert s2.cache_hits == 0
+
+
+def test_aggregate_dict_roundtrip_tristate():
+    """_aggregate_to_dict/_from_dict preserve None vs () vs non-empty."""
+    day = date(2026, 5, 15)
+    # None → key omitted → restores None.
+    none_d = _aggregate_to_dict(DayAggregate(day=day, closure_events=None))
+    assert "closure_events" not in none_d
+    assert _aggregate_from_dict(json.loads(json.dumps(none_d))).closure_events is None
+    # () → key present, empty → restores ().
+    empty_d = _aggregate_to_dict(DayAggregate(day=day, closure_events=()))
+    assert empty_d["closure_events"] == []
+    assert _aggregate_from_dict(json.loads(json.dumps(empty_d))).closure_events == ()
+    # non-empty round-trips by value.
+    ce = ClosureEvent(ts=_utc(2026, 5, 15, 10), kind="commit", repo="r",
+                      branch="b", title="t")
+    full_d = _aggregate_to_dict(DayAggregate(day=day, closure_events=(ce,)))
+    restored = _aggregate_from_dict(json.loads(json.dumps(full_d))).closure_events
+    assert restored == (ce,)
+
+
+def test_real_git_closure_source_flows_through_aggregate(tmp_path):
+    """End-to-end with a real GitRepoClosureSource (not the fake): a commit
+    in the scanned repo lands as a closure on its day's aggregate."""
+    import subprocess
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    env = {"GIT_AUTHOR_NAME": "T", "GIT_AUTHOR_EMAIL": "t@e.com",
+           "GIT_COMMITTER_NAME": "T", "GIT_COMMITTER_EMAIL": "t@e.com",
+           "GIT_AUTHOR_DATE": "2026-05-15T11:00:00+00:00",
+           "GIT_COMMITTER_DATE": "2026-05-15T11:00:00+00:00",
+           "PATH": "/usr/bin:/bin"}
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    (repo / "f.txt").write_text("hello", encoding="utf-8")
+    subprocess.run(["git", "-C", str(repo), "add", "."], check=True, env=env)
+    subprocess.run(["git", "-C", str(repo), "commit", "-m", "done"],
+                   check=True, env=env)
+
+    proj = _project(tmp_path)
+    _write_session(proj / "s.jsonl", [
+        _session_record("user", "2026-05-15T10:00:00.000Z"),
+    ])
+    aggs, _ = get_day_aggregates(
+        date(2026, 5, 15), date(2026, 5, 15),
+        projects_dir=tmp_path / "projects",
+        cache_dir=tmp_path / "cache",
+        now=_utc(2026, 5, 16),
+        local_tz=timezone.utc,
+        closure_sources=[GitRepoClosureSource(repos=[repo])],
+    )
+    assert aggs[date(2026, 5, 15)].closure_count == 1
+    assert aggs[date(2026, 5, 15)].closure_events[0].kind == "commit"

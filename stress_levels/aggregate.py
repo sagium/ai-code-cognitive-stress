@@ -2,8 +2,9 @@
 
 The aggregate layer sits between ingest (event firehose) and metrics
 (derived axes). It produces one DayAggregate per UTC day, holding enough
-signal for the metrics layer to compute CODL, interruption rate, and
-closure proxies without re-parsing events.
+signal for the metrics layer to compute CODL, interruption rate, and the
+Closure Deficit (opened-vs-closed loops, using real git commit/merge
+closure events when a closure source is wired) without re-parsing events.
 
 Past days are cached on disk under
     ${XDG_CACHE_HOME:-~/.cache}/ai-code-cognitive-stress/<schema>/<YYYY>/<YYYY-MM-DD>.json
@@ -42,8 +43,9 @@ from .ingest import (
     ToolUseEvent,
     UserMessageEvent,
 )
+from .sources.base import ClosureEvent
 
-CACHE_SCHEMA_VERSION = "v3"
+CACHE_SCHEMA_VERSION = "v4"
 
 
 def _default_cache_dir() -> Path:
@@ -114,14 +116,30 @@ class DayAggregate:
 
     The aggregate is self-contained: the metrics layer derives every axis
     from a sequence of DayAggregates without re-parsing source events.
+
+    `closure_events` holds the day's real "loop closed" markers (git
+    commits/merges) from any configured ClosureEventSource. Its tri-state is
+    load-bearing for the Closure Deficit:
+      * ``None``  — no closure source was wired this run (the default; the
+                    user hasn't opted in with repos). The metrics layer falls
+                    back to the legacy concurrency-presence proxy.
+      * ``()``    — a closure source ran but emitted nothing on this day.
+      * non-empty — real closures to net against the day's opened loops.
     """
     day: date
     streams: tuple[StreamDayActivity, ...] = ()
     peak_concurrent_streams: int = 0
+    closure_events: tuple[ClosureEvent, ...] | None = None
 
     @property
     def stream_count(self) -> int:
         return len(self.streams)
+
+    @property
+    def closure_count(self) -> int:
+        """Number of real closure events recorded on this day (0 when none
+        or when no closure source was wired)."""
+        return len(self.closure_events) if self.closure_events else 0
 
     @property
     def user_msg_count(self) -> int:
@@ -170,6 +188,7 @@ def get_day_aggregates(
     now: datetime | None = None,
     local_tz: tzinfo | None = None,
     sources=None,
+    closure_sources=None,
 ) -> tuple[dict[date, DayAggregate], AggregateStats]:
     """Return DayAggregates for each *local* day in [since, until] inclusive,
     plus stats. Past days hit disk cache when source mtimes haven't changed;
@@ -180,6 +199,22 @@ def get_day_aggregates(
     also interpreted as local dates, then converted to UTC for the event
     filter. The cache key embeds the local TZ name so cached values from a
     different TZ context aren't mis-served (e.g. when travelling).
+
+    `closure_sources` is an optional list of ClosureEventSource plugins
+    (e.g. GitRepoClosureSource). When supplied, each day's real closure
+    events (commits/merges) are folded into its DayAggregate so the metrics
+    layer can compute the Closure Deficit as opened-vs-closed loops rather
+    than the legacy concurrency-presence proxy. When omitted (the default),
+    `DayAggregate.closure_events` stays ``None`` and the metric falls back
+    to the proxy — preserving prior behaviour for callers that don't opt in.
+
+    Caching note: closure data participates in the per-day cache. Its
+    fingerprint (the set of configured closure-source identities) is folded
+    into the cache key, and past days carry their closure_events through the
+    on-disk JSON. Past-dated git history is effectively append-only, and
+    "today" is never cached, so a *new* commit landing on a past day is the
+    only staleness window — already covered by --rebuild-cache and by the
+    same mtime-blindness the session-file cache already accepts.
 
     `now` and `local_tz` are injectable for testability — without them they
     default to the system local clock + zone.
@@ -196,6 +231,7 @@ def get_day_aggregates(
         sources = [ClaudeCodeSessionSource(
             projects_dir=projects_dir or _ingest.CLAUDE_PROJECTS_DIR,
         )]
+    closure_sources = list(closure_sources or [])
 
     today_local = (now or datetime.now(local_tz)).astimezone(local_tz).date()
     stats = AggregateStats()
@@ -221,15 +257,33 @@ def get_day_aggregates(
                 per_day_files[day][key] = version
                 stats.ingest.events_emitted += 1
 
+    # Collect real closure events (commits/merges) from any configured
+    # closure source and bucket them by LOCAL day, same as session events.
+    # `closure_wired` records that we ran at least one closure source so the
+    # metrics layer can tell "no source" (None) from "source ran, no events"
+    # (empty tuple) on a per-day basis.
+    closure_wired = bool(closure_sources)
+    per_day_closures: dict[date, list[ClosureEvent]] = defaultdict(list)
+    for csource in closure_sources:
+        for cev in csource.collect(since_ts, until_ts, stats.ingest):
+            if since_ts <= cev.ts <= until_ts:
+                cday = cev.ts.astimezone(local_tz).date()
+                per_day_closures[cday].append(cev)
+    closure_fingerprint = _closure_fingerprint(closure_sources)
+
     aggregates: dict[date, DayAggregate] = {}
     for day in _iter_dates(since, until):
         stats.days_in_window += 1
         files = per_day_files.get(day, {})
         events = per_day_events.get(day, [])
+        closures = per_day_closures.get(day, [])
         if events:
             stats.days_with_activity += 1
+        # The cache key must move when closure wiring changes, otherwise a day
+        # cached without closures would be mis-served once a repo is added.
         cache_key = (
-            _make_cache_key(files, local_tz_name) if files else None
+            _make_cache_key(files, local_tz_name, closure_fingerprint)
+            if files else None
         )
         is_today = day >= today_local
 
@@ -241,7 +295,10 @@ def get_day_aggregates(
                 continue
             stats.cache_misses += 1
 
-        aggregate = _aggregate_events(day, events)
+        aggregate = _aggregate_events(
+            day, events,
+            closures=closures if closure_wired else None,
+        )
         aggregates[day] = aggregate
 
         if not is_today and cache_key is not None:
@@ -253,13 +310,47 @@ def get_day_aggregates(
     return aggregates, stats
 
 
+def _closure_fingerprint(closure_sources) -> str:
+    """Stable identity of the configured closure wiring, folded into the
+    cache key. Two runs with the same closure repos share cache; adding,
+    removing, or re-pathing a repo invalidates it. Empty when no closure
+    source is wired (so the default path's key is unchanged from before this
+    field existed only by the constant marker below)."""
+    if not closure_sources:
+        return ""
+    parts: list[str] = []
+    for cs in closure_sources:
+        name = getattr(cs, "name", cs.__class__.__name__)
+        repos = getattr(cs, "repos", None)
+        if repos:
+            parts.append(f"{name}:" + ",".join(sorted(str(r) for r in repos)))
+        else:
+            parts.append(str(name))
+    return "|".join(sorted(parts))
+
+
 # ---------------------------------------------------------------------------
 # Reduction
 
-def _aggregate_events(day: date, events: list[Event]) -> DayAggregate:
-    """Reduce a day's events into a DayAggregate. Pure — no I/O."""
+def _aggregate_events(
+    day: date,
+    events: list[Event],
+    closures: list[ClosureEvent] | None = None,
+) -> DayAggregate:
+    """Reduce a day's events into a DayAggregate. Pure — no I/O.
+
+    `closures` is the day's real closure events (commits/merges). ``None``
+    means no closure source was wired this run (distinct from an empty list,
+    which means a source ran but emitted nothing on `day`); the distinction
+    is preserved into `DayAggregate.closure_events` and drives whether the
+    metrics layer uses the real signal or the legacy proxy.
+    """
+    closure_tuple = (
+        tuple(sorted(closures, key=lambda c: c.ts))
+        if closures is not None else None
+    )
     if not events:
-        return DayAggregate(day=day)
+        return DayAggregate(day=day, closure_events=closure_tuple)
 
     per_stream: dict[str, dict] = defaultdict(lambda: {
         "stream_id": "",
@@ -318,6 +409,7 @@ def _aggregate_events(day: date, events: list[Event]) -> DayAggregate:
         day=day,
         streams=streams,
         peak_concurrent_streams=_peak_concurrent(streams),
+        closure_events=closure_tuple,
     )
 
 
@@ -347,16 +439,24 @@ def _peak_concurrent(streams: tuple[StreamDayActivity, ...]) -> int:
 # ---------------------------------------------------------------------------
 # Cache I/O
 
-def _make_cache_key(files: dict[str, float], local_tz_name: str) -> str:
-    """Hash the local TZ name + sorted (source_key, version) pairs into a
-    stable cache key. `source_key` is a stable identifier emitted by the
-    SessionSource plugin (e.g. "claude-code:/abs/path/sess.jsonl"); the
-    version is mtime or a monotonic counter from the source.
+def _make_cache_key(
+    files: dict[str, float],
+    local_tz_name: str,
+    closure_fingerprint: str = "",
+) -> str:
+    """Hash the local TZ name + sorted (source_key, version) pairs (+ the
+    closure-source fingerprint) into a stable cache key. `source_key` is a
+    stable identifier emitted by the SessionSource plugin (e.g.
+    "claude-code:/abs/path/sess.jsonl"); the version is mtime or a monotonic
+    counter from the source.
 
     Including the TZ name ensures cached aggregates aren't mis-served
     when the user switches timezones (since day bucketing is local — a
     UTC+12 user and a UTC-8 user partition the same events into different
-    local days)."""
+    local days). `closure_fingerprint` (the set of configured closure repos)
+    ensures a day cached without a closure source isn't served once one is
+    wired, and vice versa. It defaults to "" so the no-closure-source path's
+    key is byte-identical to the pre-closure scheme."""
     h = hashlib.sha256()
     h.update(local_tz_name.encode("utf-8"))
     h.update(b"\n")
@@ -364,6 +464,10 @@ def _make_cache_key(files: dict[str, float], local_tz_name: str) -> str:
         h.update(str(key).encode("utf-8"))
         h.update(b"\0")
         h.update(f"{int(files[key] * 1000)}".encode("ascii"))
+        h.update(b"\n")
+    if closure_fingerprint:
+        h.update(b"closure\0")
+        h.update(closure_fingerprint.encode("utf-8"))
         h.update(b"\n")
     return h.hexdigest()[:16]
 
@@ -426,7 +530,7 @@ def _write_cache(
 
 
 def _aggregate_to_dict(a: DayAggregate) -> dict:
-    return {
+    out = {
         "day": a.day.isoformat(),
         "peak_concurrent_streams": a.peak_concurrent_streams,
         "streams": [
@@ -446,6 +550,20 @@ def _aggregate_to_dict(a: DayAggregate) -> dict:
             for s in a.streams
         ],
     }
+    # Tri-state: omit the key entirely when no closure source was wired
+    # (None), so the decoder can restore None vs [] faithfully.
+    if a.closure_events is not None:
+        out["closure_events"] = [
+            {
+                "ts": c.ts.isoformat(),
+                "kind": c.kind,
+                "repo": c.repo,
+                "branch": c.branch,
+                "title": c.title,
+            }
+            for c in a.closure_events
+        ]
+    return out
 
 
 def _aggregate_from_dict(d: dict) -> DayAggregate:
@@ -467,10 +585,25 @@ def _aggregate_from_dict(d: dict) -> DayAggregate:
         )
         for s in d.get("streams", [])
     )
+    raw_closures = d.get("closure_events")
+    closure_events = (
+        tuple(
+            ClosureEvent(
+                ts=datetime.fromisoformat(c["ts"]),
+                kind=c["kind"],
+                repo=c["repo"],
+                branch=c.get("branch"),
+                title=c.get("title"),
+            )
+            for c in raw_closures
+        )
+        if raw_closures is not None else None
+    )
     return DayAggregate(
         day=date.fromisoformat(d["day"]),
         streams=streams,
         peak_concurrent_streams=int(d.get("peak_concurrent_streams", 0)),
+        closure_events=closure_events,
     )
 
 

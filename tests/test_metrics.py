@@ -7,6 +7,7 @@ from datetime import date, datetime, time, timedelta, timezone
 import pytest
 
 from stress_levels.aggregate import DayAggregate, StreamDayActivity
+from stress_levels.sources.base import ClosureEvent
 from stress_levels.metrics import (
     CODL_NORMALISATION_CEILING,
     COMPOSITE_WEIGHTS,
@@ -16,6 +17,7 @@ from stress_levels.metrics import (
     StressProfile,
     WorkWindow,
     _apportion_to_window,
+    _closure_deficit,
     _codl_samples,
     _codl_weighted_samples,
     _composite_score,
@@ -29,6 +31,16 @@ from stress_levels.metrics import (
     detect_work_windows,
     per_day_metrics,
 )
+
+
+def _closure(ts, kind="commit", repo="proj"):
+    return ClosureEvent(ts=ts, kind=kind, repo=repo)
+
+
+def _agg_with_closures(day, streams, closures):
+    return DayAggregate(day=day, streams=tuple(streams),
+                        peak_concurrent_streams=0,
+                        closure_events=tuple(closures))
 
 
 UTC = timezone.utc
@@ -369,6 +381,115 @@ def test_apportion_to_window_half_in_keeps_half():
 
 
 # ---------------------------------------------------------------------------
+# Closure Deficit — real closure events (opened-vs-closed loops)
+
+_WIN_START = _utc(2026, 5, 15, 9)
+_WIN_END = _utc(2026, 5, 15, 18)
+
+
+def test_closure_deficit_none_falls_back_to_legacy_proxy():
+    """closure_events is None → fraction of weighted samples with C(t) > 1
+    (the legacy proxy), unchanged from the pre-closure behaviour."""
+    agg = _agg(date(2026, 5, 15), [_stream("a", _utc(2026, 5, 15, 10),
+                                            _utc(2026, 5, 15, 11))])
+    # Hand it a weighted series with some samples > 1.
+    weighted = [0.5, 1.5, 2.0, 0.0, 1.2]
+    d = _closure_deficit(agg, _WIN_START, _WIN_END, weighted)
+    assert d == pytest.approx(3 / 5)  # 3 of 5 samples exceed 1
+
+
+def test_closure_deficit_none_empty_samples_is_zero():
+    agg = _agg(date(2026, 5, 15), [])
+    assert _closure_deficit(agg, _WIN_START, _WIN_END, []) == 0.0
+
+
+def test_closure_deficit_all_loops_closed_is_zero():
+    """Two loops opened in-window, two closures in-window → deficit 0."""
+    streams = [
+        _stream("a", _utc(2026, 5, 15, 10), _utc(2026, 5, 15, 12)),
+        _stream("b", _utc(2026, 5, 15, 11), _utc(2026, 5, 15, 13)),
+    ]
+    closures = [_closure(_utc(2026, 5, 15, 12)), _closure(_utc(2026, 5, 15, 13))]
+    agg = _agg_with_closures(date(2026, 5, 15), streams, closures)
+    assert _closure_deficit(agg, _WIN_START, _WIN_END, [99.0]) == 0.0
+
+
+def test_closure_deficit_no_closures_is_one():
+    """Loops opened but the closure source emitted nothing in-window → 1.0,
+    independent of the weighted-sample series passed in."""
+    streams = [_stream("a", _utc(2026, 5, 15, 10), _utc(2026, 5, 15, 12))]
+    agg = _agg_with_closures(date(2026, 5, 15), streams, [])  # () = wired, empty
+    assert _closure_deficit(agg, _WIN_START, _WIN_END, [0.0, 0.0]) == 1.0
+
+
+def test_closure_deficit_partial_close():
+    """Four loops opened, one closure → 1 - 1/4 = 0.75."""
+    streams = [_stream(f"s{i}", _utc(2026, 5, 15, 10 + i),
+                       _utc(2026, 5, 15, 14)) for i in range(4)]
+    closures = [_closure(_utc(2026, 5, 15, 13))]
+    agg = _agg_with_closures(date(2026, 5, 15), streams, closures)
+    assert _closure_deficit(agg, _WIN_START, _WIN_END, []) == pytest.approx(0.75)
+
+
+def test_closure_deficit_excess_closures_clamp_at_zero():
+    """More closures than opened loops cannot push the deficit negative."""
+    streams = [_stream("a", _utc(2026, 5, 15, 10), _utc(2026, 5, 15, 12))]
+    closures = [_closure(_utc(2026, 5, 15, 11)), _closure(_utc(2026, 5, 15, 12)),
+                _closure(_utc(2026, 5, 15, 13))]
+    agg = _agg_with_closures(date(2026, 5, 15), streams, closures)
+    assert _closure_deficit(agg, _WIN_START, _WIN_END, []) == 0.0
+
+
+def test_closure_deficit_ignores_out_of_window_loops_and_closures():
+    """A loop opened before the window and a closure after it don't count."""
+    streams = [
+        _stream("early", _utc(2026, 5, 15, 7), _utc(2026, 5, 15, 12)),   # opened pre-window
+        _stream("inwin", _utc(2026, 5, 15, 10), _utc(2026, 5, 15, 16)),  # opened in-window
+    ]
+    closures = [_closure(_utc(2026, 5, 15, 20))]  # after window → ignored
+    agg = _agg_with_closures(date(2026, 5, 15), streams, closures)
+    # Only one loop counts as opened in-window, zero in-window closures → 1.0.
+    assert _closure_deficit(agg, _WIN_START, _WIN_END, []) == 1.0
+
+
+def test_closure_deficit_no_opened_loops_is_zero():
+    """A stream alive in-window but opened earlier means zero loops *opened*
+    today → no deficit (nothing to close)."""
+    streams = [_stream("a", _utc(2026, 5, 15, 7), _utc(2026, 5, 15, 16))]
+    agg = _agg_with_closures(date(2026, 5, 15), streams, [])
+    assert _closure_deficit(agg, _WIN_START, _WIN_END, []) == 0.0
+
+
+def test_closure_deficit_is_independent_of_concurrency_shape():
+    """The keystone property: two days with the IDENTICAL engagement-weighted
+    concurrency series C(t) (hence identical codl_avg) get DIFFERENT closure
+    deficits purely from their closure events. Under the old definition both
+    were a pure function of C(t) and would have been equal."""
+    window = WorkWindow(weekday=4, start=time(9), end=time(18))
+    streams = [
+        _stream("a", _utc(2026, 5, 15, 10), _utc(2026, 5, 15, 14),
+                user_msg_timestamps=tuple(_utc(2026, 5, 15, h) for h in (10, 11, 12, 13))),
+        _stream("b", _utc(2026, 5, 15, 11), _utc(2026, 5, 15, 13),
+                user_msg_timestamps=(_utc(2026, 5, 15, 11), _utc(2026, 5, 15, 12))),
+    ]
+    closed = _agg_with_closures(date(2026, 5, 15), streams,
+                                [_closure(_utc(2026, 5, 15, 13, 30)),
+                                 _closure(_utc(2026, 5, 15, 13, 45))])
+    unclosed = _agg_with_closures(date(2026, 5, 15), streams, [])
+    m_closed = per_day_metrics(closed, window, UTC)
+    m_unclosed = per_day_metrics(unclosed, window, UTC)
+    # Same concurrency shape → same CODL.
+    assert m_closed.codl_avg == m_unclosed.codl_avg
+    assert m_closed.codl_peak == m_unclosed.codl_peak
+    # But the closure deficits differ — the axis carries information C(t) does
+    # not, so it is no longer a re-expression of concurrency.
+    assert m_closed.closure_deficit == 0.0
+    assert m_unclosed.closure_deficit == 1.0
+    # And that difference propagates to the composite.
+    assert m_unclosed.composite > m_closed.composite
+
+
+# ---------------------------------------------------------------------------
 # Composite
 
 def test_composite_score_low_load_is_low():
@@ -460,7 +581,8 @@ def test_per_day_metrics_single_stream_low_load():
     # CODL == 1 for the in-window minute samples that overlap the stream
     assert m.codl_peak == 1
     assert 0 < m.codl_avg <= 1.0
-    # closure_deficit measures samples with CODL > 1 — single stream → 0
+    # No closure source wired (closure_events is None) → legacy proxy, which
+    # measures samples with C(t) > 1; a single stream never exceeds 1 → 0.
     assert m.closure_deficit == 0.0
     # off_hours_minutes should be 0 (stream entirely inside window)
     assert m.off_hours_minutes == 0

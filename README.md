@@ -177,7 +177,7 @@ count as working days — weekend activity surfaces only as an off-hours
 |---|---|---|---|
 | **CODL** (Concurrent Operational Demand Load) | How many agent sessions you supervise at once | 1-min samples over the work window; `codl_avg` time-weighted, `codl_peak` the max. Status threshold at the working-memory cap (~4) | Working memory ≈ 4 chunks (**Cowan 2001**); non-linear degradation past fan-out limits (**Cummings & Mitchell 2008**; **Sheridan 1992**) |
 | **Interruption Index** | Weighted attention-pulls per work hour | `(tool_error × 1.5 + cross-session-start × 3.0) / work_hours`. Tool calls *within* a session don't count — that's a Waiting state, not an interruption | Interrupted work is faster but more stressful (**Mark, Gudith & Klocke 2008**); external switches cost ~25% more (**Mark, Gonzalez & Harris 2005**); attention residue (**Leroy 2009**); cross-tool switches cost more (**Wickens 2008**) |
-| **Closure Deficit** | Share of work hours juggling >1 session (0 = solo, 1 = constant) | Fraction of work-window minutes with `CODL > 1`. *v1 proxy* — real closure events (commits/merges) not yet folded in | Burnout = demands exceeding recoverable resources (**Demerouti et al. 2001**); closure is itself a resource (**Leroy 2009**) |
+| **Closure Deficit** | Share of the day's opened loops you never closed (0 = everything landed, 1 = nothing did) | `1 − closures / loops_opened`, where `loops_opened` = streams started in the work window and `closures` = git commits/merges in the window (opt in with `closure.repos` in `config.json`). Counts, not concurrency — independent of the CODL shape. Falls back to the `CODL > 1` proxy when no repos are configured | Open loops keep consuming working memory until closed (**Masicampo & Baumeister 2011**); closure removes attention residue (**Leroy 2009**) and is a recovery resource (**Sonnentag & Fritz 2007**); burnout = demands exceeding recoverable resources (**Demerouti et al. 2001**) |
 
 **Composite (0–100)** is the equal-weighted blend of the three normalised axes —
 the explicit v1 null hypothesis (no evidence yet favours one axis), stated as such
@@ -206,7 +206,10 @@ Binnewies & Mojza 2010**).
   is a self-run triage signal, not a diagnosis.
 - The supervisory-control analogy is borrowed from UAV operators
   (**Crandall & Cummings 2007**) and is plausible but **unvalidated** for LLM
-  oversight; Closure Deficit is a proxy until commit/merge ingestion lands.
+  oversight. The Closure Deficit now folds in real git commits/merges, but
+  closures are attributed by count within the work window, not linked to
+  specific sessions; with no repos configured it falls back to a
+  concurrency-presence proxy.
 
 Every threshold, weight, and recommendation traces to an entry in
 [`stress_levels/citations.yml`](stress_levels/citations.yml) — the report renders

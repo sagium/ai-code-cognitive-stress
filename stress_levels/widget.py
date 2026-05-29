@@ -47,9 +47,13 @@ def compute_today_dayview(
     projects_dir=None,
     cache_dir=None,
     now: datetime | None = None,
+    closure_sources=None,
 ) -> DayView:
     """Recompute today's full daily view. Reads only today's session files live
-    (past days come from the on-disk cache). `now` is injectable for tests."""
+    (past days come from the on-disk cache). `now` is injectable for tests.
+
+    `closure_sources` (optional) feeds the Closure Deficit real commit/merge
+    events; when omitted the axis uses its legacy proxy."""
     tz = _local_tz()
     today = (now or datetime.now(tz)).astimezone(tz).date()
     since = today - timedelta(days=baseline_days)
@@ -57,6 +61,7 @@ def compute_today_dayview(
         since, today,
         projects_dir=projects_dir, cache_dir=cache_dir,
         sources=sources, local_tz=tz, now=now,
+        closure_sources=closure_sources,
     )
     profile = build_profile(aggregates, baseline_days=baseline_days, local_tz=tz)
     metrics = profile.days.get(today) or DayMetrics(day=today)
@@ -83,6 +88,7 @@ def run_widget(  # pragma: no cover — tkinter event loop; needs a display
     baseline_days: int = 30,
     sources=None,
     refresh_seconds: int = 60,
+    closure_sources=None,
 ) -> int:
     """Launch the always-on-top live widget. Blocks until the window closes.
     Returns 0 on clean exit, 1 if tkinter is unavailable."""
@@ -106,7 +112,9 @@ def run_widget(  # pragma: no cover — tkinter event loop; needs a display
     def worker() -> None:
         while not stop.is_set():
             try:
-                q.put(compute_today_dayview(baseline_days, sources))
+                q.put(compute_today_dayview(
+                    baseline_days, sources, closure_sources=closure_sources,
+                ))
             except Exception as exc:  # surface, don't die
                 q.put(exc)
             stop.wait(refresh)

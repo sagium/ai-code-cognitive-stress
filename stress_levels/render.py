@@ -1044,8 +1044,10 @@ def _render_methodology(profile: StressProfile, stats: AggregateStats | None) ->
         (2) All axes are <em>taskload</em> (objective demand), not <em>workload</em>
         (subjective experience); correlation with felt overload is moderate
         (r &asymp; 0.4–0.6 across the HCI literature).
-        (3) Closure events from git/GitLab are not yet ingested; the closure
-        deficit shown is a load-presence proxy, not closure-completion.
+        (3) The Closure Deficit nets real git commits/merges against the loops
+        opened each work window, but closures are attributed by count, not
+        linked to specific sessions; with no git repos configured it falls
+        back to a concurrency-presence proxy.
         (4) Personal optimum and percentiles require &ge; 14 days of activity;
         fewer days renders as "calibrating".
       </p>

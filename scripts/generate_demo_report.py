@@ -19,6 +19,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from stress_levels.aggregate import DayAggregate, StreamDayActivity  # noqa: E402
+from stress_levels.sources.base import ClosureEvent  # noqa: E402
 from stress_levels.markdown_min import to_html as md_to_html  # noqa: E402
 from stress_levels.metrics import (  # noqa: E402
     DayMetrics,
@@ -144,7 +145,10 @@ def _build_aggregate(d: date, m: DayMetrics, rng: random.Random) -> DayAggregate
             tool_result_count=max(1, n_msgs // 2),
             user_msg_timestamps=msg_ts,
         )
-        return DayAggregate(day=d, streams=(stream,), peak_concurrent_streams=1)
+        # Weekend off-hours: a source is "wired" but no commits land (the demo
+        # treats weekend tinkering as unclosed) — empty tuple, not None.
+        return DayAggregate(day=d, streams=(stream,), peak_concurrent_streams=1,
+                            closure_events=())
 
     # Active workday: 1–3 streams spread across the work window.
     n_streams = min(m.codl_peak, 3) or 1
@@ -174,9 +178,30 @@ def _build_aggregate(d: date, m: DayMetrics, rng: random.Random) -> DayAggregate
             user_msg_timestamps=msg_ts,
             branches=("main",),
         ))
+    # Synthesise commits consistent with the day's closure_deficit so the
+    # aggregate matches the new opened-vs-closed definition: of the loops
+    # opened today, close round((1 - deficit) * loops) of them.
+    loops_opened = len(streams)
+    closures: list[ClosureEvent] = []
+    if loops_opened:
+        n_closed = int(round((1.0 - m.closure_deficit) * loops_opened))
+        n_closed = max(0, min(n_closed, loops_opened))
+        for j in range(n_closed):
+            # Land each commit late in its stream's life, inside the window.
+            s = streams[j]
+            commit_ts = min(
+                s.last_ts,
+                datetime(d.year, d.month, d.day, 18, 0, tzinfo=timezone.utc),
+            )
+            closures.append(ClosureEvent(
+                ts=commit_ts, kind="commit",
+                repo="demo-project", branch="main",
+                title=f"close loop {j}",
+            ))
     return DayAggregate(
         day=d, streams=tuple(streams),
         peak_concurrent_streams=m.codl_peak,
+        closure_events=tuple(closures),
     )
 
 

@@ -139,6 +139,24 @@ def _clear_cache(cache_dir: Path) -> bool:
         return False
 
 
+def _build_closure_sources() -> list:
+    """Build the closure-event sources from config.json `closure.repos`.
+
+    Returns an empty list when no repos are configured (the default) — in
+    which case the Closure Deficit falls back to its legacy proxy. We only
+    scan the explicitly-listed local repos; nothing is auto-discovered and
+    nothing leaves the machine (local git only)."""
+    from pathlib import Path as _Path
+
+    from .config import load_config
+    from .sources.git_closure import GitRepoClosureSource
+
+    repos = load_config().closure.repos
+    if not repos:
+        return []
+    return [GitRepoClosureSource(repos=[_Path(r).expanduser() for r in repos])]
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     try:
@@ -216,6 +234,11 @@ def main(argv: list[str] | None = None) -> int:
         dedup.append(s)
     sources = dedup
 
+    # Resolve real closure-event sources (opt-in via config.json `closure.repos`).
+    # Empty by default → Closure Deficit uses the legacy proxy. We never
+    # auto-discover repos; only the explicitly-configured paths are scanned.
+    closure_sources = _build_closure_sources()
+
     # Widget mode: live always-on-top window for today. Ignores the date span
     # and the report pipeline entirely. tkinter is imported lazily inside
     # run_widget so non-widget runs never load it.
@@ -225,6 +248,7 @@ def main(argv: list[str] | None = None) -> int:
             baseline_days=args.baseline_days,
             sources=sources,
             refresh_seconds=args.refresh,
+            closure_sources=closure_sources,
         )
 
     # Emit-JSON mode: print today's full daily view to stdout for an external
@@ -235,6 +259,7 @@ def main(argv: list[str] | None = None) -> int:
         from .widget import compute_today_dayview
         view = compute_today_dayview(
             baseline_days=args.baseline_days, sources=sources,
+            closure_sources=closure_sources,
         )
         print(json.dumps(dayview_to_dict(view), default=str))
         return 0
@@ -244,7 +269,9 @@ def main(argv: list[str] | None = None) -> int:
         f"{', '.join(s.name for s in sources)}",
         file=sys.stderr,
     )
-    aggregates, stats = get_day_aggregates(since, until, sources=sources)
+    aggregates, stats = get_day_aggregates(
+        since, until, sources=sources, closure_sources=closure_sources,
+    )
     print(
         f"ingested {stats.ingest.events_emitted:,} events from "
         f"{stats.ingest.files_kept} sessions; "

@@ -108,23 +108,28 @@ AXES: tuple[AxisMeta, ...] = (
         key="closure",
         name="Closure Deficit",
         description=(
-            "Share of work hours with more than one session open. 0 = solo "
-            "throughout, 1 = constant juggling. Lower is better."
+            "Share of the day's opened loops you never closed. 0 = every "
+            "session you started got committed, 1 = nothing landed. Lower "
+            "is better."
         ),
         range_max=CLOSURE_RANGE_MAX,
         zones=CLOSURE_ZONES,
         has_optimum=False,
         technique=(
-            "Proxy: count of 1-min work-hour samples where CODL > 1, divided "
-            "by total work-hour samples."
+            "1 − closures / loops_opened, where loops_opened = streams started "
+            "in the work window and closures = git commits/merges in the "
+            "window. Counts, not concurrency — independent of the CODL shape."
         ),
         basis=(
-            "Demerouti et al. (2001) Job Demands-Resources; Leroy (2009) "
-            "attention residue."
+            "Demerouti et al. (2001) Job Demands-Resources; Masicampo & "
+            "Baumeister (2011) open goals; Leroy (2009) attention residue; "
+            "Sonnentag & Fritz (2007) closure as recovery."
         ),
         caveat=(
-            "Real closure events (git commits, MR merges) not yet ingested — "
-            "this is a load-presence proxy, not closure-completion."
+            "Closures are attributed by count within the work window, not "
+            "linked to specific sessions. Without configured git repos this "
+            "falls back to a concurrency-presence proxy (work-hour share "
+            "with CODL > 1)."
         ),
     ),
 )
@@ -144,7 +149,7 @@ def _axis_unit(key: str, m: DayMetrics) -> str:
         return f"avg · peak {m.codl_peak} streams"
     if key == "interruption":
         return "weighted events per work hour"
-    return f"{m.closure_deficit * 100:.0f}% of work hours with >1 stream"
+    return f"{m.closure_deficit * 100:.0f}% of opened loops left unclosed"
 
 
 # ---------------------------------------------------------------------------

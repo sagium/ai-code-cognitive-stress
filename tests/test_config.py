@@ -77,3 +77,34 @@ def test_codl_rejects_negative_grace(tmp_path):
                    encoding="utf-8")
     with pytest.raises(ValueError, match="foreground_grace_minutes"):
         load_config(cfg)
+
+
+# --- closure block ---------------------------------------------------------
+
+def test_shipped_config_has_empty_closure_repos():
+    """The shipped default never auto-scans repos — closure.repos is empty,
+    so the Closure Deficit uses its legacy proxy out of the box."""
+    cfg = load_config()  # the real config.json
+    assert cfg.closure.repos == ()
+
+
+def test_closure_block_missing_falls_back_to_empty(tmp_path):
+    cfg = tmp_path / "config.json"
+    cfg.write_text(json.dumps(_ww({})), encoding="utf-8")
+    assert load_config(cfg).closure.repos == ()
+
+
+def test_closure_repos_parsed(tmp_path):
+    cfg = tmp_path / "config.json"
+    cfg.write_text(json.dumps(_ww({
+        "closure": {"repos": ["/home/me/proj", "/home/me/other"]},
+    })), encoding="utf-8")
+    assert load_config(cfg).closure.repos == ("/home/me/proj", "/home/me/other")
+
+
+@pytest.mark.parametrize("bad", [{"repos": "not-a-list"}, {"repos": [1, 2]}])
+def test_closure_rejects_non_string_list(tmp_path, bad):
+    cfg = tmp_path / "config.json"
+    cfg.write_text(json.dumps(_ww({"closure": bad})), encoding="utf-8")
+    with pytest.raises(ValueError, match="closure.repos"):
+        load_config(cfg)

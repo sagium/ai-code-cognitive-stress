@@ -10,9 +10,21 @@ Three axes (per day, computed during work hours only):
     Interruption Idx  weighted attention-pulling events per work hour.
                       Weights from Mark, Gudith & Klocke (2008) and
                       Mark, Gonzalez & Harris (2005).
-    Closure Deficit   fraction of work-hour samples with CODL > 1 — proxy
-                      for "time spent with multiple open loops". JD-R framing
-                      (Demerouti et al. 2001).
+    Closure Deficit   share of the day's opened loops that were never closed:
+                      clip(1 - closures / loops_opened, 0, 1), where
+                      loops_opened = streams started in the work window and
+                      closures = real closure events (git commits/merges) in
+                      the window. An unclosed loop keeps consuming the
+                      cognitive resource (Masicampo & Baumeister 2011;
+                      Leroy 2009); closure is itself a recovery resource
+                      (Sonnentag & Fritz 2007) and demands without recoverable
+                      resources are the JD-R burnout mechanism (Demerouti et
+                      al. 2001). Independent of the concurrency shape C(t) by
+                      construction. When no closure source is wired (the
+                      default), it falls back to the legacy concurrency-
+                      presence proxy (fraction of work-hour samples with
+                      C(t) > 1) so behaviour is unchanged until the user opts
+                      in with repos.
 
 Composite stress = equal-weighted blend of the three axes mapped to 0..100.
 Equal weights are the null hypothesis for v1; we don't have evidence to favor
@@ -83,6 +95,24 @@ W_CROSS_STREAM: float = 3.0
 FOREGROUND_GRACE_MINUTES_DEFAULT: int = 5
 BACKGROUND_WEIGHT_DEFAULT: float = 0.25
 
+# Closure Deficit — fraction of the day's *opened* loops left *unclosed*.
+# An opened loop is a stream that started inside the work window; a closure
+# is a real git commit/merge (ClosureEvent) inside the window. The deficit is
+# clip(1 - closures / loops_opened, 0, 1). Grounding:
+#   - Masicampo & Baumeister (2011): an unfulfilled/open goal keeps consuming
+#     working memory until it is closed or planned — so unclosed loops, not
+#     mere presence of parallelism, are the load.
+#   - Leroy (2009): closure removes attention residue; an unclosed switch
+#     leaves residue that taxes the next task.
+#   - Sonnentag & Fritz (2007): closure is a recovery resource.
+#   - Demerouti et al. (2001), JD-R: burnout = demands without recoverable
+#     resources; a day that opens many loops and closes few is exactly that.
+# Each closure can net at most one opened loop, so the count is clamped before
+# the ratio (CLOSURE_MAX_NET_PER_EVENT) — a commit closes one logical loop, not
+# an unbounded number. This axis uses *counts*, not the concurrency time-series
+# C(t), so it is independent of the CODL shape by construction.
+CLOSURE_MAX_NET_PER_EVENT: int = 1
+
 # v1 composite weights — equal (null hypothesis). The methodology footer of
 # the rendered report names this choice and links to the relevant citations.
 COMPOSITE_WEIGHTS: tuple[float, float, float] = (1 / 3, 1 / 3, 1 / 3)
@@ -129,7 +159,8 @@ class DayMetrics:
     codl_peak: int = 0               # peak headcount of sessions alive at once
     codl_peak_active: float = 0.0    # peak engagement-weighted load (drives fan-out rec)
     interruption_rate: float = 0.0   # per work hour
-    closure_deficit: float = 0.0     # 0..1 (weighted CODL > 1)
+    closure_deficit: float = 0.0     # 0..1 (unclosed share of opened loops;
+                                     # legacy C(t)>1 proxy when no closure src)
     off_hours_minutes: int = 0
     composite: float = 0.0           # 0..100
     work_window_local: tuple[time, time] | None = None
@@ -276,12 +307,18 @@ def per_day_metrics(
         codl_avg = sum(weighted) / len(weighted)
         codl_peak = max(headcounts)
         codl_peak_active = max(weighted)
-        closure_deficit = sum(1 for w in weighted if w > 1.0) / len(weighted)
     else:
         codl_avg = 0.0
         codl_peak = 0
         codl_peak_active = 0.0
-        closure_deficit = 0.0
+
+    # Closure Deficit: share of opened loops left unclosed, using real
+    # closure events when a closure source is wired; else the legacy
+    # concurrency-presence proxy. Independent of the C(t) shape (it nets
+    # loop-open COUNTS against closure COUNTS).
+    closure_deficit = _closure_deficit(
+        agg, window_start_utc, window_end_utc, weighted,
+    )
 
     cross_starts = _count_cross_stream_starts(
         agg.streams, window_start_utc, window_end_utc,
@@ -325,6 +362,53 @@ def per_day_metrics(
         composite=round(composite, 1),
         work_window_local=(work_window.start, work_window.end),
     )
+
+
+def _closure_deficit(
+    agg: DayAggregate,
+    window_start_utc: datetime,
+    window_end_utc: datetime,
+    weighted_samples: list[float],
+) -> float:
+    """Share of the day's opened loops that were never closed, in [0, 1].
+
+    Real-signal path (a closure source was wired — `agg.closure_events` is
+    not None): let ``L`` be the number of streams whose first event falls in
+    the work window (loops opened today) and ``K`` the number of closure
+    events (commits/merges) in the window, each netting at most one loop
+    (``CLOSURE_MAX_NET_PER_EVENT``). The deficit is
+
+        clip(1 - min(K, L) / L, 0, 1)   for L > 0,   else 0.
+
+    This is built from *counts*, so it carries information the concurrency
+    time-series C(t) does not: two days with identical concurrency shapes
+    score differently if one committed its work and the other didn't.
+
+    Fallback path (`agg.closure_events is None`, the default when the user
+    hasn't opted in with repos): the legacy concurrency-presence proxy —
+    the fraction of work-hour samples with weighted concurrency C(t) > 1.
+    Behaviour is then byte-for-byte what it was before real closure was
+    folded in, so the default install is unchanged.
+    """
+    # No closure source wired → legacy proxy (preserves prior behaviour).
+    if agg.closure_events is None:
+        if not weighted_samples:
+            return 0.0
+        return sum(1 for w in weighted_samples if w > 1.0) / len(weighted_samples)
+
+    # Real-signal path. Loops opened = streams that *started* in the window.
+    loops_opened = sum(
+        1 for s in agg.streams
+        if window_start_utc <= s.first_ts <= window_end_utc
+    )
+    if loops_opened <= 0:
+        return 0.0
+    closures = sum(
+        1 for c in agg.closure_events
+        if window_start_utc <= c.ts <= window_end_utc
+    )
+    netted = min(closures * CLOSURE_MAX_NET_PER_EVENT, loops_opened)
+    return max(0.0, min(1.0, 1.0 - netted / loops_opened))
 
 
 def _composite_score(

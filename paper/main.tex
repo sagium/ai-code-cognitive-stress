@@ -216,15 +216,39 @@ interruption literature~\cite{mark2008,mark2005,wickens2008}; the normalization
 ceiling is $10$/hour, well above the $\approx$4.4/hour office
 baseline~\cite{mark2008}.
 
-\subsection{Closure Deficit}
-As a proxy for time spent juggling unclosed loops we take the fraction of work
-samples whose \emph{weighted} concurrency exceeds one:
+\subsection{Closure Deficit}\label{sec:closure}
+An open loop---a task dispatched but not yet resolved---keeps consuming the
+cognitive resource until it is closed or concretely
+planned~\cite{masicampo2011}; closure removes the residue an unfinished switch
+leaves on the next task~\cite{leroy2009} and is itself a recovery
+resource~\cite{sonnentag2007}. We therefore measure the share of the day's
+\emph{opened} loops that were never \emph{closed}. A loop is opened when a
+stream starts inside the work window; it is closed by a real closure
+event---a local \texttt{git} commit or merge---inside the window, drawn from
+the same local history the data model already ingests (\S\ref{sec:method}).
+With $L=|\{s : a_s\in W\}|$ the number of loops opened in the window and
+$K$ the number of in-window closure events, each netting at most one loop,
 \begin{equation}
-\mathrm{ClosureDeficit} = \frac{|\{t\in T : C(t) > 1\}|}{|T|}.
+\mathrm{ClosureDeficit} =
+\operatorname{clip}\!\Big(1 - \frac{\min(K,L)}{L},\, 0,\, 1\Big),
+\quad (L>0),
 \end{equation}
-Using $C(t)$ rather than the headcount means background sessions do not, on
-their own, register as juggling. This is a load-presence proxy, not a measure of
-closure \emph{completion}; \S\ref{sec:threats} returns to this.
+and $0$ when no loops were opened. A day that opens many loops and closes few
+is exactly the demands-without-recoverable-resources pattern the JD-R model
+identifies with burnout~\cite{demerouti2001}.
+
+Crucially, this axis is built from \emph{counts} of opened and closed loops,
+not from the concurrency time-series $C(t)$, so it is independent of the CODL
+shape by construction: two days with identical $C(t)$ (hence identical
+$\overline{\mathrm{CODL}}$) receive different deficits if one committed its
+work and the other did not---information $C(t)$ cannot carry. This removes the
+collinearity of earlier versions, in which the deficit was the fraction of
+samples with $C(t)>1$ and thus a re-expression of concurrency. The remaining
+proxy is attribution: commits are matched to the day's loops by count within
+the window, not linked to individual sessions, since session transcripts and
+commits share no identifier (\S\ref{sec:threats}). When no repository is
+configured the implementation falls back to the legacy $C(t)>1$ presence
+proxy, so the default install is unchanged until the user opts in.
 
 \subsection{Composite}
 Each axis is normalized to $[0,1]$ and blended with equal weights:
@@ -245,7 +269,12 @@ Performance follows an inverted-U with load~\cite{yerkes1908,csikszentmihalyi199
 We bucket historical workdays by $\overline{\mathrm{CODL}}$ (width $0.5$) and
 score each bucket by closure achieved against off-hours follow-up; the midpoint
 of the best bucket is reported as the operator's individual ``flow channel''
-target, a line on the chart rather than a ceiling. It requires at least 14
+target, a line on the chart rather than a ceiling. Because the Closure Deficit
+is now independent of concurrency (\S\ref{sec:closure}), this scoring term is no
+longer a function of the very $\overline{\mathrm{CODL}}$ used to form the
+buckets, so the optimum is no longer circular: it asks which load band
+\emph{actually} closed the most loops, rather than rediscovering the load band
+with the least concurrency. It requires at least 14
 active workdays to stabilise, below which the report shows ``calibrating.''
 Off-hours and weekend activity are flagged because sustained load without
 detachment, not peaks, predicts harm~\cite{mcewen1998,sonnentag2007,sonnentag2010}.
@@ -312,11 +341,20 @@ dominates; this is almost certainly false in detail. Without calibration against
 a criterion, the composite's absolute scale is arbitrary and only its
 \emph{relative} movement within one person's history is meaningful.
 
-\paragraph{Closure Deficit measures presence, not closure.} It is the fraction
-of time with weighted concurrency $>1$, i.e.\ a re-expression of concurrency, not
-a count of loops actually closed. Real closure signals (commits, merges, PR
-events) exist in the data but are not yet folded into this axis, so the name
-over-promises relative to the computation.
+\paragraph{Closure Deficit relies on count-level attribution.} The axis now
+nets real \texttt{git} commits/merges against the loops opened each work
+window (\S\ref{sec:closure}), so it is no longer a re-expression of
+concurrency and the name is honest about what it computes. The residual
+weakness is attribution: closures are matched to the day's opened loops by
+\emph{count} within the window, not linked to specific sessions, because
+session transcripts and commits share no common identifier. A day's commits
+may therefore close loops other than the sessions counted as opened that day,
+and squashed or batched commits under- or over-count real closures. Branch- or
+time-based linkage is fragile (commits are not tagged with a session id, and
+branch overlap is coincidental), so we deliberately prefer the simpler,
+auditable count ratio and state the proxy plainly. Platform PR/MR events would
+sharpen the signal but require a network call and are out of scope for a
+local-only tool.
 
 \paragraph{Engagement is inferred from message timing.} Foreground is proxied by
 proximity to the operator's own messages within a grace window $g$. This misses
@@ -371,10 +409,12 @@ predictions that would, if tested, confirm or refute the design.
   stable under reasonable perturbations of $g$, the sampling interval, and the
   thresholds; instability would indicate over-tuned, non-robust scoring.
 \end{enumerate}
-A modest multi-developer study with experience sampling, plus folding real
-closure events (commits/merges) into the Closure Deficit, would address the
+A modest multi-developer study with experience sampling would address the
 majority of the threats in \S\ref{sec:threats} and convert this from a
-principled instrument into a validated one.
+principled instrument into a validated one. Folding real closure events
+(commits/merges) into the Closure Deficit, previously listed here as future
+work, is now done (\S\ref{sec:closure}); the remaining closure-side work is
+session$\leftrightarrow$commit attribution beyond the in-window count ratio.
 
 \section{Ethics and Privacy}
 The tool reads proprietary source and potentially secrets; we therefore treat

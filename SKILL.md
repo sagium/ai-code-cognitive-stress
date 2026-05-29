@@ -158,7 +158,9 @@ Key references:
 - Cowan (2001) — working-memory capacity → CODL ≥ 4 threshold
 - Cummings & Mitchell (2008) — supervisory-control fan-out → PSC canary
 - Mark, Gudith & Klocke (2008); Leroy (2009) — interruption cost framework
-- Demerouti et al. (2001) — JD-R model → closure-deficit framing
+- Demerouti et al. (2001) JD-R; Masicampo & Baumeister (2011) open goals;
+  Sonnentag & Fritz (2007) closure-as-recovery → Closure Deficit (unclosed
+  share of opened loops, using real git commits/merges)
 - McEwen (1998) — allostatic load → sustained-overload recommendation
 - Yerkes & Dodson (1908); Csíkszentmihályi (1990) — optimum-load target line
 
