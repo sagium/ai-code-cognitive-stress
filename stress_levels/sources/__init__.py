@@ -1,0 +1,53 @@
+"""Source plugins for ingesting agent-coding session activity.
+
+Each source represents one agent-coding tool's session log format. The
+plugin protocol (`SessionSource`) is in `base.py`; concrete sources
+implementing it live in their own module:
+
+    sources/claude_code.py   Claude Code (~/.claude/projects/*.jsonl)
+    sources/codex.py         OpenAI Codex CLI (~/.codex/sessions/*.jsonl)
+    sources/aider.py         Aider (.aider.chat.history.md per project)
+    sources/git_closure.py   Git commit/merge closure events (any repo)
+
+New sources can be added without changing any other module: implement
+the `SessionSource` protocol and pass an instance to `ingest.collect()`
+or `aggregate.get_day_aggregates()`.
+"""
+
+from .aider import AiderSessionSource
+from .base import ClosureEvent, ClosureEventSource, SessionSource
+from .claude_code import ClaudeCodeSessionSource
+from .codex import CodexSessionSource
+from .git_closure import GitRepoClosureSource
+
+__all__ = [
+    "AiderSessionSource",
+    "ClaudeCodeSessionSource",
+    "ClosureEvent",
+    "ClosureEventSource",
+    "CodexSessionSource",
+    "GitRepoClosureSource",
+    "SessionSource",
+]
+
+
+def default_sources() -> list[SessionSource]:
+    """Best-effort enumeration of every supported session source whose data
+    is present on disk. Returns sources that actually have a discoverable
+    directory; the rest are skipped silently.
+
+    Use this when the user hasn't specified `--source` and you want the
+    skill to pick up whatever data is available."""
+    out: list[SessionSource] = []
+    for src in (
+        ClaudeCodeSessionSource(),
+        CodexSessionSource(),
+        AiderSessionSource(),
+    ):
+        if src.is_available():
+            out.append(src)
+    # Always include at least Claude Code so the CLI's behavior is stable
+    # for users who don't have any of the discoverable directories yet.
+    if not out:
+        out.append(ClaudeCodeSessionSource())
+    return out

@@ -1,0 +1,1278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Cognitive Stress Profile — May 2026</title>
+<style>
+  :root {
+    --bg: #fafaf7;
+    --panel: #ffffff;
+    --ink: #1f2024;
+    --ink-soft: #5a5d66;
+    --ink-faint: #8a8d96;
+    --rule: #e6e4dd;
+    --accent: #355070;
+    --good: #6c9a8b;
+    --warn: #d99058;
+    --bad: #b04a3a;
+    --shadow: 0 1px 2px rgba(0,0,0,0.04), 0 4px 16px rgba(0,0,0,0.04);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  .container {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 40px 32px 80px;
+  }
+  header.report {
+    border-bottom: 1px solid var(--rule);
+    padding-bottom: 20px;
+    margin-bottom: 36px;
+  }
+  h1 {
+    font-size: 24px;
+    font-weight: 600;
+    margin: 0 0 4px;
+    letter-spacing: -0.01em;
+  }
+  .subtitle {
+    color: var(--ink-soft);
+    font-size: 13px;
+    margin: 0;
+  }
+  h2 {
+    font-size: 17px;
+    font-weight: 600;
+    margin: 36px 0 14px;
+    letter-spacing: -0.01em;
+  }
+  h3 {
+    font-size: 13px;
+    font-weight: 600;
+    margin: 0 0 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--ink-soft);
+  }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: 20px 22px;
+    box-shadow: var(--shadow);
+  }
+
+  /* Month summary stats */
+  .summary-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+    margin-bottom: 18px;
+  }
+  .stat-card {
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: 14px 16px;
+  }
+  .stat-card .label {
+    font-size: 11px;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    letter-spacing: 0.05em;
+    margin-bottom: 4px;
+  }
+  .stat-card .value {
+    font-size: 22px;
+    font-weight: 600;
+    line-height: 1.1;
+  }
+  .stat-card .unit {
+    font-size: 12px;
+    color: var(--ink-soft);
+    margin-left: 4px;
+    font-weight: 400;
+  }
+  .stat-card { border-top: 3px solid var(--rule); position: relative; }
+  .stat-card.status-good    { border-top-color: var(--good); }
+  .stat-card.status-caution { border-top-color: var(--warn); }
+  .stat-card.status-high    { border-top-color: var(--bad); }
+  .stat-card .status-label {
+    position: absolute;
+    top: 12px; right: 14px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 2px 6px;
+    border-radius: 8px;
+  }
+  .stat-card.status-good    .status-label { background: rgba(108,154,139,0.15); color: var(--good); }
+  .stat-card.status-caution .status-label { background: rgba(217,144,88,0.18); color: var(--warn); }
+  .stat-card.status-high    .status-label { background: rgba(176,74,58,0.15); color: var(--bad); }
+  .stat-card .target-note {
+    font-size: 11px;
+    color: var(--ink-faint);
+    margin-top: 6px;
+  }
+
+  /* Year view */
+  .year-grid {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 8px;
+    margin-top: 10px;
+  }
+  .year-cell {
+    background: #efece5;
+    border-radius: 6px;
+    padding: 12px 10px;
+    text-decoration: none;
+    color: var(--ink);
+    border-top: 3px solid var(--rule);
+    border-left: 1px solid transparent;
+    border-right: 1px solid transparent;
+    border-bottom: 1px solid transparent;
+    transition: transform 0.08s ease, box-shadow 0.08s ease;
+    position: relative;
+    display: block;
+  }
+  .year-cell.status-good    { border-top-color: var(--good); }
+  .year-cell.status-caution { border-top-color: var(--warn); }
+  .year-cell.status-high    { border-top-color: var(--bad); }
+  .year-cell:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+    border-color: var(--ink);
+    cursor: pointer;
+  }
+  .year-cell.current { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .year-cell.future { background: transparent; border: 1px dashed var(--rule); color: var(--ink-faint); }
+  .year-cell .ym-month {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--ink-soft);
+  }
+  .year-cell .ym-value {
+    font-size: 20px;
+    font-weight: 600;
+    margin-top: 2px;
+  }
+  .year-cell .ym-trend {
+    font-size: 11px;
+    color: var(--ink-soft);
+    margin-top: 2px;
+  }
+  .year-cell .ym-trend.up { color: var(--bad); }
+  .year-cell .ym-trend.down { color: var(--good); }
+  .year-sparkline {
+    height: 60px;
+    width: 100%;
+    margin-top: 14px;
+  }
+
+  /* Heatmap */
+  .heatmap {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 6px;
+    margin-top: 8px;
+  }
+  .dow-label {
+    font-size: 11px;
+    color: var(--ink-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    text-align: center;
+    padding-bottom: 6px;
+  }
+  .cell {
+    aspect-ratio: 1.4 / 1;
+    border-radius: 6px;
+    background: #ececec;
+    color: var(--ink);
+    padding: 7px 9px;
+    position: relative;
+    font-size: 11px;
+    cursor: default;
+    border: 1px solid transparent;
+    transition: transform 0.08s ease, box-shadow 0.08s ease;
+  }
+  .cell:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+    border-color: var(--ink);
+  }
+  .cell.outside { background: transparent; border: 1px dashed var(--rule); }
+  .cell.zero { background: #efece5; }
+  .cell .day-num { font-weight: 600; font-size: 12px; }
+  .cell .day-val { position: absolute; bottom: 7px; right: 9px; font-size: 11px; opacity: 0.7; }
+  .cell.today { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .cell.off-hours-flag::after {
+    content: "";
+    position: absolute;
+    top: 7px;
+    right: 8px;
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--warn);
+  }
+  .cell.recommendation-day::before {
+    content: "";
+    position: absolute;
+    bottom: 7px; left: 8px;
+    width: 4px; height: 4px;
+    border-radius: 50%;
+    background: var(--bad);
+  }
+  a.cell { text-decoration: none; color: inherit; display: block; }
+  a.cell:hover { cursor: pointer; }
+
+  /* Optimum callout */
+  .optimum-note {
+    margin-top: 22px;
+    padding: 16px 20px;
+    background: #eef3ef;
+    border: 1px solid #cfdcd3;
+    border-left: 4px solid var(--good);
+    border-radius: 8px;
+  }
+  .optimum-note h3 { color: var(--good); margin: 0 0 4px; }
+  .optimum-row {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+  }
+  .optimum-value {
+    font-size: 28px;
+    font-weight: 600;
+    color: var(--good);
+  }
+  .optimum-value .unit { font-size: 13px; color: var(--ink-soft); font-weight: 400; margin-left: 4px; }
+  .optimum-distance {
+    font-size: 14px;
+    color: var(--ink);
+  }
+  .optimum-distance .pos { color: var(--bad); font-weight: 600; }
+  .optimum-distance .neg { color: var(--accent); font-weight: 600; }
+  .optimum-rationale {
+    font-size: 12px;
+    color: var(--ink-soft);
+    margin: 6px 0 0;
+    line-height: 1.55;
+  }
+  .optimum-rationale cite { color: var(--accent); font-style: normal; }
+
+  /* Legend */
+  .legend {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 14px;
+    font-size: 11px;
+    color: var(--ink-soft);
+  }
+  .legend-gradient {
+    display: inline-block;
+    height: 10px;
+    width: 220px;
+    border-radius: 5px;
+    background: linear-gradient(to right,
+      #d4ddd9 0%, #b9cdc4 18%, #d8c98a 40%, #d99058 65%, #b04a3a 100%);
+  }
+  .legend-key {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .legend-key .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    display: inline-block;
+  }
+  .legend-key .dot.warn { background: var(--warn); }
+  .legend-key .dot.bad { background: var(--bad); }
+
+  /* Recommendations */
+  .rec-list {
+    display: grid;
+    gap: 12px;
+  }
+  .rec {
+    border-left: 3px solid var(--warn);
+    background: #fcf7ef;
+    padding: 14px 18px;
+    border-radius: 4px;
+  }
+  .rec.high { border-left-color: var(--bad); background: #fbf2ef; }
+  .rec-title {
+    font-weight: 600;
+    font-size: 14px;
+    margin-bottom: 4px;
+  }
+  .rec-trigger {
+    font-size: 12px;
+    color: var(--ink-soft);
+    margin-bottom: 6px;
+  }
+  .rec-trigger code {
+    background: rgba(0,0,0,0.04);
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-size: 11px;
+  }
+  .rec-advice {
+    margin: 6px 0 8px;
+  }
+  .rec-cite {
+    font-size: 11px;
+    color: var(--ink-faint);
+    font-style: italic;
+  }
+  .disclaimer {
+    margin-top: 14px;
+    padding: 10px 14px;
+    background: #f4f1ea;
+    border-radius: 4px;
+    font-size: 12px;
+    color: var(--ink-soft);
+  }
+
+  /* Day view chart */
+  .day-chart-wrap {
+    margin-top: 10px;
+  }
+  .day-chart {
+    width: 100%;
+    height: 240px;
+    display: block;
+  }
+  .day-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 6px;
+  }
+  .day-meta .work-window {
+    font-size: 12px;
+    color: var(--ink-soft);
+  }
+  .event-row {
+    display: flex;
+    gap: 18px;
+    margin-top: 10px;
+    font-size: 12px;
+    color: var(--ink-soft);
+    flex-wrap: wrap;
+  }
+  .event-row span { display: inline-flex; align-items: center; gap: 5px; }
+  .event-row .marker {
+    display: inline-block;
+    width: 10px; height: 10px;
+  }
+  .marker.commit { background: var(--good); transform: rotate(45deg); }
+  .marker.block { background: var(--bad); border-radius: 50%; }
+  .marker.mention { background: var(--warn); }
+
+  /* Per-axis tiles */
+  .axis-tiles {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+    margin-top: 22px;
+  }
+  .tile {
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: 16px 18px;
+  }
+  .tile-name {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--ink-faint);
+    margin-bottom: 4px;
+  }
+  .tile-value {
+    font-size: 22px;
+    font-weight: 600;
+    margin-bottom: 2px;
+  }
+  .tile-value .unit {
+    font-size: 12px;
+    color: var(--ink-soft);
+    font-weight: 400;
+    margin-left: 4px;
+  }
+  .tile-trend {
+    font-size: 11px;
+    color: var(--ink-soft);
+    margin-bottom: 12px;
+  }
+  .tile-trend.up { color: var(--bad); }
+  .tile-trend.down { color: var(--good); }
+  .tile section { margin-top: 10px; }
+  .tile-section-head {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--ink-faint);
+    margin-bottom: 3px;
+  }
+  .tile-section-body {
+    font-size: 12px;
+    color: var(--ink);
+  }
+  .tile-section-body cite {
+    color: var(--accent);
+    font-style: normal;
+  }
+
+  /* Off-hours strip */
+  .off-hours {
+    margin-top: 22px;
+    padding: 14px 18px;
+    border: 1px solid var(--rule);
+    background: var(--panel);
+    border-radius: 8px;
+  }
+  .off-hours-bar {
+    display: grid;
+    grid-template-columns: repeat(28, 1fr);
+    gap: 2px;
+    height: 22px;
+    margin: 8px 0;
+  }
+  .oh-day {
+    background: #efece5;
+    border-radius: 2px;
+    position: relative;
+  }
+  .oh-day.flagged { background: var(--warn); }
+  .off-hours-note {
+    font-size: 11px;
+    color: var(--ink-soft);
+    margin-top: 6px;
+  }
+
+  /* Baseline panel */
+  .baseline {
+    margin-top: 22px;
+    padding: 14px 18px;
+    background: #f4f1ea;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    font-size: 13px;
+  }
+  .baseline .delta {
+    font-size: 22px;
+    font-weight: 600;
+    color: var(--warn);
+  }
+
+  /* Footer / methodology */
+  footer {
+    margin-top: 60px;
+    border-top: 1px solid var(--rule);
+    padding-top: 24px;
+    font-size: 12px;
+    color: var(--ink-soft);
+  }
+  footer h2 { color: var(--ink); }
+  .cite-list {
+    list-style: none;
+    padding: 0;
+    margin: 12px 0;
+  }
+  .cite-list li {
+    padding: 6px 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  .cite-list li:last-child { border-bottom: none; }
+  .cite-key {
+    color: var(--accent);
+    font-weight: 600;
+    margin-right: 6px;
+  }
+
+  /* Small bits */
+  .tooltip-host { position: relative; }
+  .tooltip-host:hover .tooltip { display: block; }
+  .tooltip {
+    display: none;
+    position: absolute;
+    z-index: 10;
+    bottom: calc(100% + 6px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--ink);
+    color: #fff;
+    padding: 6px 9px;
+    border-radius: 4px;
+    font-size: 11px;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+  .pill {
+    display: inline-block;
+    padding: 1px 7px;
+    border-radius: 10px;
+    font-size: 10px;
+    background: rgba(0,0,0,0.06);
+    color: var(--ink-soft);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-left: 6px;
+  }
+  .pill.warn { background: rgba(217,144,88,0.15); color: var(--warn); }
+  .pill.bad { background: rgba(176,74,58,0.12); color: var(--bad); }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <header class="report">
+    <h1>Cognitive Stress Profile</h1>
+    <p class="subtitle">
+      Marinos Prevenios &middot; May 2026 &middot;
+      Generated 2026-05-28 from 4 Claude Code projects, local git, and GitLab events.
+      <em>Mockup — values illustrative.</em>
+    </p>
+  </header>
+
+  <!-- ============================================ -->
+  <!-- YEAR VIEW                                    -->
+  <!-- ============================================ -->
+  <section id="year-view">
+    <h2>2026 &middot; year overview</h2>
+    <div class="panel">
+      <div class="year-grid">
+        <a class="year-cell status-good" href="#month-view">
+          <div class="ym-month">Jan</div>
+          <div class="ym-value">38</div>
+          <div class="ym-trend">below optimum</div>
+        </a>
+        <a class="year-cell status-good" href="#month-view">
+          <div class="ym-month">Feb</div>
+          <div class="ym-value">42</div>
+          <div class="ym-trend up">↑ +4 vs Jan</div>
+        </a>
+        <a class="year-cell status-caution" href="#month-view">
+          <div class="ym-month">Mar</div>
+          <div class="ym-value">50</div>
+          <div class="ym-trend up">↑ +8 vs Feb</div>
+        </a>
+        <a class="year-cell status-caution" href="#month-view">
+          <div class="ym-month">Apr</div>
+          <div class="ym-value">48</div>
+          <div class="ym-trend down">↓ -2 vs Mar</div>
+        </a>
+        <a class="year-cell status-high current" href="#month-view">
+          <div class="ym-month">May</div>
+          <div class="ym-value">60<span style="font-size:12px;color:var(--ink-soft);font-weight:400">*</span></div>
+          <div class="ym-trend up">↑ +12 vs Apr</div>
+        </a>
+        <div class="year-cell future">
+          <div class="ym-month">Jun</div>
+          <div class="ym-value">—</div>
+        </div>
+        <div class="year-cell future">
+          <div class="ym-month">Jul</div>
+          <div class="ym-value">—</div>
+        </div>
+        <div class="year-cell future">
+          <div class="ym-month">Aug</div>
+          <div class="ym-value">—</div>
+        </div>
+        <div class="year-cell future">
+          <div class="ym-month">Sep</div>
+          <div class="ym-value">—</div>
+        </div>
+        <div class="year-cell future">
+          <div class="ym-month">Oct</div>
+          <div class="ym-value">—</div>
+        </div>
+        <div class="year-cell future">
+          <div class="ym-month">Nov</div>
+          <div class="ym-value">—</div>
+        </div>
+        <div class="year-cell future">
+          <div class="ym-month">Dec</div>
+          <div class="ym-value">—</div>
+        </div>
+      </div>
+
+      <!-- year trend sparkline -->
+      <svg class="year-sparkline" viewBox="0 0 1000 60" preserveAspectRatio="none">
+        <!-- optimum line -->
+        <line x1="0" y1="33" x2="1000" y2="33"
+              stroke="#6c9a8b" stroke-width="1.5" stroke-dasharray="4 3" opacity="0.7"/>
+        <text x="995" y="29" text-anchor="end" font-size="9" fill="#6c9a8b">optimum 45</text>
+
+        <!-- monthly avg points: jan=38, feb=42, mar=50, apr=48, may=60 -->
+        <!-- y maps: 0 → y=60, 100 → y=0. So y = 60 - 0.6*v -->
+        <!-- jan(38)→37.2, feb(42)→34.8, mar(50)→30, apr(48)→31.2, may(60)→24 -->
+        <!-- x stride: 12 months, x=83+i*83 over center positions -->
+        <polyline points="83,37.2 250,34.8 417,30 583,31.2 750,24"
+                  fill="none" stroke="#b04a3a" stroke-width="2"/>
+        <circle cx="83"  cy="37.2" r="3.5" fill="#6c9a8b"/>
+        <circle cx="250" cy="34.8" r="3.5" fill="#6c9a8b"/>
+        <circle cx="417" cy="30"   r="3.5" fill="#d99058"/>
+        <circle cx="583" cy="31.2" r="3.5" fill="#d99058"/>
+        <circle cx="750" cy="24"   r="4"   fill="#b04a3a" stroke="#fff" stroke-width="2"/>
+      </svg>
+
+      <p style="font-size: 11px; color: var(--ink-faint); margin-top: 4px; font-style: italic;">
+        Click any month to zoom in. <strong>*</strong> May is partial (through 28 May).
+        Upward drift Mar → May warrants attention — see month-overview &amp; recommendations below.
+      </p>
+    </div>
+  </section>
+
+  <!-- ============================================ -->
+  <!-- MONTH VIEW                                   -->
+  <!-- ============================================ -->
+  <section id="month-view">
+    <h2>May 2026 &middot; month overview</h2>
+
+    <div class="summary-row">
+      <div class="stat-card status-caution">
+        <span class="status-label">elevated</span>
+        <div class="label">Avg composite (work hours)</div>
+        <div class="value">52<span class="unit">/100</span></div>
+        <div class="target-note">optimum 45 &middot; +7 above target</div>
+      </div>
+      <div class="stat-card status-high">
+        <span class="status-label">high</span>
+        <div class="label">Peak day</div>
+        <div class="value">84<span class="unit">&nbsp;Thu 21 May</span></div>
+        <div class="target-note">your p90 = 76 &middot; +8 above ceiling</div>
+      </div>
+      <div class="stat-card status-high">
+        <span class="status-label">high</span>
+        <div class="label">Days &gt; personal p75</div>
+        <div class="value">7<span class="unit">/ 20 workdays</span></div>
+        <div class="target-note">healthy &lt; 4 &middot; structural overload pattern</div>
+      </div>
+      <div class="stat-card status-caution">
+        <span class="status-label">watch</span>
+        <div class="label">Off-hours days</div>
+        <div class="value">2<span class="unit">&nbsp;weekends</span></div>
+        <div class="target-note">healthy = 0 &middot; both within 24h of high-load days</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="heatmap">
+        <div class="dow-label">Mon</div>
+        <div class="dow-label">Tue</div>
+        <div class="dow-label">Wed</div>
+        <div class="dow-label">Thu</div>
+        <div class="dow-label">Fri</div>
+        <div class="dow-label">Sat</div>
+        <div class="dow-label">Sun</div>
+
+        <!-- Apr 27-30 (outside) -->
+        <div class="cell outside"></div>
+        <div class="cell outside"></div>
+        <div class="cell outside"></div>
+        <div class="cell outside"></div>
+        <!-- May 1-3 -->
+        <a class="cell" href="#day-view" style="background:#cfd8d2"><span class="day-num">1</span><span class="day-val">32</span></a>
+        <a class="cell zero" href="#day-view"><span class="day-num">2</span></a>
+        <a class="cell zero" href="#day-view"><span class="day-num">3</span></a>
+
+        <!-- May 4-10 -->
+        <a class="cell" href="#day-view" style="background:#c9d4cd"><span class="day-num">4</span><span class="day-val">45</span></a>
+        <a class="cell" href="#day-view" style="background:#cdcfae"><span class="day-num">5</span><span class="day-val">48</span></a>
+        <a class="cell" href="#day-view" style="background:#d4c897"><span class="day-num">6</span><span class="day-val">52</span></a>
+        <a class="cell" href="#day-view" style="background:#d8be7e"><span class="day-num">7</span><span class="day-val">58</span></a>
+        <a class="cell" href="#day-view" style="background:#cdcfae"><span class="day-num">8</span><span class="day-val">42</span></a>
+        <a class="cell zero off-hours-flag" href="#day-view"><span class="day-num">9</span><span class="day-val">18</span></a>
+        <a class="cell zero" href="#day-view"><span class="day-num">10</span></a>
+
+        <!-- May 11-17 -->
+        <a class="cell" href="#day-view" style="background:#d6c490"><span class="day-num">11</span><span class="day-val">55</span></a>
+        <a class="cell" href="#day-view" style="background:#d6b878"><span class="day-num">12</span><span class="day-val">62</span></a>
+        <a class="cell recommendation-day" href="#day-view" style="background:#d29c5e"><span class="day-num">13</span><span class="day-val">71</span></a>
+        <a class="cell" href="#day-view" style="background:#d4ad6d"><span class="day-num">14</span><span class="day-val">64</span></a>
+        <a class="cell" href="#day-view" style="background:#cdcfae"><span class="day-num">15</span><span class="day-val">48</span></a>
+        <a class="cell zero" href="#day-view"><span class="day-num">16</span></a>
+        <a class="cell zero" href="#day-view"><span class="day-num">17</span></a>
+
+        <!-- May 18-24 -->
+        <a class="cell" href="#day-view" style="background:#d8be7e"><span class="day-num">18</span><span class="day-val">58</span></a>
+        <a class="cell recommendation-day" href="#day-view" style="background:#cf9558"><span class="day-num">19</span><span class="day-val">73</span></a>
+        <a class="cell recommendation-day" href="#day-view" style="background:#cd8a4f"><span class="day-num">20</span><span class="day-val">76</span></a>
+        <a class="cell recommendation-day" href="#day-view" style="background:#b04a3a; color:#fff"><span class="day-num">21</span><span class="day-val">84</span></a>
+        <a class="cell recommendation-day" href="#day-view" style="background:#d29c5e"><span class="day-num">22</span><span class="day-val">71</span></a>
+        <a class="cell zero off-hours-flag" href="#day-view"><span class="day-num">23</span><span class="day-val">22</span></a>
+        <a class="cell zero" href="#day-view"><span class="day-num">24</span></a>
+
+        <!-- May 25-31 -->
+        <a class="cell" href="#day-view" style="background:#d6b878"><span class="day-num">25</span><span class="day-val">62</span></a>
+        <a class="cell recommendation-day" href="#day-view" style="background:#d29c5e"><span class="day-num">26</span><span class="day-val">70</span></a>
+        <a class="cell" href="#day-view" style="background:#d4a865"><span class="day-num">27</span><span class="day-val">65</span></a>
+        <a class="cell today recommendation-day" href="#day-view" style="background:#d29c5e"><span class="day-num">28</span><span class="day-val">68</span></a>
+        <div class="cell outside"></div>
+        <div class="cell outside"></div>
+        <div class="cell outside"></div>
+      </div>
+      <p style="font-size:11px; color:var(--ink-faint); margin-top:10px; font-style:italic;">
+        Click any day to jump to its detail view. (In this mockup all days link to the same day view; in the real skill each cell renders its own day's data.)
+      </p>
+
+      <div class="legend">
+        <span>Daily composite stress</span>
+        <span class="legend-gradient" title="0 → 100"></span>
+        <span>low</span>
+        <span style="margin-left: auto;"></span>
+        <span class="legend-key"><span class="dot warn"></span>off-hours activity</span>
+        <span class="legend-key"><span class="dot bad"></span>day triggered a recommendation</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================ -->
+  <!-- RECOMMENDATIONS                              -->
+  <!-- ============================================ -->
+  <section id="recommendations">
+    <h2>Patterns detected this month</h2>
+    <div class="rec-list">
+
+      <div class="rec high">
+        <div class="rec-title">
+          Sustained elevated load across 5 consecutive workdays
+          <span class="pill bad">composite</span>
+        </div>
+        <div class="rec-trigger">
+          Triggered by: <code>composite ≥ personal p75 for 5+ consecutive workdays</code>
+          &mdash; observed May 18 (58), May 19 (73), May 20 (76), May 21 (84), May 22 (71).
+        </div>
+        <div class="rec-advice">
+          The week of May 18–22 sat above your typical band the entire time, with no
+          recovery day inside the window. Allostatic-load research is clear that
+          cumulative wear comes from the absence of low-load periods, not from peak
+          load alone. Consider a deliberately low-load day in the current week to
+          break the curve.
+        </div>
+        <div class="rec-cite">
+          Basis: McEwen (1998) &mdash; <cite>Protective and Damaging Effects of Stress Mediators</cite> (NEJM 338:171–179).
+          Recovery framing: Sonnentag &amp; Fritz (2007).
+        </div>
+      </div>
+
+      <div class="rec">
+        <div class="rec-title">
+          Off-hours activity on 2 weekends
+          <span class="pill warn">recovery</span>
+        </div>
+        <div class="rec-trigger">
+          Triggered by: <code>activity &gt; 1hr outside detected work window on 2+ days / 30</code>
+          &mdash; Sat May 9 (1.4h), Sat May 23 (2.1h).
+        </div>
+        <div class="rec-advice">
+          Both weekend sessions fell within 24h of a high-load workday. Psychological
+          detachment from work during off-hours predicts next-day vigor and longer-term
+          well-being; off-hours engagement after a heavy week compounds rather than
+          relieves load.
+        </div>
+        <div class="rec-cite">
+          Basis: Sonnentag, Binnewies &amp; Mojza (2010) &mdash; <cite>Staying well and engaged when demands are high</cite> (J. Applied Psychology 95:965–976).
+        </div>
+      </div>
+
+      <div class="rec">
+        <div class="rec-title">
+          Parallel-stream fan-out exceeded capacity threshold
+          <span class="pill warn">concurrency</span>
+        </div>
+        <div class="rec-trigger">
+          Triggered by: <code>PSC ≥ 4 sustained for ≥30 min on 3+ workdays</code>
+          &mdash; observed May 20, 21, 26 (peak 5 streams on May 21 13:30).
+        </div>
+        <div class="rec-advice">
+          On three days this month you ran 4+ concurrent Claude Code sessions for
+          extended periods. Supervisory-control studies identify fan-out limits where
+          performance degrades non-linearly and subjective stress rises. Sequencing
+          two streams instead of paralleling four often produces equal throughput
+          with materially lower cognitive cost.
+        </div>
+        <div class="rec-cite">
+          Basis: Cummings &amp; Mitchell (2008) &mdash; <cite>Predicting Controller Capacity in Supervisory Control of Multiple UAVs</cite> (IEEE Trans. SMC-A 38:451–460).
+          WM grounding: Cowan (2001).
+        </div>
+      </div>
+
+      <div class="disclaimer">
+        <strong>Informational only.</strong> These signals are behavioral proxies for
+        cognitive load and recovery, not a clinical assessment. For burnout
+        evaluation, the Maslach Burnout Inventory (Maslach &amp; Jackson, 1981) is the
+        validated instrument. If persistently affected, consult occupational-health
+        resources.
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================ -->
+  <!-- DAY VIEW                                     -->
+  <!-- ============================================ -->
+  <section id="day-view">
+    <h2>Day view &middot; Thursday 28 May 2026</h2>
+
+    <div class="panel">
+      <div class="day-meta">
+        <div>
+          <strong>Composite stress curve</strong> &middot; work hours only
+          &middot; <span style="color:var(--bad)">+15 above optimum</span> (peak +37 @ 13:30)
+        </div>
+        <div class="work-window">work window auto-detected: 09:00 – 19:00</div>
+      </div>
+
+      <div class="day-chart-wrap">
+        <svg class="day-chart" viewBox="0 0 1000 240" preserveAspectRatio="none">
+          <!-- horizontal grid -->
+          <line x1="40" y1="40"  x2="990" y2="40"  stroke="#e6e4dd" stroke-width="1"/>
+          <line x1="40" y1="100" x2="990" y2="100" stroke="#e6e4dd" stroke-width="1"/>
+          <line x1="40" y1="160" x2="990" y2="160" stroke="#e6e4dd" stroke-width="1"/>
+          <line x1="40" y1="220" x2="990" y2="220" stroke="#5a5d66" stroke-width="1"/>
+
+          <!-- y-axis labels -->
+          <text x="32" y="44"  text-anchor="end" font-size="10" fill="#8a8d96">100</text>
+          <text x="32" y="104" text-anchor="end" font-size="10" fill="#8a8d96">65</text>
+          <text x="32" y="164" text-anchor="end" font-size="10" fill="#8a8d96">30</text>
+          <text x="32" y="224" text-anchor="end" font-size="10" fill="#8a8d96">0</text>
+
+          <!-- p75 threshold band -->
+          <rect x="40" y="80" width="950" height="20" fill="#d99058" opacity="0.07"/>
+          <text x="985" y="92" text-anchor="end" font-size="9" fill="#d99058" opacity="0.9">your p75</text>
+
+          <!-- stress area (filled) -->
+          <!-- 21 data points: 09:00..19:00 every 30 min -->
+          <!-- values: 25, 30, 45, 55, 60, 68, 65, 70, 75, 82, 78, 75, 60, 55, 65, 72, 75, 73, 70, 65, 50 -->
+          <!-- x: 40 + i * 47.5  →  i 0..20 -->
+          <polygon
+            points="
+              40,220
+              40,170
+              87.5,160
+              135,130
+              182.5,110
+              230,100
+              277.5,84
+              325,90
+              372.5,80
+              420,70
+              467.5,56
+              515,64
+              562.5,70
+              610,100
+              657.5,110
+              705,90
+              752.5,76
+              800,70
+              847.5,74
+              895,80
+              942.5,90
+              990,120
+              990,220
+            "
+            fill="url(#stress-gradient)"
+            opacity="0.6"/>
+
+          <!-- stress line -->
+          <polyline
+            points="
+              40,170
+              87.5,160
+              135,130
+              182.5,110
+              230,100
+              277.5,84
+              325,90
+              372.5,80
+              420,70
+              467.5,56
+              515,64
+              562.5,70
+              610,100
+              657.5,110
+              705,90
+              752.5,76
+              800,70
+              847.5,74
+              895,80
+              942.5,90
+              990,120
+            "
+            fill="none"
+            stroke="#b04a3a"
+            stroke-width="2"
+            stroke-linejoin="round"/>
+
+          <!-- optimum line (Yerkes-Dodson / Flow channel target) -->
+          <line x1="40" y1="139" x2="990" y2="139"
+                stroke="#6c9a8b" stroke-width="2" stroke-dasharray="6 4"/>
+          <text x="985" y="134" text-anchor="end" font-size="11"
+                font-weight="600" fill="#6c9a8b">
+            Optimum 45 &middot; flow channel
+          </text>
+
+          <!-- gradient def -->
+          <defs>
+            <linearGradient id="stress-gradient" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%"  stop-color="#b04a3a"/>
+              <stop offset="60%" stop-color="#d99058"/>
+              <stop offset="100%" stop-color="#fcf7ef"/>
+            </linearGradient>
+          </defs>
+
+          <!-- event markers -->
+          <!-- commits (diamonds, green) at 09:42 (x=104) and 15:08 (x=621) -->
+          <g transform="translate(104,170)" fill="#6c9a8b">
+            <polygon points="0,-6 6,0 0,6 -6,0"/>
+          </g>
+          <text x="104" y="188" font-size="9" fill="#5a5d66" text-anchor="middle">commit</text>
+
+          <g transform="translate(621,100)" fill="#6c9a8b">
+            <polygon points="0,-7 7,0 0,7 -7,0"/>
+          </g>
+          <text x="621" y="122" font-size="9" fill="#5a5d66" text-anchor="middle">commit</text>
+
+          <!-- tool-block (circles, red) at 11:15 (x=253) and 13:30 (x=467) -->
+          <circle cx="253" cy="92" r="5" fill="#b04a3a"/>
+          <text x="253" y="78" font-size="9" fill="#5a5d66" text-anchor="middle">blocked</text>
+
+          <circle cx="467" cy="56" r="5" fill="#b04a3a"/>
+          <text x="467" y="42" font-size="9" fill="#5a5d66" text-anchor="middle">blocked</text>
+
+          <!-- mentions (squares, amber) at 10:08 (x=171), 14:22 (x=515), 17:05 (x=767) -->
+          <rect x="166" y="115" width="10" height="10" fill="#d99058"/>
+          <text x="171" y="138" font-size="9" fill="#5a5d66" text-anchor="middle">@ MR</text>
+
+          <rect x="510" y="59" width="10" height="10" fill="#d99058"/>
+          <text x="515" y="42" font-size="9" fill="#5a5d66" text-anchor="middle">@ MR</text>
+
+          <rect x="762" y="71" width="10" height="10" fill="#d99058"/>
+          <text x="767" y="62" font-size="9" fill="#5a5d66" text-anchor="middle">@ MR</text>
+
+          <!-- x-axis hour labels -->
+          <text x="40"  y="236" font-size="10" fill="#8a8d96" text-anchor="middle">09</text>
+          <text x="135" y="236" font-size="10" fill="#8a8d96" text-anchor="middle">10</text>
+          <text x="230" y="236" font-size="10" fill="#8a8d96" text-anchor="middle">11</text>
+          <text x="325" y="236" font-size="10" fill="#8a8d96" text-anchor="middle">12</text>
+          <text x="420" y="236" font-size="10" fill="#8a8d96" text-anchor="middle">13</text>
+          <text x="515" y="236" font-size="10" fill="#8a8d96" text-anchor="middle">14</text>
+          <text x="610" y="236" font-size="10" fill="#8a8d96" text-anchor="middle">15</text>
+          <text x="705" y="236" font-size="10" fill="#8a8d96" text-anchor="middle">16</text>
+          <text x="800" y="236" font-size="10" fill="#8a8d96" text-anchor="middle">17</text>
+          <text x="895" y="236" font-size="10" fill="#8a8d96" text-anchor="middle">18</text>
+          <text x="990" y="236" font-size="10" fill="#8a8d96" text-anchor="middle">19</text>
+        </svg>
+      </div>
+
+      <div class="event-row">
+        <span><span class="marker commit"></span> commit / closure event</span>
+        <span><span class="marker block"></span> tool-permission block</span>
+        <span><span class="marker mention"></span> external interruption (GitLab @-mention or MR comment)</span>
+        <span><span style="display:inline-block; width:14px; height:2px; background:#6c9a8b; vertical-align:middle; border-top:0; border-bottom:2px dashed #6c9a8b;"></span> personal optimum (flow channel)</span>
+      </div>
+    </div>
+
+    <!-- optimum callout -->
+    <div class="optimum-note">
+      <h3>Personal optimum &middot; cognitive load target</h3>
+      <div class="optimum-row">
+        <div class="optimum-value">45<span class="unit">&nbsp;/ 100</span></div>
+        <div class="optimum-distance">
+          Today: average <strong>60</strong> &rarr;
+          <span class="pos">+15 above optimum</span>
+          (peak <span class="pos">+37</span> @ 13:30, low <span class="neg">−20</span> @ 09:00).
+        </div>
+      </div>
+      <p class="optimum-rationale">
+        Optimum is derived from your own history — the load level at which your
+        closure ratio peaks and your off-hours follow-up is lowest. Anchored in
+        Yerkes-Dodson's inverted-U (<cite>Yerkes &amp; Dodson, 1908</cite>) and
+        Csíkszentmihályi's flow channel (<cite>Csíkszentmihályi, 1990</cite>):
+        performance and well-being follow an inverted-U with cognitive load, not
+        a monotonic curve. Below = under-engaged; above = overload; sustained
+        overload predicts burnout via cumulative allostatic load
+        (<cite>McEwen, 1998</cite>).
+      </p>
+    </div>
+
+    <!-- per-axis tiles -->
+    <div class="axis-tiles">
+      <div class="tile">
+        <div class="tile-name">Concurrent Open Decision Load (CODL)</div>
+        <div class="tile-value">3.2<span class="unit">avg &middot; peak 5.1 @ 13:30</span></div>
+        <div class="tile-trend up">+18% vs 30-day baseline</div>
+
+        <section>
+          <div class="tile-section-head">Technique</div>
+          <div class="tile-section-body">
+            Count of Claude sessions in <em>Ready</em> state + 1.5× sessions in
+            <em>Blocked</em> state, sampled every 30s and averaged over the
+            work window.
+          </div>
+        </section>
+        <section>
+          <div class="tile-section-head">Threshold rationale</div>
+          <div class="tile-section-body">
+            Working memory caps at ~4 chunks. Sustained CODL &gt; 4 exceeds
+            typical WM bandwidth for concurrent decision-tracking.
+            <cite>Cowan 2001</cite>;
+            framework from <cite>Cummings &amp; Mitchell 2008</cite> on
+            supervisory-control fan-out.
+          </div>
+        </section>
+        <section>
+          <div class="tile-section-head">Caveat</div>
+          <div class="tile-section-body">
+            Taskload (objective demand). Correlation with felt workload is
+            moderate (r ≈ 0.4–0.6 across the HCI literature). Pair with
+            NASA-TLX for diagnostic use.
+          </div>
+        </section>
+      </div>
+
+      <div class="tile">
+        <div class="tile-name">Interruption Index</div>
+        <div class="tile-value">1.75<span class="unit">per workhr &middot; 14 events</span></div>
+        <div class="tile-trend up">+32% vs 30-day baseline</div>
+
+        <section>
+          <div class="tile-section-head">Technique</div>
+          <div class="tile-section-body">
+            Weighted count of attention-pulling events per work hour. Weights:
+            intra-Claude switch ×1, cross-session ×1.5, agent completion ×1.8,
+            tool-block ×2, GitLab @-mention ×2.5.
+          </div>
+        </section>
+        <section>
+          <div class="tile-section-head">Threshold rationale</div>
+          <div class="tile-section-body">
+            Interrupted work completes faster but with measurably higher
+            stress and effort.
+            <cite>Mark, Gudith &amp; Klocke 2008</cite>.
+            External weighting reflects ~25% higher recovery cost vs. self-initiated switches
+            (<cite>Mark, Gonzalez &amp; Harris 2005</cite>).
+            Residue accumulation: <cite>Leroy 2009</cite>.
+          </div>
+        </section>
+        <section>
+          <div class="tile-section-head">Caveat</div>
+          <div class="tile-section-body">
+            Source classification depends on local hooks &amp; GitLab event API
+            timing; ±2 minutes precision on external events.
+          </div>
+        </section>
+      </div>
+
+      <div class="tile">
+        <div class="tile-name">Closure Deficit</div>
+        <div class="tile-value">0.55<span class="unit">ratio</span></div>
+        <div class="tile-trend up">+11% vs 30-day baseline</div>
+
+        <section>
+          <div class="tile-section-head">Technique</div>
+          <div class="tile-section-body">
+            Ratio of high-load time (CODL &gt; p50) to closure-event count + idle-recovery
+            minutes, integrated across the work window. 0 = perfect closure; 1 = no closure.
+          </div>
+        </section>
+        <section>
+          <div class="tile-section-head">Threshold rationale</div>
+          <div class="tile-section-body">
+            Burnout is predicted by demands exceeding recoverable resources, not by demands
+            alone. <cite>Demerouti et al. 2001</cite> (JD-R model). Closure of attentional
+            loops is itself a resource (<cite>Leroy 2009</cite>); commits and merges are
+            ground-truth closure markers.
+          </div>
+        </section>
+        <section>
+          <div class="tile-section-head">Caveat</div>
+          <div class="tile-section-body">
+            Implicit closure (long idle) is hard to distinguish from abandonment.
+            Where the metric is ambiguous, only explicit closure (commit, merge,
+            "done" markers) is counted — this biases toward over-reporting deficit.
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <!-- off-hours strip -->
+    <div class="off-hours">
+      <div style="display:flex; justify-content:space-between; align-items:baseline">
+        <h3 style="margin:0">Off-hours engagement &middot; last 28 days</h3>
+        <span style="font-size:12px; color:var(--ink-soft)">
+          activity outside detected work window (09:00–19:00 Mon–Fri)
+        </span>
+      </div>
+      <div class="off-hours-bar">
+        <!-- 28 cells; flag May 9 (idx 8) and May 23 (idx 22) -->
+        <div class="oh-day"></div><div class="oh-day"></div><div class="oh-day"></div>
+        <div class="oh-day"></div><div class="oh-day"></div><div class="oh-day"></div>
+        <div class="oh-day"></div><div class="oh-day"></div>
+        <div class="oh-day flagged" title="Sat 9 May — 1.4h"></div>
+        <div class="oh-day"></div><div class="oh-day"></div><div class="oh-day"></div>
+        <div class="oh-day"></div><div class="oh-day"></div><div class="oh-day"></div>
+        <div class="oh-day"></div><div class="oh-day"></div><div class="oh-day"></div>
+        <div class="oh-day"></div><div class="oh-day"></div><div class="oh-day"></div>
+        <div class="oh-day"></div>
+        <div class="oh-day flagged" title="Sat 23 May — 2.1h"></div>
+        <div class="oh-day"></div><div class="oh-day"></div><div class="oh-day"></div>
+        <div class="oh-day"></div><div class="oh-day"></div>
+      </div>
+      <div class="off-hours-note">
+        2 off-hours days flagged. Both fell within 24h of a high-load workday — see
+        recommendation above.
+      </div>
+    </div>
+
+    <!-- baseline comparison -->
+    <div class="baseline">
+      <div class="delta">+24%</div>
+      <div>
+        Today's composite (68) sits 24% above your 30-day work-hours baseline (55).
+        Baseline excludes weekends &amp; off-hours activity.
+        <em>Baseline window is configurable (default 30 days, calibration period first 14 days of skill use).</em>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================ -->
+  <!-- FOOTER / METHODOLOGY                         -->
+  <!-- ============================================ -->
+  <footer>
+    <h2>Methodology &amp; citations</h2>
+    <p>
+      This profile is generated from three data sources: Claude Code session
+      transcripts (<code>~/.claude/projects/&lt;project&gt;/*.jsonl</code>), local git
+      activity (commits, worktree mtimes, reflog), and GitLab events (MR notes,
+      review requests, @-mentions, todos via <code>glab api</code>). All three are merged
+      into a per-day timestamped event fabric and reduced into the four state classes
+      (Driving / Waiting / Ready / Blocked) for each Claude session, and the three
+      axes (CODL / Interruption Index / Closure Deficit) shown above. Work-hours
+      windows are auto-detected from the 10th–90th percentiles of user-message
+      timestamps per weekday, with optional override via the skill config file.
+    </p>
+
+    <h2 style="font-size:14px; margin-top:18px">Research basis</h2>
+    <ul class="cite-list">
+      <li><span class="cite-key">Cowan 2001</span>
+        Cowan, N. (2001). The magical number 4 in short-term memory: A reconsideration
+        of mental storage capacity. <em>Behavioral and Brain Sciences</em>, 24(1), 87–114.
+        <em>Grounds the CODL ≥ 4 threshold.</em>
+      </li>
+      <li><span class="cite-key">Cummings &amp; Mitchell 2008</span>
+        Cummings, M. L. &amp; Mitchell, P. J. (2008). Predicting controller capacity in
+        supervisory control of multiple UAVs. <em>IEEE Trans. Systems, Man, and Cybernetics — Part A</em>, 38(2), 451–460.
+        <em>Fan-out / PSC framework.</em>
+      </li>
+      <li><span class="cite-key">Crandall &amp; Cummings 2007</span>
+        Crandall, J. W. &amp; Cummings, M. L. (2007). Identifying predictive metrics for
+        supervisory control of multiple robots. <em>IEEE Trans. Robotics</em>, 23(5), 942–951.
+        <em>Neglect-time / interaction-time vocabulary.</em>
+      </li>
+      <li><span class="cite-key">Csíkszentmihályi 1990</span>
+        Csíkszentmihályi, M. (1990). <em>Flow: The Psychology of Optimal Experience</em>.
+        Harper &amp; Row.
+        <em>Flow channel — optimum-load concept, the band between boredom and anxiety.</em>
+      </li>
+      <li><span class="cite-key">Demerouti et al. 2001</span>
+        Demerouti, E., Bakker, A. B., Nachreiner, F. &amp; Schaufeli, W. B. (2001). The
+        Job Demands–Resources Model of Burnout. <em>Journal of Applied Psychology</em>, 86(3), 499–512.
+        <em>Closure-Deficit framing — demands without resources predicts burnout.</em>
+      </li>
+      <li><span class="cite-key">Leroy 2009</span>
+        Leroy, S. (2009). Why is it so hard to do my work? The challenge of attention
+        residue when switching between work tasks. <em>Organizational Behavior and Human Decision Processes</em>, 109(2), 168–181.
+        <em>Attention-residue mechanism for unclosed switches.</em>
+      </li>
+      <li><span class="cite-key">Mark, Gudith &amp; Klocke 2008</span>
+        Mark, G., Gudith, D. &amp; Klocke, U. (2008). The cost of interrupted work: more
+        speed and stress. In <em>Proc. CHI 2008</em>.
+        <em>Interruption Index — productivity vs. stress tradeoff.</em>
+      </li>
+      <li><span class="cite-key">Mark, Gonzalez &amp; Harris 2005</span>
+        Mark, G., Gonzalez, V. M. &amp; Harris, J. (2005). No task left behind? Examining
+        the nature of fragmented work. In <em>Proc. CHI 2005</em>.
+        <em>~23-minute return-to-task figure; external-interruption weighting.</em>
+      </li>
+      <li><span class="cite-key">Mark 2023</span>
+        Mark, G. (2023). <em>Attention Span: A Groundbreaking Way to Restore Balance, Happiness and Productivity</em>. Hanover Square Press.
+        <em>Population baseline for fragmentation distribution.</em>
+      </li>
+      <li><span class="cite-key">Maslach &amp; Jackson 1981</span>
+        Maslach, C. &amp; Jackson, S. E. (1981). The measurement of experienced burnout.
+        <em>Journal of Occupational Behavior</em>, 2(2), 99–113.
+        <em>Maslach Burnout Inventory — validated diagnostic instrument referenced in disclaimer.</em>
+      </li>
+      <li><span class="cite-key">McEwen 1998</span>
+        McEwen, B. S. (1998). Protective and damaging effects of stress mediators.
+        <em>New England Journal of Medicine</em>, 338(3), 171–179.
+        <em>Allostatic-load model — within-day shape, not just totals.</em>
+      </li>
+      <li><span class="cite-key">Sheridan 1992</span>
+        Sheridan, T. B. (1992). <em>Telerobotics, Automation, and Human Supervisory Control</em>. MIT Press.
+        <em>Founded the supervisory-control framework that the whole metric inherits from.</em>
+      </li>
+      <li><span class="cite-key">Sonnentag &amp; Fritz 2007</span>
+        Sonnentag, S. &amp; Fritz, C. (2007). The Recovery Experience Questionnaire.
+        <em>Journal of Occupational Health Psychology</em>, 12(3), 204–221.
+        <em>Closure as recovery resource.</em>
+      </li>
+      <li><span class="cite-key">Sonnentag, Binnewies &amp; Mojza 2010</span>
+        Sonnentag, S., Binnewies, C. &amp; Mojza, E. J. (2010). Staying well and engaged
+        when demands are high: the role of psychological detachment.
+        <em>Journal of Applied Psychology</em>, 95(5), 965–976.
+        <em>Off-hours engagement signal.</em>
+      </li>
+      <li><span class="cite-key">Wickens 2008</span>
+        Wickens, C. D. (2008). Multiple resources and mental workload.
+        <em>Human Factors</em>, 50(3), 449–455.
+        <em>Justifies higher cost for cross-tool / cross-modality switches.</em>
+      </li>
+      <li><span class="cite-key">Hart &amp; Staveland 1988</span>
+        Hart, S. G. &amp; Staveland, L. E. (1988). Development of NASA-TLX (Task Load Index).
+        <em>Advances in Psychology</em>, 52, 139–183.
+        <em>Subjective workload instrument referenced in caveats.</em>
+      </li>
+      <li><span class="cite-key">Yerkes &amp; Dodson 1908</span>
+        Yerkes, R. M. &amp; Dodson, J. D. (1908). The relation of strength of stimulus to
+        rapidity of habit-formation. <em>Journal of Comparative Neurology and Psychology</em>, 18(5), 459–482.
+        <em>Inverted-U law — performance peaks at moderate arousal/load, declines at both extremes.
+        Underpins the optimum-line target on the daily chart.</em>
+      </li>
+    </ul>
+
+    <p style="margin-top:16px">
+      <strong>Honest caveats inherent to the technique.</strong>
+      (1) Supervisory-control research was developed for UAV operators, not LLM users —
+      the transfer is plausible but not yet peer-reviewed. (2) All metrics here are
+      <em>taskload</em>, not <em>workload</em>; individual differences in subjective
+      experience are large. (3) Personal baselines require a calibration period
+      (default 14 days). (4) Cognitive-offloading and skill-atrophy concerns
+      occasionally cited in popular discussions of LLM use (e.g. Kosmyna et al. 2024
+      MIT Media Lab preprint) are under-evidenced and are not load-bearing for this
+      metric.
+    </p>
+  </footer>
+
+</div>
+</body>
+</html>

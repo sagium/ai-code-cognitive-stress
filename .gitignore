@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+.env
+.python-version
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Coverage
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# uv (this tool is stdlib-only; uv is an optional convenience, not pinned)
+uv.lock
+
+# Build artifacts
+/dist/
+/build/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Generated reports (run locally, not for committing)
+out/
+*.report.html
+stress-profile*.html
+
+# Logs
+*.log

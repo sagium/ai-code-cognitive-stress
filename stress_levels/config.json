@@ -1,0 +1,8 @@
+{
+  "_comment": "Runtime configuration for ai-code-cognitive-stress. Edit these defaults to change behaviour without touching code.",
+  "work_window": {
+    "_comment": "Fixed working day (local time, HH:MM) used for ALL calculations (interruption rate per work hour, closure deficit, in-window CODL) and visualisations.",
+    "start": "09:00",
+    "end": "19:00"
+  }
+}

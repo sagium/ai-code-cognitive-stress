@@ -1,0 +1,179 @@
+# Citations registry — single source of truth for all research references
+# surfaced in the rendered stress-profile report.
+#
+# Every metric threshold, weight, and recommendation in the output must be
+# traceable to an entry here. Add new entries before referencing them in
+# code; never let a metric appear in the UI with a bare number.
+#
+# Schema:
+#   - key:       short identifier used in code and the rendered HTML
+#     authors:   "Last, F. & Last, F."
+#     year:      <int>
+#     title:     "..."
+#     venue:     "Journal name, vol(issue), pages"
+#     doi:       "10...." or null
+#     supports:  list of one-line claims this citation backs
+
+- key: cowan-2001
+  authors: "Cowan, N."
+  year: 2001
+  title: "The magical number 4 in short-term memory: A reconsideration of mental storage capacity"
+  venue: "Behavioral and Brain Sciences, 24(1), 87–114"
+  doi: "10.1017/S0140525X01003922"
+  supports:
+    - "CODL ≥ 4 threshold (working-memory capacity for concurrent decision tracking)"
+
+- key: cummings-mitchell-2008
+  authors: "Cummings, M. L. & Mitchell, P. J."
+  year: 2008
+  title: "Predicting controller capacity in supervisory control of multiple UAVs"
+  venue: "IEEE Trans. Systems, Man, and Cybernetics — Part A, 38(2), 451–460"
+  doi: "10.1109/TSMCA.2007.914757"
+  supports:
+    - "Supervisory-control fan-out limits — PSC canary threshold"
+    - "Non-linear performance degradation past personal capacity"
+
+- key: crandall-cummings-2007
+  authors: "Crandall, J. W. & Cummings, M. L."
+  year: 2007
+  title: "Identifying predictive metrics for supervisory control of multiple robots"
+  venue: "IEEE Trans. Robotics, 23(5), 942–951"
+  doi: "10.1109/TRO.2007.907480"
+  supports:
+    - "Neglect-time / interaction-time / fan-out vocabulary"
+
+- key: csikszentmihalyi-1990
+  authors: "Csíkszentmihályi, M."
+  year: 1990
+  title: "Flow: The Psychology of Optimal Experience"
+  venue: "Harper & Row"
+  doi: null
+  supports:
+    - "Flow channel — optimum cognitive load between boredom and anxiety"
+    - "Anchors the optimum-line target on the daily chart"
+
+- key: demerouti-2001
+  authors: "Demerouti, E., Bakker, A. B., Nachreiner, F. & Schaufeli, W. B."
+  year: 2001
+  title: "The Job Demands–Resources Model of Burnout"
+  venue: "Journal of Applied Psychology, 86(3), 499–512"
+  doi: "10.1037/0021-9010.86.3.499"
+  supports:
+    - "Closure Deficit framing — burnout = demands without recoverable resources"
+
+- key: hart-staveland-1988
+  authors: "Hart, S. G. & Staveland, L. E."
+  year: 1988
+  title: "Development of NASA-TLX (Task Load Index): Results of Empirical and Theoretical Research"
+  venue: "In P. A. Hancock & N. Meshkati (Eds.), Human Mental Workload (Advances in Psychology, Vol. 52, pp. 139–183). North-Holland"
+  doi: "10.1016/S0166-4115(08)62386-9"
+  supports:
+    - "Subjective workload instrument referenced in caveats — pairs with our taskload measure"
+
+- key: leroy-2009
+  authors: "Leroy, S."
+  year: 2009
+  title: "Why is it so hard to do my work? The challenge of attention residue when switching between work tasks"
+  venue: "Organizational Behavior and Human Decision Processes, 109(2), 168–181"
+  doi: "10.1016/j.obhdp.2009.04.002"
+  supports:
+    - "Attention residue from unclosed switches"
+    - "Closure events as a cognitive resource"
+
+- key: mark-gudith-klocke-2008
+  authors: "Mark, G., Gudith, D. & Klocke, U."
+  year: 2008
+  title: "The cost of interrupted work: more speed and stress"
+  venue: "Proceedings of the SIGCHI Conference on Human Factors in Computing Systems (CHI '08), pp. 107–110"
+  doi: "10.1145/1357054.1357072"
+  supports:
+    - "Interruption Index — interrupted work is faster but more stressful"
+    - "Justifies treating interruptions as load even when productivity holds"
+
+- key: mark-gonzalez-harris-2005
+  authors: "Mark, G., Gonzalez, V. M. & Harris, J."
+  year: 2005
+  title: "No task left behind? Examining the nature of fragmented work"
+  venue: "Proceedings of the SIGCHI Conference on Human Factors in Computing Systems (CHI '05), pp. 321–330"
+  doi: "10.1145/1054972.1055017"
+  supports:
+    - "~23-minute task-recovery figure after interruption"
+    - "External-vs-self interruption weighting (external ~25% costlier)"
+
+- key: mark-2023
+  authors: "Mark, G."
+  year: 2023
+  title: "Attention Span: A Groundbreaking Way to Restore Balance, Happiness and Productivity"
+  venue: "Hanover Square Press"
+  doi: null
+  supports:
+    - "Population baseline for screen-attention duration (~47s)"
+
+- key: maslach-jackson-1981
+  authors: "Maslach, C. & Jackson, S. E."
+  year: 1981
+  title: "The measurement of experienced burnout"
+  # British spelling — the journal was titled "Journal of Occupational
+  # Behaviour" in 1981; renamed to "Journal of Organizational Behavior"
+  # (American spelling) in 1988.
+  venue: "Journal of Occupational Behaviour, 2(2), 99–113"
+  doi: "10.1002/job.4030020205"
+  supports:
+    - "Maslach Burnout Inventory — validated diagnostic referenced in disclaimer"
+
+- key: mcewen-1998
+  authors: "McEwen, B. S."
+  year: 1998
+  title: "Protective and damaging effects of stress mediators"
+  venue: "New England Journal of Medicine, 338(3), 171–179"
+  doi: "10.1056/NEJM199801153380307"
+  supports:
+    - "Allostatic load — within-day shape matters as much as totals"
+    - "Sustained-overload recommendation"
+
+- key: sheridan-1992
+  authors: "Sheridan, T. B."
+  year: 1992
+  title: "Telerobotics, Automation, and Human Supervisory Control"
+  venue: "MIT Press"
+  doi: null
+  supports:
+    - "Supervisory-control framework — the parent paradigm for LLM oversight"
+
+- key: sonnentag-fritz-2007
+  authors: "Sonnentag, S. & Fritz, C."
+  year: 2007
+  title: "The Recovery Experience Questionnaire: Development and Validation of a Measure for Assessing Recuperation and Unwinding From Work"
+  venue: "Journal of Occupational Health Psychology, 12(3), 204–221"
+  doi: "10.1037/1076-8998.12.3.204"
+  supports:
+    - "Closure as recovery resource"
+    - "Recovery dimensions (detachment, relaxation, mastery, control)"
+
+- key: sonnentag-binnewies-mojza-2010
+  authors: "Sonnentag, S., Binnewies, C. & Mojza, E. J."
+  year: 2010
+  title: "Staying Well and Engaged When Demands Are High: The Role of Psychological Detachment"
+  venue: "Journal of Applied Psychology, 95(5), 965–976"
+  doi: "10.1037/a0020032"
+  supports:
+    - "Off-hours engagement signal — detachment failure predicts next-day exhaustion"
+
+- key: wickens-2008
+  authors: "Wickens, C. D."
+  year: 2008
+  title: "Multiple resources and mental workload"
+  venue: "Human Factors, 50(3), 449–455"
+  doi: "10.1518/001872008X288394"
+  supports:
+    - "Cross-tool / cross-modality switches cost more than within-tool switches"
+
+- key: yerkes-dodson-1908
+  authors: "Yerkes, R. M. & Dodson, J. D."
+  year: 1908
+  title: "The relation of strength of stimulus to rapidity of habit-formation"
+  venue: "Journal of Comparative Neurology and Psychology, 18(5), 459–482"
+  doi: "10.1002/cne.920180503"
+  supports:
+    - "Inverted-U law — performance peaks at moderate arousal/load"
+    - "Underpins the personal-optimum target line"
