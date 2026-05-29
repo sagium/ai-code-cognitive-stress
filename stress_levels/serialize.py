@@ -108,6 +108,7 @@ def _day_metrics_dict(m: DayMetrics) -> dict[str, Any]:
         "composite": m.composite,
         "codl_avg": m.codl_avg,
         "codl_peak": m.codl_peak,
+        "codl_peak_active": m.codl_peak_active,
         "interruption_rate": m.interruption_rate,
         "closure_deficit": m.closure_deficit,
         "off_hours_minutes": m.off_hours_minutes,

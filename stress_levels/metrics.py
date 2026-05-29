@@ -71,6 +71,18 @@ INTERRUPTION_NORMALISATION_CEILING: float = 10.0
 W_TOOL_ERROR: float = 1.5
 W_CROSS_STREAM: float = 3.0
 
+# CODL engagement weighting. A session counts at full weight (1.0) only while
+# you're actively driving it — within FOREGROUND_GRACE of one of your messages.
+# Outside that, it is alive but "cooking" in the background and counts at
+# BACKGROUND_WEIGHT. A background/monitored locus is not free: holding a pending
+# intention costs ~15-20% of ongoing-task capacity (Smith 2003), and open goals
+# keep consuming working memory until closed (Masicampo & Baumeister 2011). We
+# use 0.25 — the conservative top of that empirical range, erring toward a
+# stronger anti-fire-and-forget nudge. These are code-level fallbacks; the
+# runtime source of truth is config.json (codl block), surfaced via load_config.
+FOREGROUND_GRACE_MINUTES_DEFAULT: int = 5
+BACKGROUND_WEIGHT_DEFAULT: float = 0.25
+
 # v1 composite weights — equal (null hypothesis). The methodology footer of
 # the rendered report names this choice and links to the relevant citations.
 COMPOSITE_WEIGHTS: tuple[float, float, float] = (1 / 3, 1 / 3, 1 / 3)
@@ -113,10 +125,11 @@ class WorkWindow:
 class DayMetrics:
     """The three axes plus composite, computed for a single UTC day."""
     day: date
-    codl_avg: float = 0.0
-    codl_peak: int = 0
+    codl_avg: float = 0.0            # engagement-weighted (foreground 1.0, background w_bg)
+    codl_peak: int = 0               # peak headcount of sessions alive at once
+    codl_peak_active: float = 0.0    # peak engagement-weighted load (drives fan-out rec)
     interruption_rate: float = 0.0   # per work hour
-    closure_deficit: float = 0.0     # 0..1
+    closure_deficit: float = 0.0     # 0..1 (weighted CODL > 1)
     off_hours_minutes: int = 0
     composite: float = 0.0           # 0..100
     work_window_local: tuple[time, time] | None = None
@@ -151,12 +164,17 @@ def build_profile(
     """
     local_tz = local_tz or datetime.now().astimezone().tzinfo or timezone.utc
     work_windows = detect_work_windows(aggregates, local_tz=local_tz)
+    codl_cfg = load_config().codl
 
     days: dict[date, DayMetrics] = {}
     for day, agg in sorted(aggregates.items()):
         weekday = day.weekday()
         window = work_windows.get(weekday) or _default_window(weekday)
-        days[day] = per_day_metrics(agg, window, local_tz)
+        days[day] = per_day_metrics(
+            agg, window, local_tz,
+            foreground_grace_minutes=codl_cfg.foreground_grace_minutes,
+            background_weight=codl_cfg.background_weight,
+        )
 
     # Percentiles are computed across active *workdays* only. Weekend
     # activity is excluded by design (see is_weekend()).
@@ -211,6 +229,8 @@ def per_day_metrics(
     agg: DayAggregate,
     work_window: WorkWindow,
     local_tz: tzinfo,
+    foreground_grace_minutes: int = FOREGROUND_GRACE_MINUTES_DEFAULT,
+    background_weight: float = BACKGROUND_WEIGHT_DEFAULT,
 ) -> DayMetrics:
     """Compute the three axes + composite for one day.
 
@@ -243,14 +263,24 @@ def per_day_metrics(
     work_seconds = max(1, int((window_end_utc - window_start_utc).total_seconds()))
     work_hours = work_seconds / 3600.0
 
-    samples = _codl_samples(agg.streams, window_start_utc, window_end_utc)
-    if samples:
-        codl_avg = sum(samples) / len(samples)
-        codl_peak = max(samples)
-        closure_deficit = sum(1 for c in samples if c > 1) / len(samples)
+    # Headcount sweep → peak "sessions open at once" (descriptive).
+    headcounts = _codl_samples(agg.streams, window_start_utc, window_end_utc)
+    # Engagement-weighted sweep → the scored axis. Foreground (you're actively
+    # driving the session) counts 1.0; background ("cooking") counts w_bg.
+    weighted = _codl_weighted_samples(
+        agg.streams, window_start_utc, window_end_utc,
+        grace_seconds=foreground_grace_minutes * 60,
+        background_weight=background_weight,
+    )
+    if weighted:
+        codl_avg = sum(weighted) / len(weighted)
+        codl_peak = max(headcounts)
+        codl_peak_active = max(weighted)
+        closure_deficit = sum(1 for w in weighted if w > 1.0) / len(weighted)
     else:
         codl_avg = 0.0
         codl_peak = 0
+        codl_peak_active = 0.0
         closure_deficit = 0.0
 
     cross_starts = _count_cross_stream_starts(
@@ -288,6 +318,7 @@ def per_day_metrics(
         day=agg.day,
         codl_avg=round(codl_avg, 3),
         codl_peak=codl_peak,
+        codl_peak_active=round(codl_peak_active, 3),
         interruption_rate=round(interruption_rate, 3),
         closure_deficit=round(closure_deficit, 3),
         off_hours_minutes=off_hours_minutes,
@@ -326,12 +357,15 @@ def _codl_samples(
     window_end_utc: datetime,
     sample_interval_seconds: int = 60,
 ) -> list[int]:
-    """Sample concurrent stream count at fixed intervals within the window.
+    """Sample the raw headcount of concurrently-alive streams at fixed
+    intervals within the window.
 
-    Each stream is treated as continuously alive across
-    [first_ts, last_ts]. This is a deliberate over-approximation — a long
-    session with a multi-hour gap is treated as one continuously-open
-    attentional locus. Documented in the rendered report's methodology.
+    Each stream is treated as alive across [first_ts, last_ts]. This is the
+    descriptive "how many sessions were open at once" count — it feeds the
+    peak KPI and the hourly chart. The *scored* CODL axis uses the
+    engagement-weighted sweep (`_codl_weighted_samples`), which discounts
+    background/idle time so that leaving a session open while you're away
+    doesn't read as active supervision.
     """
     if window_end_utc <= window_start_utc:
         return []
@@ -344,6 +378,57 @@ def _codl_samples(
             if s.first_ts <= t <= s.last_ts:
                 count += 1
         samples.append(count)
+        t += step
+    return samples
+
+
+def _stream_weight_at(
+    s: StreamDayActivity,
+    t: datetime,
+    grace_seconds: float,
+    background_weight: float,
+) -> float:
+    """Engagement weight of one stream at instant `t`.
+
+    1.0 (foreground) when `t` falls within `grace_seconds` AFTER one of the
+    user's messages in this stream — you're actively driving it. Otherwise
+    `background_weight` while the stream is alive (cooking / parked), and 0
+    once it's outside [first_ts, last_ts]. Grounded in Smith (2003) and
+    Masicampo & Baumeister (2011): a background locus costs less than an
+    active one, but more than nothing.
+    """
+    if not (s.first_ts <= t <= s.last_ts):
+        return 0.0
+    for ts in s.user_msg_timestamps:
+        if 0 <= (t - ts).total_seconds() <= grace_seconds:
+            return 1.0
+    return background_weight
+
+
+def _codl_weighted_samples(
+    streams: tuple[StreamDayActivity, ...],
+    window_start_utc: datetime,
+    window_end_utc: datetime,
+    grace_seconds: float,
+    background_weight: float,
+    sample_interval_seconds: int = 60,
+) -> list[float]:
+    """Sample engagement-weighted concurrency within the window: at each
+    instant, sum every stream's weight (see `_stream_weight_at`). A session
+    you're actively driving contributes 1.0; one cooking in the background
+    contributes `background_weight`."""
+    if window_end_utc <= window_start_utc:
+        return []
+    samples: list[float] = []
+    t = window_start_utc
+    step = timedelta(seconds=sample_interval_seconds)
+    while t <= window_end_utc:
+        samples.append(
+            sum(
+                _stream_weight_at(s, t, grace_seconds, background_weight)
+                for s in streams
+            )
+        )
         t += step
     return samples
 

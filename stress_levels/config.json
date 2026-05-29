@@ -4,5 +4,10 @@
     "_comment": "Fixed working day (local time, HH:MM) used for ALL calculations (interruption rate per work hour, closure deficit, in-window CODL) and visualisations.",
     "start": "09:00",
     "end": "19:00"
+  },
+  "codl": {
+    "_comment": "Engagement weighting for CODL. A session counts at full weight (1.0) only while you're actively driving it — within foreground_grace_minutes of one of YOUR messages. The rest of the time it is alive but 'cooking' in the background and counts at background_weight. Research basis: prospective-memory monitoring cost is ~15-20% of ongoing-task capacity (Smith 2003), and open goals consume working memory until closed (Masicampo & Baumeister 2011) — so background is discounted but never free. 0.25 sits at the conservative top of that range.",
+    "foreground_grace_minutes": 5,
+    "background_weight": 0.25
   }
 }

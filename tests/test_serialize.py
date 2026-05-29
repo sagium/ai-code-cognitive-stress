@@ -93,6 +93,7 @@ def test_profile_to_dict_includes_per_day_metric_fields():
     assert day["composite"] == 64.0
     assert day["codl_avg"] == 1.56
     assert day["codl_peak"] == 3
+    assert "codl_peak_active" in day
     assert day["interruption_rate"] == 6.04
     assert day["closure_deficit"] == 0.40
     assert day["work_window_local"] == ["09:00", "18:00"]

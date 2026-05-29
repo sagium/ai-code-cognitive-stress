@@ -101,9 +101,10 @@ class StreamDayActivity:
 
     @property
     def active_seconds(self) -> int:
-        """Wall-clock span between first and last event. Underestimates true
-        engagement if there are long gaps; the state machine in metrics.py
-        layers a more honest 'engaged time' on top of this."""
+        """Wall-clock span between first and last event. Over-states true
+        engagement when there are long idle gaps; metrics.py applies an
+        engagement-weighted CODL (foreground vs background) so those gaps
+        count at a reduced weight rather than as active supervision."""
         return int((self.last_ts - self.first_ts).total_seconds())
 
 

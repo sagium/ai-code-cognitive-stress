@@ -213,7 +213,7 @@ Every threshold, weight, and recommendation traces to an entry in
 each citation at the point the number appears, never as a bare figure.
 
 <details>
-<summary><strong>Full reference list (17)</strong></summary>
+<summary><strong>Full reference list (19)</strong></summary>
 
 - Cowan, N. (2001). *The magical number 4 in short-term memory.* Behavioral and Brain Sciences, 24(1).
 - Cummings, M. L. & Mitchell, P. J. (2008). *Predicting controller capacity in supervisory control of multiple UAVs.* IEEE Trans. SMC-A, 38(2).

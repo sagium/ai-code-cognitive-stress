@@ -17,10 +17,12 @@ from stress_levels.metrics import (
     WorkWindow,
     _apportion_to_window,
     _codl_samples,
+    _codl_weighted_samples,
     _composite_score,
     _count_cross_stream_starts,
     _hour_to_time,
     _percentile,
+    _stream_weight_at,
     _union_active_minutes,
     build_profile,
     derive_personal_optimum,
@@ -127,6 +129,77 @@ def test_codl_samples_empty_window():
         _utc(2026, 5, 15, 10),  # end before start
     )
     assert samples == []
+
+
+# ---------------------------------------------------------------------------
+# Engagement weighting (foreground vs background "cooking")
+
+def test_stream_weight_foreground_background_and_dead():
+    s = _stream("a", _utc(2026, 5, 15, 10), _utc(2026, 5, 15, 12),
+                user_msg_timestamps=(_utc(2026, 5, 15, 10),))
+    grace = 5 * 60
+    # At the user message → foreground.
+    assert _stream_weight_at(s, _utc(2026, 5, 15, 10), grace, 0.25) == 1.0
+    # 3 min after the message, still within grace → foreground.
+    assert _stream_weight_at(s, _utc(2026, 5, 15, 10, 3), grace, 0.25) == 1.0
+    # 30 min later: alive but cooking → background weight.
+    assert _stream_weight_at(s, _utc(2026, 5, 15, 10, 30), grace, 0.25) == 0.25
+    # Before it opened and after it closed → 0.
+    assert _stream_weight_at(s, _utc(2026, 5, 15, 9), grace, 0.25) == 0.0
+    assert _stream_weight_at(s, _utc(2026, 5, 15, 13), grace, 0.25) == 0.0
+
+
+def test_codl_weighted_samples_discounts_background_minutes():
+    # One session: a single message at the start, then it cooks for an hour.
+    s = _stream("a", _utc(2026, 5, 15, 10), _utc(2026, 5, 15, 11),
+                user_msg_timestamps=(_utc(2026, 5, 15, 10),))
+    samples = _codl_weighted_samples(
+        (s,), _utc(2026, 5, 15, 10), _utc(2026, 5, 15, 11),
+        grace_seconds=5 * 60, background_weight=0.25,
+    )
+    # First ~6 samples foreground (1.0), the rest background (0.25).
+    assert samples[0] == 1.0
+    assert samples[-1] == 0.25
+    assert any(s == 1.0 for s in samples) and any(s == 0.25 for s in samples)
+
+
+def test_per_day_metrics_background_session_scores_lower_than_active():
+    """Same two-hour session: actively driven the whole time vs left cooking
+    after one prompt. The cooking version must score lower."""
+    window = WorkWindow(weekday=4, start=time(9), end=time(18))
+    span = (_utc(2026, 5, 15, 10), _utc(2026, 5, 15, 12))
+    active = _agg(date(2026, 5, 15), [
+        _stream("a", *span,
+                user_msg_timestamps=tuple(
+                    _utc(2026, 5, 15, 10, m) for m in range(0, 60, 4)
+                ) + tuple(_utc(2026, 5, 15, 11, m) for m in range(0, 60, 4))),
+    ])
+    cooking = _agg(date(2026, 5, 15), [
+        _stream("a", *span, user_msg_timestamps=(_utc(2026, 5, 15, 10),)),
+    ])
+    m_active = per_day_metrics(active, window, UTC)
+    m_cooking = per_day_metrics(cooking, window, UTC)
+    # The cooking session spends most of its life at background weight, so its
+    # time-averaged CODL is materially lower than the actively-driven one.
+    assert m_active.codl_avg > m_cooking.codl_avg
+    # Both have one session open, and each reaches foreground at some point →
+    # same headcount peak and same instantaneous active peak (1.0).
+    assert m_active.codl_peak == m_cooking.codl_peak == 1
+    assert m_cooking.composite < m_active.composite
+
+
+def test_per_day_metrics_background_fanout_does_not_count_as_active():
+    """Four sessions all cooking in the background: headcount peak is 4, but
+    the active peak stays near the background weight — no false WM-cap alarm."""
+    window = WorkWindow(weekday=4, start=time(9), end=time(18))
+    streams = [
+        _stream(f"s{i}", _utc(2026, 5, 15, 10), _utc(2026, 5, 15, 16))
+        for i in range(4)
+    ]
+    m = per_day_metrics(_agg(date(2026, 5, 15), streams), window, UTC)
+    assert m.codl_peak == 4
+    # 4 background sessions × 0.25 ≈ 1.0 — well under the WM-cap of 4.
+    assert m.codl_peak_active < 2.0
 
 
 # ---------------------------------------------------------------------------
@@ -396,9 +469,15 @@ def test_per_day_metrics_single_stream_low_load():
 
 
 def test_per_day_metrics_two_parallel_streams_raises_deficit():
+    # Both streams are ACTIVELY driven during the overlap (user messages in
+    # window), so they're foreground and the weighted load exceeds 1 → deficit.
     streams = [
-        _stream("a", _utc(2026, 5, 15, 10), _utc(2026, 5, 15, 14)),
-        _stream("b", _utc(2026, 5, 15, 11), _utc(2026, 5, 15, 13)),
+        _stream("a", _utc(2026, 5, 15, 10), _utc(2026, 5, 15, 14),
+                user_msg_timestamps=(_utc(2026, 5, 15, 11, 30),
+                                     _utc(2026, 5, 15, 12, 30))),
+        _stream("b", _utc(2026, 5, 15, 11), _utc(2026, 5, 15, 13),
+                user_msg_timestamps=(_utc(2026, 5, 15, 11, 30),
+                                     _utc(2026, 5, 15, 12, 30))),
     ]
     agg = _agg(date(2026, 5, 15), streams)
     window = WorkWindow(weekday=4, start=time(9), end=time(18))

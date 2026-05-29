@@ -569,16 +569,20 @@ def _render_recommendations(profile: StressProfile) -> str:
             citation="Sonnentag, Binnewies &amp; Mojza (2010) — <em>Staying well and engaged when demands are high</em>.",
         ))
 
-    # Pattern: peak fan-out
+    # Pattern: peak fan-out. Keyed on the engagement-weighted active peak, not
+    # raw headcount — sessions left cooking in the background don't count as
+    # exceeding working-memory capacity (you weren't actively tracking them).
     if profile.days:
-        max_peak = max(m.codl_peak for m in profile.days.values())
-        days_at_high_fanout = sum(1 for m in profile.days.values() if m.codl_peak >= 4)
+        max_peak = max(m.codl_peak_active for m in profile.days.values())
+        days_at_high_fanout = sum(
+            1 for m in profile.days.values() if m.codl_peak_active >= 4
+        )
         if days_at_high_fanout >= 3:
             recs.append(_recommendation(
                 title=f"Parallel-stream fan-out exceeded WM capacity on {days_at_high_fanout} days",
                 severity="medium",
-                trigger=f"peak concurrent streams &ge; 4 on {days_at_high_fanout} workdays "
-                        f"(max observed: {max_peak})",
+                trigger=f"actively-supervised concurrent streams &ge; 4 on "
+                        f"{days_at_high_fanout} workdays (max observed: {max_peak:.1f})",
                 advice=(
                     "Supervisory-control studies identify fan-out limits "
                     "where performance degrades non-linearly and subjective "
@@ -1044,6 +1048,18 @@ def _render_methodology(profile: StressProfile, stats: AggregateStats | None) ->
         deficit shown is a load-presence proxy, not closure-completion.
         (4) Personal optimum and percentiles require &ge; 14 days of activity;
         fewer days renders as "calibrating".
+      </p>
+      <p>
+        <strong>Foreground vs background sessions.</strong> A session counts at
+        full CODL weight only while you're actively driving it (within a short
+        grace window of one of your messages). The rest of the time it is alive
+        but "cooking" in the background and counts at a reduced weight (default
+        0.25) — discounted, because you're not actively tracking it, but never
+        zero: holding a pending intention still costs ~15–20% of ongoing-task
+        capacity (Smith, 2003) and an open goal keeps occupying working memory
+        until it's closed or planned (Masicampo &amp; Baumeister, 2011). So a
+        session you leave running while you step away is penalised lightly, not
+        as if you were juggling it.
       </p>
       <h3>Research basis</h3>
       <ul class="cite-list">

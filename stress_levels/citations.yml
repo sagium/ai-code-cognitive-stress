@@ -109,6 +109,16 @@
   supports:
     - "Population baseline for screen-attention duration (~47s)"
 
+- key: masicampo-baumeister-2011
+  authors: "Masicampo, E. J. & Baumeister, R. F."
+  year: 2011
+  title: "Consider it done! Plan making can eliminate the cognitive effects of unfulfilled goals"
+  venue: "Journal of Personality and Social Psychology, 101(4), 667–683"
+  doi: "10.1037/a0024192"
+  supports:
+    - "Background-session weight is > 0: open/unfulfilled goals consume attention and working memory until closed or planned"
+    - "Reinforces the Closure Deficit axis — closing or planning a loop frees the resource"
+
 - key: maslach-jackson-1981
   authors: "Maslach, C. & Jackson, S. E."
   year: 1981
@@ -139,6 +149,15 @@
   doi: null
   supports:
     - "Supervisory-control framework — the parent paradigm for LLM oversight"
+
+- key: smith-2003
+  authors: "Smith, R. E."
+  year: 2003
+  title: "The cost of remembering to remember in event-based prospective memory: Investigating the capacity demands of delayed intention performance"
+  venue: "Journal of Experimental Psychology: Learning, Memory, and Cognition, 29(3), 347–361"
+  doi: "10.1037/0278-7393.29.3.347"
+  supports:
+    - "Background-session weight magnitude (~0.15–0.25): holding a pending intention slows the ongoing task by ~15–20% — the cost of monitoring, not full engagement"
 
 - key: sonnentag-fritz-2007
   authors: "Sonnentag, S. & Fritz, C."

@@ -288,9 +288,12 @@ def test_report_off_hours_recommendation_fires_when_two_days_have_off_hours():
 
 
 def test_report_fan_out_recommendation_fires_when_three_days_at_high_peak():
+    # The fan-out rec keys on the engagement-weighted active peak, so the
+    # high-fanout days must have been ACTIVELY supervised (codl_peak_active>=4),
+    # not just have 4 sessions cooking in the background.
     days = {
         date(2026, 5, d): DayMetrics(
-            day=date(2026, 5, d), composite=40, codl_peak=4,
+            day=date(2026, 5, d), composite=40, codl_peak=4, codl_peak_active=4.0,
             work_window_local=(time(9), time(18)),
         )
         for d in (1, 2, 3)

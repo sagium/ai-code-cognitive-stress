@@ -32,8 +32,23 @@ class WorkWindow:
 
 
 @dataclass(frozen=True, slots=True)
+class CodlConfig:
+    """Engagement weighting for the CODL axis.
+
+    A session counts at full weight only while actively driven — within
+    ``foreground_grace_minutes`` of one of your messages; otherwise it is
+    "cooking" in the background and counts at ``background_weight`` (0..1).
+    Research basis lives in config.json (Smith 2003; Masicampo & Baumeister
+    2011): a monitored/pending task costs ~15-20% of active capacity, not
+    zero and not full."""
+    foreground_grace_minutes: int = 5
+    background_weight: float = 0.25
+
+
+@dataclass(frozen=True, slots=True)
 class Config:
     work_window: WorkWindow
+    codl: CodlConfig = CodlConfig()
 
 
 def _parse_hhmm(value: str) -> time:
@@ -60,6 +75,29 @@ def load_config(path: Path | None = None) -> Config:
         raise ValueError(
             f"work_window end ({end}) must be after start ({start})"
         )
-    config = Config(work_window=WorkWindow(start=start, end=end))
+    config = Config(
+        work_window=WorkWindow(start=start, end=end),
+        codl=_parse_codl(data.get("codl") or {}),
+    )
     _CONFIG_CACHE[key] = config
     return config
+
+
+def _parse_codl(raw: dict) -> CodlConfig:
+    """Parse + validate the CODL engagement-weighting block, falling back to
+    defaults for any missing key."""
+    defaults = CodlConfig()
+    grace = raw.get("foreground_grace_minutes", defaults.foreground_grace_minutes)
+    weight = raw.get("background_weight", defaults.background_weight)
+    if not isinstance(grace, (int, float)) or grace < 0:
+        raise ValueError(
+            f"codl.foreground_grace_minutes must be >= 0, got {grace!r}"
+        )
+    if not isinstance(weight, (int, float)) or not 0.0 <= weight <= 1.0:
+        raise ValueError(
+            f"codl.background_weight must be in [0, 1], got {weight!r}"
+        )
+    return CodlConfig(
+        foreground_grace_minutes=int(grace),
+        background_weight=float(weight),
+    )
