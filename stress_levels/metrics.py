@@ -62,9 +62,13 @@ from .config import load_config
 # saturating at 1.0.
 CODL_NORMALISATION_CEILING: float = 5.0
 
-# Mark, Gudith & Klocke (2008) reported 4.36 interruptions/hour on average in
-# their office study; >10/hr is well into "fragmented" territory. We use 10/hr
-# as the normalisation ceiling so a moderate day lands well below 1.0.
+# González & Mark (2004) found knowledge workers switch working sphere about
+# every ~11 minutes (≈5/hour) in the field; Mark, Gonzalez & Harris (2005)
+# document how fragmented that work is. We set the normalisation ceiling at
+# 10/hr — roughly double that field baseline, well into "fragmented" territory —
+# so a moderate day lands well below 1.0. (Note: the 2008 lab experiment shows
+# interrupted work is faster but more stressful; it does not report a field
+# interruption rate.)
 INTERRUPTION_NORMALISATION_CEILING: float = 10.0
 
 # Interruption-event weights — source-by-source.

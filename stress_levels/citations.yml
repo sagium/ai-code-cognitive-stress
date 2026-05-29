@@ -80,6 +80,15 @@
     - "Attention residue from unclosed switches"
     - "Closure events as a cognitive resource"
 
+- key: gonzalez-mark-2004
+  authors: "González, V. M. & Mark, G."
+  year: 2004
+  title: '"Constant, constant, multi-tasking craziness": Managing multiple working spheres'
+  venue: "Proceedings of the SIGCHI Conference on Human Factors in Computing Systems (CHI '04), pp. 113–120"
+  doi: "10.1145/985692.985707"
+  supports:
+    - "Field baseline for knowledge-worker switching — a working sphere about every ~11 min (≈5/hour); anchors the interruption-ceiling comparison"
+
 - key: mark-gudith-klocke-2008
   authors: "Mark, G., Gudith, D. & Klocke, U."
   year: 2008

@@ -216,12 +216,13 @@ Every threshold, weight, and recommendation traces to an entry in
 each citation at the point the number appears, never as a bare figure.
 
 <details>
-<summary><strong>Full reference list (19)</strong></summary>
+<summary><strong>Full reference list (20)</strong></summary>
 
 - Cowan, N. (2001). *The magical number 4 in short-term memory.* Behavioral and Brain Sciences, 24(1).
 - Cummings, M. L. & Mitchell, P. J. (2008). *Predicting controller capacity in supervisory control of multiple UAVs.* IEEE Trans. SMC-A, 38(2).
 - Crandall, J. W. & Cummings, M. L. (2007). *Identifying predictive metrics for supervisory control of multiple robots.* IEEE Trans. Robotics, 23(5).
 - Sheridan, T. B. (1992). *Telerobotics, Automation, and Human Supervisory Control.* MIT Press.
+- González, V. M. & Mark, G. (2004). *"Constant, constant, multi-tasking craziness": Managing multiple working spheres.* CHI '04, pp. 113–120.
 - Mark, G., Gudith, D. & Klocke, U. (2008). *The cost of interrupted work: more speed and stress.* CHI '08.
 - Mark, G., Gonzalez, V. M. & Harris, J. (2005). *No task left behind? Examining the nature of fragmented work.* CHI '05.
 - Mark, G. (2023). *Attention Span.* Hanover Square Press.
