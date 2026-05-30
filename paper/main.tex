@@ -352,11 +352,11 @@ detachment, not peaks, predicts harm~\cite{mcewen1998,sonnentag2007,sonnentag201
 ]
 \node[box] (artifact) {Code artifact $+$ paper (with self-critique)};
 \node[box, below=of artifact] (pick) {Pick one self-critique:\\an adversarial review of code \emph{and} premise};
-\node[box, below=of pick] (verify) {Verify against the \emph{running} code (Opus): real? accurate?};
+\node[box, below=of pick] (verify) {Verify against the \emph{running} code (LLM agent): real? accurate?};
 \node[dec, below=of verify] (real) {critique real?};
-\node[box, below=8mm of real] (plan) {Plan the fix (Opus)};
+\node[box, below=8mm of real] (plan) {Plan the fix (LLM agent)};
 \node[gate, below=of plan] (approve) {Human approves the plan};
-\node[box, below=of approve] (impl) {Implement (Sonnet); tests stay green};
+\node[box, below=of approve] (impl) {Implement (LLM agent); tests stay green};
 \node[box, below=of impl] (recon) {Reconcile paper: method $+$ self-critique};
 \node[box, right=5mm of plan, text width=24mm] (correct) {Correct the paper to match the code};
 \node[gate, below=of recon] (merge) {Rebuild PDF; human reviews PDF $+$ diff; merge};
@@ -377,7 +377,7 @@ detachment, not peaks, predicts harm~\cite{mcewen1998,sonnentag2007,sonnentag201
 \caption{The \texttt{reconcile-critique} loop (\S\ref{sec:reflexive}): the paper's
 self-critique drives revision of an \emph{executable} artifact. Two human gates
 (shaded) bracket every change---plan approval and merge review. Verification and
-planning use one model (Opus); implementation another (Sonnet). A pass that finds
+planning use one LLM agent; implementation a separate one. A pass that finds
 the critique unfounded corrects the paper instead of the code.}
 \label{fig:loop}
 \end{figure}
