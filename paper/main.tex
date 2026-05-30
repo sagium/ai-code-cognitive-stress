@@ -41,7 +41,10 @@ day. This is a distinct cognitive regime, it accumulates, and existing
 developer-productivity dashboards do not measure it---they count output, not
 cognitive cost. We present a method and an open, \emph{local-only} tool that
 turns the session logs these tools already generate into a daily,
-individualized load index. The index decomposes into three behaviourally
+individualized load index. It is meant as a self-assessment aid for an
+individual engineer---a good-enough proxy for the multitasking overload that
+precedes burnout---and it deliberately scopes to interaction with coding agents,
+not the entire workday. The index decomposes into three behaviourally
 grounded axes---Concurrent Operational Demand Load (CODL), an Interruption
 Index, and a Closure Deficit---each anchored to an established literature
 (working-memory capacity, supervisory-control fan-out, the interruption and
@@ -86,7 +89,22 @@ research-grounded, \emph{private} picture of this load over time, scored against
 claim to measure stress, to diagnose burnout, or to replace validated
 subjective instruments. We claim to make a previously invisible
 \emph{behavioural} quantity visible, on the user's own machine, with every
-threshold traceable to the literature. The contributions are:
+threshold traceable to the literature.
+
+The intended use is \emph{individual self-assessment}: a working engineer gauging
+their own multitasking and exhaustion over time, with the index as a good-enough
+behavioural proxy for the overload patterns that precede burnout---an early
+warning to act on, not a clinical diagnosis (\S\ref{sec:threats}). A scope
+condition follows from how the signal is built: it sees only the developer's
+\emph{interaction with coding agents}, not the whole working day. That partial
+coverage is itself informative. A day whose agent-interaction load is extreme
+implies one of two things about the rest of that day---either little cognitive
+capacity remains for other meaningful work, or that work, including the
+AI-assisted development itself, is degraded by the attention deficit the index is
+registering. The index is thus better read as \emph{how much of a finite
+attention budget agent-supervision consumed} than as a tally of activity.
+
+The contributions are:
 \begin{enumerate}
   \item A decomposition of agent-supervision taskload into three axes with
   explicit, citation-anchored thresholds (\S\ref{sec:method}).
@@ -145,6 +163,41 @@ Burnout Inventory~\cite{maslach1981}. Our index is neither; it is an objective
 behavioural proxy, and \S\ref{sec:threats} treats the gap as the central threat.
 
 \section{Method}\label{sec:method}
+
+\begin{figure}[t]
+\centering
+\scriptsize
+\begin{tikzpicture}[
+  node distance=3.4mm,
+  pbox/.style={draw, rounded corners, align=center, inner sep=3pt,
+               text width=62mm, minimum height=6mm},
+  every path/.style={draw, ->}
+]
+\node[pbox] (logs) {Local session logs --- one adapter per coding tool};
+\node[pbox, below=of logs] (events) {Typed events: your messages, assistant messages, tool use / result / error --- each timestamped};
+\node[pbox, below=of events] (agg) {Per-day aggregate: per-stream span $[a_s,b_s]$ and your-message times; local \texttt{git} closures};
+\node[pbox, below=of agg] (sample) {One-minute \emph{engagement-weighted} sampling inside the inferred work window: $e_s(t)\!\in\!\{1,\beta,0\}$,\; $C(t)=\sum_s e_s(t)$};
+\node[pbox, below=of sample] (axes) {Three axes: CODL $\cdot$ Interruption Index $\cdot$ Closure Deficit};
+\node[pbox, below=of axes] (comp) {Composite (0--100, equal weights) $+$ additive off-hours load};
+\node[pbox, below=of comp] (score) {Scored against your \emph{own} baseline and personal optimum $\rightarrow$ daily view};
+\path (logs) -- (events);
+\path (events) -- (agg);
+\path (agg) -- (sample);
+\path (sample) -- (axes);
+\path (axes) -- (comp);
+\path (comp) -- (score);
+\end{tikzpicture}
+\caption{From logs to a daily score, entirely on the user's machine. Overlapping
+sessions are swept at one-minute resolution and weighted by engagement
+(foreground $1$, background $\beta$), so raw concurrency becomes the
+engagement-weighted load $C(t)$ (\S\ref{sec:codl}); the three axes and composite
+are evaluated per day and read only against the individual's own history.}
+\label{fig:pipeline}
+\end{figure}
+
+The pipeline from raw logs to a daily score is summarised in
+Figure~\ref{fig:pipeline}; the remainder of this section defines each stage.
+
 \subsection{Data model}
 Input is the set of local session transcripts a coding tool already writes, plus
 local \texttt{git} history. A pluggable adapter maps each tool's log into a
@@ -550,8 +603,13 @@ but one that could misattribute errors from bursty or session-boundary activity.
 
 \paragraph{Construct and causal claims.} ``Stress'' in the project name is
 aspirational; the composite is a load index. No causal link to burnout outcomes
-(e.g.\ MBI~\cite{maslach1981}) is claimed or shown. Reactivity is also possible:
-surfacing the score may itself change behaviour.
+(e.g.\ MBI~\cite{maslach1981}) is claimed or shown; the index is offered as a
+self-assessment proxy for the overload patterns \emph{associated} with burnout
+risk---an early-warning aid---not a validated burnout measure. Reactivity is also
+possible: surfacing the score may itself change behaviour. And because the index
+covers only coding-agent interaction (\S\ref{sec:method}), it is silent on total
+workload: a low score does not certify a sustainable day, only a light
+\emph{agent-supervision} load.
 
 \section{Falsifiable Predictions and Validation Roadmap}\label{sec:validation}
 The above critiques are not fatal; they are a research agenda. We state
