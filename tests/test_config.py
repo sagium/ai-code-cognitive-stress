@@ -21,6 +21,22 @@ def test_parse_hhmm_rejects_out_of_range_or_malformed(bad):
         _parse_hhmm(bad)
 
 
+def test_load_config_work_window_absent_yields_none(tmp_path):
+    """Omitting work_window entirely → work_window is None (inference mode)."""
+    cfg = tmp_path / "config.json"
+    cfg.write_text(json.dumps({}), encoding="utf-8")
+    loaded = load_config(cfg)
+    assert loaded.work_window is None
+
+
+def test_load_config_work_window_null_yields_none(tmp_path):
+    """Explicitly setting work_window to null → work_window is None."""
+    cfg = tmp_path / "config.json"
+    cfg.write_text(json.dumps({"work_window": None}), encoding="utf-8")
+    loaded = load_config(cfg)
+    assert loaded.work_window is None
+
+
 def test_load_config_rejects_end_before_start(tmp_path):
     cfg = tmp_path / "config.json"
     cfg.write_text(
@@ -42,6 +58,13 @@ def test_shipped_config_has_codl_defaults():
     cfg = load_config()  # the real config.json
     assert cfg.codl.foreground_grace_minutes == 5
     assert cfg.codl.background_weight == 0.25
+
+
+def test_shipped_config_has_no_work_window_override():
+    """The shipped config.json deliberately omits work_window so that the
+    default behaviour is personal inference (not a fixed pinned band)."""
+    cfg = load_config()
+    assert cfg.work_window is None
 
 
 def test_codl_block_missing_falls_back_to_defaults(tmp_path):

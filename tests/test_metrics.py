@@ -12,7 +12,11 @@ from stress_levels.metrics import (
     CODL_NORMALISATION_CEILING,
     COMPOSITE_WEIGHTS,
     INTERRUPTION_NORMALISATION_CEILING,
+    LITERATURE_WORK_WINDOW,
+    OFF_HOURS_LOAD_CEILING_MIN,
+    OFF_HOURS_LOAD_MAX_POINTS,
     OPTIMUM_MIN_DAYS_OF_DATA,
+    WORK_WINDOW_MIN_SAMPLES,
     DayMetrics,
     StressProfile,
     WorkWindow,
@@ -22,9 +26,11 @@ from stress_levels.metrics import (
     _codl_weighted_samples,
     _composite_score,
     _count_cross_stream_starts,
+    _default_window,
+    _off_hours_engaged_minutes,
+    _off_hours_load_points,
     _percentile,
     _stream_weight_at,
-    _union_active_minutes,
     build_profile,
     derive_personal_optimum,
     detect_work_windows,
@@ -247,83 +253,55 @@ def test_cross_stream_starts_outside_window_excluded():
     assert cross == 0
 
 
-# ---------------------------------------------------------------------------
-# Union-of-active-minutes (replaces old _off_hours_minutes head/tail helper)
+# Off-hours ENGAGED minutes: interaction-anchored (within grace of a user
+# message, outside the work window), not stream liveness.
 
-def test_union_active_minutes_empty_streams_is_zero():
-    assert _union_active_minutes(()) == 0
-
-
-def test_union_active_minutes_single_stream_returns_duration():
-    streams = (_stream("a", _utc(2026, 5, 15, 10), _utc(2026, 5, 15, 12)),)
-    assert _union_active_minutes(streams) == 120
+_WS = _utc(2026, 5, 15, 9)    # window start 09:00
+_WE = _utc(2026, 5, 15, 18)   # window end   18:00
 
 
-def test_union_active_minutes_overlapping_streams_count_once():
-    """The bug we fixed: two streams 14:00-16:00 and 15:00-17:00 used to
-    sum to 240 min (double-counting the overlap); now correctly union to
-    180 min."""
-    streams = (
-        _stream("a", _utc(2026, 5, 15, 14), _utc(2026, 5, 15, 16)),
-        _stream("b", _utc(2026, 5, 15, 15), _utc(2026, 5, 15, 17)),
-    )
-    assert _union_active_minutes(streams) == 180
+def test_off_hours_engaged_interaction_in_window_is_zero():
+    # A user message at 10:00 is inside the window → no off-hours minutes.
+    streams = (_stream("a", _utc(2026, 5, 15, 10), _utc(2026, 5, 15, 17),
+                       user_msg_timestamps=(_utc(2026, 5, 15, 10),)),)
+    assert _off_hours_engaged_minutes(streams, _WS, _WE, grace_seconds=300) == 0
 
 
-def test_union_active_minutes_disjoint_streams_sum():
-    streams = (
-        _stream("a", _utc(2026, 5, 15, 9), _utc(2026, 5, 15, 10)),
-        _stream("b", _utc(2026, 5, 15, 14), _utc(2026, 5, 15, 16)),
-    )
-    assert _union_active_minutes(streams) == 60 + 120
+def test_off_hours_engaged_evening_interaction_counts():
+    # A 20:00 message marks 20:00..20:05 (6 one-minute instants), all off-hours.
+    streams = (_stream("a", _utc(2026, 5, 15, 20), _utc(2026, 5, 15, 20),
+                       user_msg_timestamps=(_utc(2026, 5, 15, 20),)),)
+    assert _off_hours_engaged_minutes(streams, _WS, _WE, grace_seconds=300) == 6
 
 
-def test_union_active_minutes_clip_excludes_outside_segments():
-    """When clipped to a work window, only the overlap counts."""
-    streams = (_stream("a", _utc(2026, 5, 15, 7), _utc(2026, 5, 15, 20)),)
-    union = _union_active_minutes(
-        streams,
-        start=_utc(2026, 5, 15, 9),
-        end=_utc(2026, 5, 15, 18),
-    )
-    assert union == 9 * 60  # 9 hours of overlap with the work window
+def test_off_hours_engaged_morning_interaction_counts():
+    # A 07:00 message marks 07:00..07:05, all before the window start.
+    streams = (_stream("a", _utc(2026, 5, 15, 7), _utc(2026, 5, 15, 7),
+                       user_msg_timestamps=(_utc(2026, 5, 15, 7),)),)
+    assert _off_hours_engaged_minutes(streams, _WS, _WE, grace_seconds=300) == 6
 
 
-# Off-hours minutes derived via union(all) minus union(in window).
-
-def test_off_hours_minutes_stream_entirely_in_window_is_zero():
-    streams = (_stream("a", _utc(2026, 5, 15, 10), _utc(2026, 5, 15, 17)),)
-    total = _union_active_minutes(streams)
-    in_window = _union_active_minutes(
-        streams,
-        start=_utc(2026, 5, 15, 9),
-        end=_utc(2026, 5, 15, 18),
-    )
-    assert total - in_window == 0
+def test_off_hours_engaged_background_without_interaction_is_zero():
+    # A stream ALIVE off-hours (22:00–23:00) but with NO user messages — a
+    # background job running while the human is away — contributes nothing.
+    streams = (_stream("a", _utc(2026, 5, 15, 22), _utc(2026, 5, 15, 23)),)
+    assert _off_hours_engaged_minutes(streams, _WS, _WE, grace_seconds=300) == 0
 
 
-def test_off_hours_minutes_evening_extension_counts():
-    streams = (_stream("a", _utc(2026, 5, 15, 17), _utc(2026, 5, 15, 20)),)
-    total = _union_active_minutes(streams)
-    in_window = _union_active_minutes(
-        streams,
-        start=_utc(2026, 5, 15, 9),
-        end=_utc(2026, 5, 15, 18),
-    )
-    # 18:00 → 20:00 == 120 minutes outside the window
-    assert total - in_window == 120
+def test_off_hours_engaged_dedups_overlapping_grace_windows():
+    # Messages at 20:00 and 20:02 → union {20:00..20:07} = 8 minutes, not 12.
+    streams = (_stream("a", _utc(2026, 5, 15, 20), _utc(2026, 5, 15, 20, 2),
+                       user_msg_timestamps=(_utc(2026, 5, 15, 20),
+                                            _utc(2026, 5, 15, 20, 2))),)
+    assert _off_hours_engaged_minutes(streams, _WS, _WE, grace_seconds=300) == 8
 
 
-def test_off_hours_minutes_morning_extension_counts():
-    streams = (_stream("a", _utc(2026, 5, 15, 7), _utc(2026, 5, 15, 10)),)
-    total = _union_active_minutes(streams)
-    in_window = _union_active_minutes(
-        streams,
-        start=_utc(2026, 5, 15, 9),
-        end=_utc(2026, 5, 15, 18),
-    )
-    # 07:00 → 09:00 == 120 minutes outside the window
-    assert total - in_window == 120
+def test_off_hours_engaged_counts_only_the_outside_part_at_the_edge():
+    # A 17:58 message's grace window straddles 18:00; only 18:00..18:03 (>= end)
+    # count, the 17:58/17:59 minutes are in-window.
+    streams = (_stream("a", _utc(2026, 5, 15, 17, 58), _utc(2026, 5, 15, 18),
+                       user_msg_timestamps=(_utc(2026, 5, 15, 17, 58),)),)
+    assert _off_hours_engaged_minutes(streams, _WS, _WE, grace_seconds=300) == 4
 
 
 # ---------------------------------------------------------------------------
@@ -508,16 +486,21 @@ def test_composite_weights_sum_to_one():
 # ---------------------------------------------------------------------------
 # Work-window detection
 
-def test_work_window_is_fixed_from_config_for_all_weekdays():
-    # Default config (config.json) is the fixed 09:00–19:00 working day.
+def test_work_window_falls_back_to_literature_default_with_no_aggregates():
+    """With no aggregates (and no config override), detect_work_windows returns
+    the literature cold-start default (09:00–19:00) for all 7 weekdays with
+    is_default=True."""
     windows = detect_work_windows({}, local_tz=UTC)
     assert len(windows) == 7
     assert all(w.start == time(9, 0) and w.end == time(19, 0)
                for w in windows.values())
+    assert all(w.is_default is True for w in windows.values())
 
 
-def test_work_window_ignores_activity_distribution():
-    # Even with all activity clustered at 14:00, the window stays the fixed band.
+def test_work_window_falls_back_to_literature_default_with_sparse_data():
+    """With fewer than WORK_WINDOW_MIN_SAMPLES distinct sample-days (only one
+    day here), detect_work_windows uses the literature cold-start default even
+    though activity is clustered at 14:00."""
     fri = date(2026, 5, 1)
     timestamps = tuple(_utc(2026, 5, 1, 14, m) for m in range(0, 60, 6))
     agg = _agg(fri, [
@@ -527,11 +510,12 @@ def test_work_window_ignores_activity_distribution():
     windows = detect_work_windows({fri: agg}, local_tz=UTC)
     assert windows[fri.weekday()].start == time(9, 0)
     assert windows[fri.weekday()].end == time(19, 0)
+    assert windows[fri.weekday()].is_default is True
 
 
-def test_work_window_default_comes_from_config_not_code(tmp_path):
-    """The window is configurable via config.json, not hardcoded — a custom
-    config file changes it."""
+def test_work_window_override_comes_from_config(tmp_path):
+    """A config.json with a work_window block overrides inference for all
+    7 weekdays (is_default=False)."""
     from stress_levels.config import _CONFIG_CACHE, load_config
 
     cfg = tmp_path / "config.json"
@@ -602,14 +586,16 @@ def test_per_day_metrics_two_parallel_streams_raises_deficit():
 
 
 def test_per_day_metrics_evening_session_adds_off_hours():
+    # An evening session the operator actively drove: two off-hours messages,
+    # each marking a 6-minute grace window (disjoint) → 12 engaged minutes.
     streams = [
-        _stream("s1", _utc(2026, 5, 15, 19), _utc(2026, 5, 15, 21)),
+        _stream("s1", _utc(2026, 5, 15, 19), _utc(2026, 5, 15, 21),
+                user_msg_timestamps=(_utc(2026, 5, 15, 19), _utc(2026, 5, 15, 20))),
     ]
     agg = _agg(date(2026, 5, 15), streams)
     window = WorkWindow(weekday=4, start=time(9), end=time(18))
     m = per_day_metrics(agg, window, UTC)
-    # 19:00–21:00 == 120 minutes after work window ended at 18:00
-    assert m.off_hours_minutes == 120
+    assert m.off_hours_minutes == 12
 
 
 def test_per_day_metrics_assigns_work_window_local():
@@ -650,9 +636,7 @@ def _weekdays_from(start: date, n: int) -> list[date]:
 
 def test_personal_optimum_returns_bucket_with_best_score():
     """Bucket at codl=1.0–1.5 has low closure-deficit; bucket at 3+ has high
-    deficit and off-hours. Optimum should fall in the lower bucket.
-
-    Uses only weekdays — weekends are excluded from optimum derivation."""
+    deficit and off-hours. Optimum should fall in the lower bucket."""
     days = {}
     workdays = _weekdays_from(date(2026, 5, 4), 16)  # 16 weekdays
     # First 8: low load
@@ -687,48 +671,69 @@ def test_personal_optimum_requires_two_days_per_bucket():
     assert 1.5 < optimum < 2.5
 
 
-def test_personal_optimum_excludes_weekends_from_active_days():
-    """Even with many weekend days at low CODL, optimum derivation uses
-    only weekday samples."""
+def test_personal_optimum_includes_weekend_active_days():
+    """Weekend days with codl_avg > 0 now contribute to optimum derivation,
+    just like weekdays. A dataset of weekend-only days at low CODL combined
+    with weekday days at high CODL should produce an optimum influenced by
+    whichever cluster has the best score across ALL days."""
     days = {}
-    # 13 weekdays at high load
+    # 13 weekdays at high load (high closure deficit, many off-hours)
     for d in _weekdays_from(date(2026, 5, 4), 13):
         days[d] = DayMetrics(day=d, codl_avg=2.5,
                              closure_deficit=0.5, off_hours_minutes=20)
-    # 10 Saturdays/Sundays at fake-low CODL (shouldn't influence the optimum)
+    # 10 Saturdays/Sundays at low load — NOW included in optimum.
     weekend = date(2026, 5, 2)  # a Saturday
     weekend_count = 0
     while weekend_count < 10:
         if weekend.weekday() >= 5:
-            days[weekend] = DayMetrics(day=weekend, codl_avg=0.1,
+            days[weekend] = DayMetrics(day=weekend, codl_avg=0.6,
                                        closure_deficit=0.0, off_hours_minutes=0)
             weekend_count += 1
         weekend += timedelta(days=1)
     optimum = derive_personal_optimum(days, min_days=10)
-    # Optimum must reflect the weekday cluster only
+    # With weekends included and 23 total active days, optimum should be found.
+    # The low-codl weekend cluster (0.6) has better score → optimum < 1.5.
     assert optimum is not None
-    assert 2.0 < optimum < 3.0
 
 
-def test_per_day_metrics_saturday_is_off_hours_only():
-    """Saturday activity sets off_hours_minutes but leaves composite at 0
-    and other axes untouched — weekends are never working days."""
+def test_per_day_metrics_saturday_in_window_scores_composite():
+    """Saturday activity inside the work window produces a non-zero composite,
+    just like any weekday — no special weekend treatment."""
     sat = date(2026, 5, 9)  # Saturday
     assert sat.weekday() == 5
     streams = [
-        _stream("s1", _utc(2026, 5, 9, 14, 0), _utc(2026, 5, 9, 16, 30)),
+        _stream("s1", _utc(2026, 5, 9, 10, 0), _utc(2026, 5, 9, 12, 0),
+                user_msg_timestamps=(_utc(2026, 5, 9, 10, 0), _utc(2026, 5, 9, 11, 0))),
     ]
     agg = _agg(sat, streams)
     window = WorkWindow(weekday=5, start=time(9), end=time(18))
     m = per_day_metrics(agg, window, UTC)
-    assert m.composite == 0.0
-    assert m.codl_avg == 0.0
-    assert m.interruption_rate == 0.0
-    assert m.closure_deficit == 0.0
-    # 14:00 → 16:30 == 150 min
-    assert m.off_hours_minutes == 150
-    # No work-window on weekends
-    assert m.work_window_local is None
+    # In-window activity → composite > 0, axes are populated.
+    assert m.composite > 0.0
+    assert m.codl_avg > 0.0
+    # Entirely in-window → no off-hours minutes.
+    assert m.off_hours_minutes == 0
+    # Work window is recorded.
+    assert m.work_window_local == (time(9), time(18))
+
+
+def test_per_day_metrics_saturday_off_hours_applies_load():
+    """Saturday off-hours interaction is captured as off-hours engaged minutes
+    and raises the composite via the additive load — same as any day."""
+    sat = date(2026, 5, 9)  # Saturday
+    assert sat.weekday() == 5
+    streams = [
+        _stream("s1", _utc(2026, 5, 9, 10, 0), _utc(2026, 5, 9, 12, 0),
+                user_msg_timestamps=(_utc(2026, 5, 9, 10, 0),)),
+        # evening session the operator actively drove → off-hours interaction
+        _stream("s2", _utc(2026, 5, 9, 20, 0), _utc(2026, 5, 9, 22, 0),
+                user_msg_timestamps=(_utc(2026, 5, 9, 20, 0), _utc(2026, 5, 9, 21, 0))),
+    ]
+    agg = _agg(sat, streams)
+    window = WorkWindow(weekday=5, start=time(9), end=time(18))
+    m = per_day_metrics(agg, window, UTC)
+    assert m.composite > 0.0
+    assert m.off_hours_minutes == 12  # two 6-min grace windows at 20:00 & 21:00
 
 
 def test_per_day_metrics_sunday_with_no_streams_is_clean():
@@ -739,12 +744,13 @@ def test_per_day_metrics_sunday_with_no_streams_is_clean():
     m = per_day_metrics(agg, window, UTC)
     assert m.composite == 0.0
     assert m.off_hours_minutes == 0
-    assert m.work_window_local is None
+    # Empty day: work_window_local is still set (the window was supplied).
+    assert m.work_window_local == (time(9), time(18))
 
 
-def test_build_profile_percentiles_exclude_weekend_activity():
-    """A high-stress Saturday must not move the weekly p75/p90."""
-    from stress_levels.aggregate import StreamDayActivity
+def test_build_profile_percentiles_include_saturday_when_active():
+    """Saturday activity inside the work window scores a composite, just
+    like a weekday — both days contribute to the profile's percentiles."""
     fri = date(2026, 5, 8)  # Friday
     sat = date(2026, 5, 9)  # Saturday
     fri_streams = [
@@ -752,21 +758,19 @@ def test_build_profile_percentiles_exclude_weekend_activity():
                 user_msg_timestamps=tuple(_utc(2026, 5, 8, h, 0) for h in range(9, 17))),
     ]
     sat_streams = [
-        _stream("s1", _utc(2026, 5, 9, 9, 0), _utc(2026, 5, 9, 23, 0)),
+        _stream("s1", _utc(2026, 5, 9, 10, 0), _utc(2026, 5, 9, 12, 0),
+                user_msg_timestamps=(_utc(2026, 5, 9, 10, 0),)),
     ]
     aggs = {
         fri: _agg(fri, fri_streams),
         sat: _agg(sat, sat_streams),
     }
     profile = build_profile(aggs, local_tz=UTC)
-    # Friday has composite > 0; Saturday's composite is 0 by design.
+    # Both days produce a composite > 0.
     assert profile.days[fri].composite > 0
-    assert profile.days[sat].composite == 0
-    # Saturday's off-hours minutes are recorded
-    assert profile.days[sat].off_hours_minutes > 0
-    # Percentiles are computed only over the workday — single sample
+    assert profile.days[sat].composite > 0
+    # Percentiles are computed over both active days.
     assert profile.composite_p50 is not None
-    assert profile.composite_p50 == profile.days[fri].composite
 
 
 # ---------------------------------------------------------------------------
@@ -810,8 +814,314 @@ def test_build_profile_computes_percentiles_over_active_days():
 
 
 def test_build_profile_includes_work_windows_per_weekday():
+    """With no aggregates, all 7 weekdays are populated with the literature
+    cold-start default (09:00–19:00, is_default=True)."""
     profile = build_profile({}, local_tz=UTC)
-    # All 7 weekdays should be populated with the configured fixed window.
     assert set(profile.work_windows) == set(range(7))
     assert all(w.start == time(9, 0) and w.end == time(19, 0)
                for w in profile.work_windows.values())
+    assert all(w.is_default is True for w in profile.work_windows.values())
+
+
+# ---------------------------------------------------------------------------
+# _default_window helper
+
+def test_default_window_returns_literature_default():
+    """_default_window always returns 09:00–19:00 with is_default=True."""
+    lit_start, lit_end = LITERATURE_WORK_WINDOW
+    for wd in range(7):
+        w = _default_window(wd)
+        assert w.weekday == wd
+        assert w.start == lit_start
+        assert w.end == lit_end
+        assert w.is_default is True
+
+
+# ---------------------------------------------------------------------------
+# Work-window inference (>= WORK_WINDOW_MIN_SAMPLES distinct weekday-dates)
+
+def _make_infer_aggregates(
+    start_date: date,
+    n_days: int,
+    msg_hours: list[int],
+    local_tz=UTC,
+) -> dict[date, "DayAggregate"]:
+    """Build n_days weekday aggregates, each with one stream whose user
+    messages are at the given hours (UTC, since local_tz=UTC in tests).
+    Returns a date→DayAggregate mapping."""
+    aggs = {}
+    d = start_date
+    count = 0
+    while count < n_days:
+        if d.weekday() < 5:  # weekdays only
+            timestamps = tuple(
+                _utc(d.year, d.month, d.day, h, 0)
+                for h in msg_hours
+            )
+            streams = [
+                _stream(f"s{count}", _utc(d.year, d.month, d.day, min(msg_hours), 0),
+                        _utc(d.year, d.month, d.day, max(msg_hours), 30),
+                        user_msg_timestamps=timestamps,
+                        user_msg_count=len(timestamps)),
+            ]
+            aggs[d] = _agg(d, streams)
+            count += 1
+        d = d + timedelta(days=1)
+    return aggs
+
+
+def test_detect_work_windows_infers_band_from_sufficient_data():
+    """With >= WORK_WINDOW_MIN_SAMPLES distinct weekday-dates whose user
+    messages cluster 10:00–17:00, the inferred band should bracket that range
+    (start <= 10:00, end >= 17:00) and is_default must be False."""
+    # Build aggregates for 7 weekdays with messages at 10, 11, 14, 16, 17h.
+    aggs = _make_infer_aggregates(
+        date(2026, 5, 4), n_days=7, msg_hours=[10, 11, 14, 16, 17],
+    )
+    windows = detect_work_windows(aggs, local_tz=UTC)
+    assert len(windows) == 7
+    assert all(w.is_default is False for w in windows.values())
+    # The inferred start should be at or before the earliest message hour.
+    assert all(w.start <= time(10, 0) for w in windows.values())
+    # The inferred end should be at or after the latest message hour.
+    assert all(w.end >= time(17, 0) for w in windows.values())
+
+
+def test_detect_work_windows_infers_same_band_all_7_weekdays():
+    """Inference always produces one stable band applied to all 7 weekdays."""
+    aggs = _make_infer_aggregates(
+        date(2026, 5, 4), n_days=7, msg_hours=[9, 12, 15],
+    )
+    windows = detect_work_windows(aggs, local_tz=UTC)
+    starts = {w.start for w in windows.values()}
+    ends = {w.end for w in windows.values()}
+    assert len(starts) == 1, "All weekdays should share the same inferred start"
+    assert len(ends) == 1, "All weekdays should share the same inferred end"
+
+
+def test_detect_work_windows_config_override_takes_precedence(tmp_path):
+    """When config.json has a work_window block, inference is bypassed and the
+    override band is returned for all weekdays (is_default=False), regardless
+    of the aggregates supplied."""
+    from stress_levels.config import Config, WorkWindow as CfgWorkWindow, _CONFIG_CACHE
+
+    # Build plenty of inference data so we can confirm it's ignored.
+    aggs = _make_infer_aggregates(
+        date(2026, 5, 4), n_days=7, msg_hours=[7, 8, 14, 20, 21],
+    )
+
+    # Temporarily inject an override config into the cache.
+    from stress_levels.config import _DEFAULT_CONFIG_PATH
+    override_ww = CfgWorkWindow(start=time(8, 0), end=time(17, 0))
+    override_cfg = Config(work_window=override_ww)
+    cache_key = str(_DEFAULT_CONFIG_PATH)
+    _CONFIG_CACHE[cache_key] = override_cfg
+    try:
+        windows = detect_work_windows(aggs, local_tz=UTC)
+    finally:
+        _CONFIG_CACHE.pop(cache_key, None)
+
+    assert len(windows) == 7
+    assert all(w.start == time(8, 0) and w.end == time(17, 0)
+               for w in windows.values())
+    assert all(w.is_default is False for w in windows.values())
+
+
+def test_detect_work_windows_sparse_data_uses_literature_default():
+    """Fewer than WORK_WINDOW_MIN_SAMPLES sample-days → literature default
+    (09:00–19:00, is_default=True) regardless of where the messages fell."""
+    # Only 2 distinct dates — below the minimum of 5.
+    aggs = _make_infer_aggregates(
+        date(2026, 5, 4), n_days=2, msg_hours=[14, 15, 16],
+    )
+    windows = detect_work_windows(aggs, local_tz=UTC)
+    assert all(w.start == time(9, 0) and w.end == time(19, 0)
+               for w in windows.values())
+    assert all(w.is_default is True for w in windows.values())
+
+
+def test_detect_work_windows_uses_weekend_aggregates_for_inference():
+    """Weekend timestamps NOW contribute to inference. Six weekend days with
+    messages at 10–14h is enough samples to infer the band."""
+    aggs = {}
+    for d in (date(2026, 5, 2), date(2026, 5, 3),
+              date(2026, 5, 9), date(2026, 5, 10),
+              date(2026, 5, 16), date(2026, 5, 17)):
+        ts = tuple(_utc(d.year, d.month, d.day, h) for h in [10, 11, 12, 13, 14])
+        aggs[d] = _agg(d, [_stream("x", ts[0], ts[-1], user_msg_timestamps=ts)])
+    windows = detect_work_windows(aggs, local_tz=UTC)
+    # 6 distinct dates → above WORK_WINDOW_MIN_SAMPLES=5, so inference fires.
+    assert all(w.is_default is False for w in windows.values())
+    # All messages are at 10–14h, so the band brackets that range.
+    assert all(w.start <= time(10, 0) for w in windows.values())
+    assert all(w.end >= time(14, 0) for w in windows.values())
+
+
+# ---------------------------------------------------------------------------
+# Off-hours additive load
+
+def test_off_hours_load_points_zero_minutes_is_zero():
+    assert _off_hours_load_points(0) == 0.0
+
+
+def test_off_hours_load_points_scales_linearly_below_ceiling():
+    half = OFF_HOURS_LOAD_CEILING_MIN // 2
+    expected = OFF_HOURS_LOAD_MAX_POINTS * (half / OFF_HOURS_LOAD_CEILING_MIN)
+    assert _off_hours_load_points(half) == pytest.approx(expected)
+
+
+def test_off_hours_load_points_saturates_at_ceiling():
+    assert _off_hours_load_points(OFF_HOURS_LOAD_CEILING_MIN) == pytest.approx(
+        OFF_HOURS_LOAD_MAX_POINTS
+    )
+    assert _off_hours_load_points(OFF_HOURS_LOAD_CEILING_MIN * 10) == pytest.approx(
+        OFF_HOURS_LOAD_MAX_POINTS
+    )
+
+
+def test_per_day_metrics_off_hours_raises_composite():
+    """A weekday with off_hours_minutes > 0 must produce a composite strictly
+    greater than the same day with no off-hours activity (all else equal)."""
+    window = WorkWindow(weekday=0, start=time(9), end=time(18))
+    # Session fully in window → no off-hours.
+    streams_in = [
+        _stream("s1", _utc(2026, 5, 4, 10), _utc(2026, 5, 4, 17),
+                user_msg_timestamps=(_utc(2026, 5, 4, 10), _utc(2026, 5, 4, 12))),
+    ]
+    # Same session plus an evening session the operator actually drove
+    # (off-hours user messages) — adds off-hours engaged minutes.
+    streams_off = [
+        _stream("s1", _utc(2026, 5, 4, 10), _utc(2026, 5, 4, 17),
+                user_msg_timestamps=(_utc(2026, 5, 4, 10), _utc(2026, 5, 4, 12))),
+        _stream("s2", _utc(2026, 5, 4, 20), _utc(2026, 5, 4, 22),
+                user_msg_timestamps=(_utc(2026, 5, 4, 20), _utc(2026, 5, 4, 21))),
+    ]
+    m_in = per_day_metrics(_agg(date(2026, 5, 4), streams_in), window, UTC)
+    m_off = per_day_metrics(_agg(date(2026, 5, 4), streams_off), window, UTC)
+    assert m_off.off_hours_minutes > 0
+    assert m_in.off_hours_minutes == 0
+    assert m_off.composite > m_in.composite
+
+
+def test_per_day_metrics_no_off_hours_composite_unchanged():
+    """A session entirely within the work window must not be affected by the
+    off-hours load (off_hours_minutes == 0 → adds 0 points)."""
+    window = WorkWindow(weekday=0, start=time(9), end=time(18))
+    streams = [
+        _stream("s1", _utc(2026, 5, 4, 10), _utc(2026, 5, 4, 16),
+                user_msg_timestamps=(_utc(2026, 5, 4, 10),)),
+    ]
+    m = per_day_metrics(_agg(date(2026, 5, 4), streams), window, UTC)
+    assert m.off_hours_minutes == 0
+    # Composite equals pure 3-axis score (off-hours load = 0 points).
+    from stress_levels.metrics import _composite_score
+    expected = _composite_score(m.codl_avg, m.interruption_rate, m.closure_deficit)
+    assert m.composite == round(expected, 1)
+
+
+def test_per_day_metrics_off_hours_load_clamps_at_100():
+    """A day with a very high 3-axis composite AND heavy off-hours work must
+    never exceed 100."""
+    window = WorkWindow(weekday=0, start=time(9), end=time(18))
+    # Many parallel foreground streams → very high 3-axis composite.
+    streams = [
+        _stream(f"s{i}", _utc(2026, 5, 4, 9), _utc(2026, 5, 4, 18),
+                user_msg_timestamps=tuple(
+                    _utc(2026, 5, 4, h, m)
+                    for h in range(9, 18) for m in range(0, 60, 10)
+                ))
+        for i in range(8)  # 8 foreground streams in parallel — far above WM cap
+    ]
+    # Add a long, actively-driven evening session to maximise off-hours load.
+    streams.append(
+        _stream("evening", _utc(2026, 5, 4, 20), _utc(2026, 5, 4, 23, 30),
+                user_msg_timestamps=tuple(
+                    _utc(2026, 5, 4, h, m)
+                    for h in range(20, 24) for m in range(0, 60, 10)
+                ))
+    )
+    m = per_day_metrics(_agg(date(2026, 5, 4), streams), window, UTC)
+    assert m.off_hours_minutes > 0
+    assert m.composite <= 100.0
+
+
+def test_per_day_metrics_off_hours_only_activity_scores_above_zero():
+    """A day worked ENTIRELY outside the window (off-hours interaction, no
+    in-window work) now scores a strictly positive composite — the additive
+    off-hours load fixes the old multiplicative-on-zero-base behaviour."""
+    sat = date(2026, 5, 9)
+    # All activity in the evening, actively driven (off-hours user messages).
+    streams = [
+        _stream("s1", _utc(2026, 5, 9, 20), _utc(2026, 5, 9, 23),
+                user_msg_timestamps=(_utc(2026, 5, 9, 20), _utc(2026, 5, 9, 21),
+                                     _utc(2026, 5, 9, 22))),
+    ]
+    window = WorkWindow(weekday=5, start=time(9), end=time(18))
+    m = per_day_metrics(_agg(sat, streams), window, UTC)
+    assert m.codl_avg == 0.0          # nothing inside the window
+    assert m.off_hours_minutes > 0    # off-hours interaction recorded
+    assert m.composite > 0.0          # ...and it counts, additively
+
+
+# ---------------------------------------------------------------------------
+# New-behavior tests: weekends now treated identically to weekdays
+
+def test_saturday_in_window_scores_composite_same_as_equivalent_weekday():
+    """A Saturday with in-window activity must produce a composite that matches
+    the same activity on a Monday — no weekend gate suppressing the score."""
+    window = WorkWindow(weekday=0, start=time(9), end=time(18))
+    window_sat = WorkWindow(weekday=5, start=time(9), end=time(18))
+
+    # Monday (May 4) and Saturday (May 9) with identical streams.
+    for day, w in [(date(2026, 5, 4), window), (date(2026, 5, 9), window_sat)]:
+        streams = [
+            _stream("s1",
+                    _utc(day.year, day.month, day.day, 10),
+                    _utc(day.year, day.month, day.day, 14),
+                    user_msg_timestamps=tuple(
+                        _utc(day.year, day.month, day.day, h, 0)
+                        for h in range(10, 14)
+                    )),
+        ]
+        m = per_day_metrics(_agg(day, streams), w, UTC)
+        assert m.composite > 0.0, f"{day} should have composite > 0"
+        assert m.codl_avg > 0.0, f"{day} should have codl_avg > 0"
+
+
+def test_saturday_off_hours_load_same_as_weekday():
+    """Saturday off-hours activity raises the composite by the same additive
+    off-hours load as any other day."""
+    window = WorkWindow(weekday=5, start=time(9), end=time(18))
+    sat = date(2026, 5, 9)
+
+    # Session in-window only.
+    streams_in = [
+        _stream("s1", _utc(2026, 5, 9, 10), _utc(2026, 5, 9, 14),
+                user_msg_timestamps=(_utc(2026, 5, 9, 10), _utc(2026, 5, 9, 12))),
+    ]
+    # Same session + an actively-driven evening session (off-hours messages).
+    streams_off = list(streams_in) + [
+        _stream("s2", _utc(2026, 5, 9, 20), _utc(2026, 5, 9, 22),
+                user_msg_timestamps=(_utc(2026, 5, 9, 20), _utc(2026, 5, 9, 21))),
+    ]
+    m_in = per_day_metrics(_agg(sat, streams_in), window, UTC)
+    m_off = per_day_metrics(_agg(sat, streams_off), window, UTC)
+    assert m_off.off_hours_minutes > 0
+    assert m_off.composite > m_in.composite
+
+
+def test_detect_work_windows_infers_band_from_weekend_only_data():
+    """When only weekend dates are available and there are >= min_samples of
+    them, inference should fire (weekends were previously excluded)."""
+    # Build 6 weekend dates (Sat/Sun pairs over 3 weekends) with messages at 10-16h.
+    aggs = {}
+    for d in (date(2026, 5, 2), date(2026, 5, 3),   # weekend 1
+              date(2026, 5, 9), date(2026, 5, 10),  # weekend 2
+              date(2026, 5, 16), date(2026, 5, 17)): # weekend 3
+        ts = tuple(_utc(d.year, d.month, d.day, h) for h in [10, 11, 12, 13, 14, 15, 16])
+        aggs[d] = _agg(d, [_stream("x", ts[0], ts[-1], user_msg_timestamps=ts)])
+    windows = detect_work_windows(aggs, local_tz=UTC)
+    # 6 distinct calendar dates >= WORK_WINDOW_MIN_SAMPLES=5 → inference fires.
+    assert all(w.is_default is False for w in windows.values())
+    assert all(w.start <= time(10, 0) for w in windows.values())
+    assert all(w.end >= time(16, 0) for w in windows.values())

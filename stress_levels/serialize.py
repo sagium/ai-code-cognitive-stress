@@ -50,9 +50,8 @@ def profile_to_dict(
                 str(wd): _work_window_dict(profile.work_windows.get(wd))
                 for wd in range(7)
             },
-            # Days include weekdays with non-zero composite AND any day with
-            # off-hours activity (weekend Claude work shows up only here, as
-            # an off-hours signal — see is_weekend flag on each entry).
+            # Days include all days with non-zero composite or off-hours
+            # activity, regardless of what day of the week they fall on.
             "days": [
                 _day_metrics_dict(m)
                 for d, m in sorted(profile.days.items())
@@ -60,10 +59,6 @@ def profile_to_dict(
             ],
             "active_day_count": sum(
                 1 for m in profile.days.values() if m.composite > 0
-            ),
-            "weekend_offhours_day_count": sum(
-                1 for d, m in profile.days.items()
-                if m.day.weekday() >= 5 and m.off_hours_minutes > 0
             ),
         },
     }
@@ -104,7 +99,6 @@ def _day_metrics_dict(m: DayMetrics) -> dict[str, Any]:
     return {
         "day": m.day.isoformat(),
         "weekday": _WEEKDAY_NAMES[m.day.weekday()],
-        "is_weekend": m.day.weekday() >= 5,
         "composite": m.composite,
         "codl_avg": m.codl_avg,
         "codl_peak": m.codl_peak,

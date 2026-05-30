@@ -153,12 +153,27 @@ first/last event timestamps $[a_s,b_s]$, per-type counts, and the multiset of
 the user's own message timestamps $U_s$. All processing is local; nothing is
 transmitted (\S\ref{sec:impl}).
 
-\subsection{Work window and weekdays}
-Axes are computed inside a fixed daily work window $W=[w_0,w_1]$ (configurable,
-default 09:00--19:00 local). Weekends are never treated as working days;
-weekend and out-of-window activity is surfaced separately as an off-hours
-\emph{recovery} signal. We sample the window at one-minute resolution; let $T$
+\subsection{Work window}
+Axes are computed inside a daily work window $W=[w_0,w_1]$ \emph{inferred per
+operator}: $w_0$ and $w_1$ are the $p_{10}$ and $p_{90}$ (rounded to the hour)
+of the local-time hours at which the operator sends messages, pooled over the
+baseline window and applied as one stable band to \emph{every} calendar day.
+The window is therefore individual to the operator rather than a property of
+the experiment. We make no assumption about which days are working days---there
+is no privileged weekend; a person can work any day. ``Work'' is whatever falls
+inside the operator's own inferred hours, on any date; activity outside those
+hours is the off-hours \emph{recovery} signal, again on any date. A manual band
+may be pinned in configuration to override inference; before enough data accrues
+($<5$ distinct dates of activity) a conventional 09:00--19:00 local band serves
+as a cold-start default. We sample the window at one-minute resolution; let $T$
 be the set of sample instants.
+
+Off-hours is thus defined relative to the operator's own agent-interaction
+hours, not the calendar: the index measures the \emph{additional} strain of
+agentic coding, not total workload or work--life balance. It follows that the
+index has no notion of a \emph{rest day}---a seven-day-a-week operator with
+consistent hours registers no off-hours signal---which is a scope boundary
+rather than a defect.
 
 \subsection{Engagement-weighted CODL}\label{sec:codl}
 The naive concurrency count treats a stream as one continuously-active locus
@@ -261,13 +276,34 @@ Each axis is normalized to $[0,1]$ and blended with equal weights:
 \right).
 \end{equation}
 The CODL ceiling is set to $5$---one above Cowan's $\approx 4$ capacity limit---so a day operating \emph{at} the working-memory boundary scores $0.8$ (the warning band) rather than saturating the axis at $1.0$.
+Off-hours work then adds an \emph{additive} load to this base. Let $o$ be the
+day's off-hours \emph{engaged} minutes---one-minute instants outside $W$ during
+which the operator was actively driving a session, i.e.\ within the foreground
+grace $g$ of one of their own messages (\S\ref{sec:codl}). The reported
+composite is
+\begin{equation}
+\mathrm{Composite}^{\!*} = \min\!\big(100,\ \mathrm{Composite} + 30\cdot\min(1, o/90)\big).
+\end{equation}
+Two design choices matter here. First, the toll is \emph{additive}, not
+multiplicative: off-hours work always counts, so a day worked \emph{entirely}
+outside the window---zero in-window base---still scores a positive composite,
+which a multiplicative form would wrongly leave at zero. Second, $o$ is anchored
+to \emph{interaction}, not stream liveness: a background session left running
+while the operator is away contributes nothing, and \texttt{git} commits never
+enter---only the operator actually being present and driving the agent outside
+their own hours counts (e.g.\ waking in the night to check on a run). The
+inferred band $W$ is the operator's norm; engaged work outside it is treated as
+a deviation from that norm. Like the background weight $\beta$, the magnitude
+($+30$ points, saturating at $90$ engaged minutes) is an explicit prior, not a
+fitted value (\S\ref{sec:threats}), grounded in disengagement as a recovery
+resource~\cite{sonnentag2007}.
 Equal weights are the explicit \emph{null hypothesis} for this version: we have
 no evidence that one axis dominates felt load, and we prefer to state that than
 to fit weights to a single user's data. Replacing equal weights with empirically
 calibrated ones is a primary validation target (\S\ref{sec:validation}).
 The reference implementation colors and ranks each day against the
 operator's \emph{own} percentile distribution (p50/p75/p90) computed over
-active weekdays in the baseline window---never a population norm---reinforcing
+active days in the baseline window---never a population norm---reinforcing
 that only relative movement within one person's history is interpreted
 (see the corresponding caveat in \S\ref{sec:threats}).
 
@@ -282,8 +318,8 @@ longer a function of the very $\overline{\mathrm{CODL}}$ used to form the
 buckets, so the optimum is no longer circular: it asks which load band
 \emph{actually} closed the most loops, rather than rediscovering the load band
 with the least concurrency. It requires at least 14
-active workdays to stabilise, below which the report shows ``calibrating.''
-Off-hours and weekend activity are flagged because sustained load without
+active days to stabilise, below which the report shows ``calibrating.''
+Off-hours activity (on any date) is flagged because sustained load without
 detachment, not peaks, predicts harm~\cite{mcewen1998,sonnentag2007,sonnentag2010}.
 
 \section{Implementation}\label{sec:impl}
@@ -381,10 +417,30 @@ literature values, not fitted to the population of agent-coding developers, who
 may differ. All reported behaviour is $n{=}1$ and from an author.
 
 \paragraph{Modelling and boundary choices.} One-minute sampling, the
-over-approximation of a stream as alive across $[a_s,b_s]$, a fixed work window,
-hard-coded weekend exclusion, and timezone handling are all defaults that could
-materially move scores for shift workers, multi-timezone teams, or bursty users.
-Additionally, tool errors are apportioned to the work window by assuming they
+over-approximation of a stream as alive across $[a_s,b_s]$, and timezone
+handling are all defaults that could materially move scores for shift workers or
+bursty users. Timezone is always the operator's own local zone and the tool is
+single-subject by design, so cross-timezone teams are out of scope rather than a
+threat to this index. The work window is now inferred per operator from the
+$p_{10}$--$p_{90}$ of message hours rather than fixed, which removes the
+hardcoded-band assumption but introduces its own choices---the percentile edges,
+the hour rounding, and the five-date minimum before inference engages---and
+assumes that message timing tracks actual working hours; an operator who works
+silently or messages at odd hours will get a skewed band, and inference falls
+back to the fixed default during cold start. The additive off-hours load that
+lets work outside the band raise the composite is likewise an explicit prior
+($+30$ points, saturating at $90$ engaged minutes), not a measured penalty; its
+magnitude could over- or under-state the true cost of off-hours work and is a
+target for calibration. That load is anchored to \emph{interaction}---engaged
+minutes within the grace of the operator's own messages---so it ignores
+background sessions running while the operator is away and counts only active
+supervision of the agent. Silent reading or review without typing, and the lack
+of any ``rest day'' notion, are therefore out of scope by construction rather
+than measurement gaps: the index targets the additional strain of \emph{agentic
+coding} surfaced through interaction, not total work or work--life balance
+(\S\ref{sec:method}). Additionally,
+tool errors are apportioned to the work
+window by assuming they
 are uniformly distributed across each stream's $[a_s,b_s]$ lifetime---a
 defensible default since the per-day aggregate carries no per-error timestamps,
 but one that could misattribute errors from bursty or session-boundary activity.
@@ -420,6 +476,16 @@ predictions that would, if tested, confirm or refute the design.
   \item \textbf{Sensitivity analysis.} Composite rankings of days should be
   stable under reasonable perturbations of $g$, the sampling interval, and the
   thresholds; instability would indicate over-tuned, non-robust scoring.
+  \item \textbf{Inferred window vs.\ fixed band.} The per-operator inferred
+  window should predict felt load (or in-flow time) better than the fixed
+  09:00--19:00 band out-of-sample. If inference does not beat the fixed band,
+  the percentile machinery adds complexity without value and the fixed default
+  should return.
+  \item \textbf{Off-hours load validity.} Days carrying a high off-hours
+  engaged-minutes load should predict lower next-day vigor/detachment~\cite{sonnentag2010};
+  if the load does not track reduced recovery, its magnitude
+  ($+30$ points, $90$-minute saturation) is mis-specified and should be
+  refit or dropped.
 \end{enumerate}
 A modest multi-developer study with experience sampling would address the
 majority of the threats in \S\ref{sec:threats} and convert this from a

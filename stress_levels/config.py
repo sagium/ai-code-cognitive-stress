@@ -59,7 +59,7 @@ class ClosureConfig:
 
 @dataclass(frozen=True, slots=True)
 class Config:
-    work_window: WorkWindow
+    work_window: WorkWindow | None = None
     codl: CodlConfig = CodlConfig()
     closure: ClosureConfig = ClosureConfig()
 
@@ -81,15 +81,19 @@ def load_config(path: Path | None = None) -> Config:
         return cached
 
     data = json.loads(p.read_text(encoding="utf-8"))
-    ww = data.get("work_window") or {}
-    start = _parse_hhmm(ww["start"])
-    end = _parse_hhmm(ww["end"])
-    if end <= start:
-        raise ValueError(
-            f"work_window end ({end}) must be after start ({start})"
-        )
+    raw_ww = data.get("work_window")
+    if raw_ww:
+        start = _parse_hhmm(raw_ww["start"])
+        end = _parse_hhmm(raw_ww["end"])
+        if end <= start:
+            raise ValueError(
+                f"work_window end ({end}) must be after start ({start})"
+            )
+        work_window: WorkWindow | None = WorkWindow(start=start, end=end)
+    else:
+        work_window = None
     config = Config(
-        work_window=WorkWindow(start=start, end=end),
+        work_window=work_window,
         codl=_parse_codl(data.get("codl") or {}),
         closure=_parse_closure(data.get("closure") or {}),
     )

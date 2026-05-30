@@ -24,7 +24,6 @@ from .metrics import (
     DayMetrics,
     StressProfile,
     WorkWindow,
-    is_weekend,
 )
 from .scales import (
     composite_status,
@@ -96,13 +95,11 @@ def _months_with_activity(profile: StressProfile) -> list[tuple[int, int]]:
 
 
 def _active_days_in_month(profile: StressProfile, year: int, month: int) -> list[date]:
-    """Workdays in the given month with non-zero composite. Weekends are
-    excluded because weekend activity is surfaced as off-hours only and
-    doesn't get a per-day drill-down."""
+    """Active days in the given month with non-zero composite."""
     return sorted(
         d for d, m in profile.days.items()
         if d.year == year and d.month == month
-        and m.composite > 0 and not is_weekend(d)
+        and m.composite > 0
     )
 
 
@@ -244,12 +241,11 @@ def _year_sparkline(profile: StressProfile, year: int) -> str:
     def _y_for(composite: float) -> float:
         return height - pad_bot - (composite / 100) * plot_h
 
-    # Active workdays only — weekend composites are 0 by design and would
-    # drag the line to the baseline.
+    # Active days only — days with zero composite are skipped.
     points: list[tuple[date, float]] = sorted(
         (d, m.composite)
         for d, m in profile.days.items()
-        if d.year == year and m.composite > 0 and not is_weekend(d)
+        if d.year == year and m.composite > 0
     )
 
     line_svg = ""
@@ -374,26 +370,22 @@ def _render_month_section(
         m for d, m in profile.days.items()
         if d.year == year and d.month == month
     ]
-    # Weekday-only metrics: averages and peaks exclude weekends so the KPIs
-    # reflect work-week patterns, not what happened on Saturday.
-    weekday_active = [
+    active = [
         m for d, m in profile.days.items()
         if d.year == year and d.month == month
-        and m.composite > 0 and not is_weekend(d)
+        and m.composite > 0
     ]
-    composites = [m.composite for m in weekday_active]
+    composites = [m.composite for m in active]
     avg_composite = sum(composites) / len(composites) if composites else 0.0
     peak_day = max(
-        weekday_active,
+        active,
         key=lambda m: m.composite,
         default=None,
     )
     days_over_p75 = sum(
-        1 for m in weekday_active
+        1 for m in active
         if profile.composite_p75 is not None and m.composite > profile.composite_p75
     )
-    # Off-hours days COUNTS every day with off-hours activity — both weekday
-    # extensions past the work window AND any weekend activity at all.
     off_hours_days = sum(1 for m in days_in_month if m.off_hours_minutes > 0)
     active_days = _active_days_in_month(profile, year, month)
     drilldowns = "\n".join(
@@ -417,7 +409,7 @@ def _render_month_section(
                 href=f"#day-{peak_day.day.isoformat()}" if peak_day else None)}
     {_stat_card("Days > personal p75",
                 f"{days_over_p75}",
-                f"/ {len(weekday_active)} active workdays",
+                f"/ {len(active)} active days",
                 _status_for_count(days_over_p75, [3, 6]),
                 "healthy &lt; 4")}
     {_stat_card("Off-hours days",
@@ -494,26 +486,11 @@ def _render_heatmap(year: int, month: int, profile: StressProfile) -> str:
 
 
 def _heatmap_day_cell(day: date, metrics: DayMetrics | None, profile: StressProfile) -> str:
-    weekend = is_weekend(day)
-
     # Empty: no metrics, no activity at all.
     if metrics is None or (metrics.composite == 0 and metrics.off_hours_minutes == 0):
-        classes = "cell zero" + (" weekend" if weekend else "")
-        return f'<div class="{classes}"><span class="day-num">{day.day}</span></div>'
+        return f'<div class="cell zero"><span class="day-num">{day.day}</span></div>'
 
-    # Weekend with any activity → off-hours only, not clickable, amber tint.
-    if weekend:
-        mins = metrics.off_hours_minutes
-        label = f"{mins // 60}h{mins % 60:02d}" if mins >= 60 else f"{mins}m"
-        return (
-            f'<div class="cell weekend off-hours" '
-            f'title="weekend activity — {mins} min, counted as off-hours">'
-            f'<span class="day-num">{day.day}</span>'
-            f'<span class="day-val">{label}</span>'
-            f'</div>'
-        )
-
-    # Weekday with non-zero composite → linked drill-down.
+    # Any day with non-zero composite → linked drill-down, colored by score.
     color = _color_for_composite(metrics.composite, profile)
     text_color = "#fff" if metrics.composite >= 75 else "inherit"
     return (
@@ -624,26 +601,19 @@ def _recommendation(title: str, severity: str, trigger: str, advice: str, citati
 
 
 def _max_consecutive_days_above(profile: StressProfile, threshold: float) -> int:
-    """Count the longest run of consecutive *workdays* above threshold.
-    A run extends only when `d` is the immediate next workday after `prev`
-    (skipping weekends, never skipping weekdays). A missing workday breaks
-    the run; a weekend gap does not."""
+    """Count the longest run of consecutive calendar days with activity above
+    threshold. A run extends only when `d` is the immediate next calendar day
+    after `prev`. A missing day (no activity entry) breaks the run."""
     from datetime import timedelta as _td
 
-    def next_workday(d: date) -> date:
-        d += _td(days=1)
-        while is_weekend(d):
-            d += _td(days=1)
-        return d
-
-    days_sorted = [d for d in sorted(profile.days.keys()) if not is_weekend(d)]
+    days_sorted = sorted(profile.days.keys())
     best = 0
     run = 0
     prev: date | None = None
     for d in days_sorted:
         m = profile.days[d]
         if m.composite > threshold:
-            if prev is not None and d == next_workday(prev):
+            if prev is not None and d == prev + _td(days=1):
                 run += 1
             else:
                 run = 1
@@ -1327,12 +1297,6 @@ _STYLES = """
     padding: 7px 9px; position: relative; font-size: 11px; }
   .cell.outside { background: transparent; border: 1px dashed var(--rule); }
   .cell.zero { background: #efece5; }
-  .cell.weekend { color: var(--ink-faint); }
-  .cell.weekend.zero { background: #f3efe5; }
-  .cell.weekend.off-hours { background: rgba(217,144,88,0.18);
-    color: var(--warn); cursor: help; }
-  .cell.weekend.off-hours .day-val { color: var(--warn); font-weight: 600;
-    opacity: 1; }
   .cell .day-num { font-weight: 600; font-size: 12px; }
   .cell .day-val { position: absolute; bottom: 7px; right: 9px;
     font-size: 11px; opacity: 0.7; }

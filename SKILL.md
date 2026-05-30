@@ -62,8 +62,7 @@ This writes `~/stress-2026.html` (without an analysis panel) and
 ### 2. Read the JSON sibling
 
 `~/stress-2026.json` carries the full StressProfile: per-day metrics,
-work windows, percentiles, personal optimum, ingest coverage stats, and
-a per-day `is_weekend` flag.
+work windows, percentiles, personal optimum, and ingest coverage stats.
 
 ### 3. Write a TIGHT advice-only markdown to a temp file
 

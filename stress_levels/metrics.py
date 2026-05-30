@@ -37,15 +37,21 @@ Personal optimum (Yerkes-Dodson 1908 / Csíkszentmihályi 1990):
     as the user's flow channel target. Returns None when there's
     insufficient data ("calibrating").
 
-The work window is FIXED (not auto-detected): a single configurable band
-(config.json `work_window`, default 09:00–19:00 local) is applied to every
-weekday, so every calculation and chart shares one stable window. The band
-is interpreted in the user's local timezone — the only place TZ enters the
-metrics pipeline.
+The work window is inferred per-user by default: the p10–p90 band of the
+user's own interaction-message hours (local time) across all days is used for
+every calculation and chart, so the window adapts to real working patterns.
+Inference requires at least WORK_WINDOW_MIN_SAMPLES distinct calendar dates
+with user messages; below that threshold the literature default (09:00–19:00
+local) is used as a cold-start fallback (is_default=True). A manual override
+can be pinned via the config.json `work_window` block; when present it takes
+precedence over inference for all 7 weekdays (is_default=False).
+The band is interpreted in the user's local timezone — the only place TZ
+enters the metrics pipeline.
 """
 
 from __future__ import annotations
 
+import math
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta, timezone, tzinfo
@@ -122,26 +128,37 @@ CLOSURE_MAX_NET_PER_EVENT: int = 1
 # the rendered report names this choice and links to the relevant citations.
 COMPOSITE_WEIGHTS: tuple[float, float, float] = (1 / 3, 1 / 3, 1 / 3)
 
-# The working day is FIXED (not auto-detected) and configurable: its default
-# lives in config.json (work_window), not hardcoded here. It is used for every
-# calculation (interruption rate per work hour, closure deficit, in-window
-# CODL) and every visualisation.
-WORK_WINDOW_MIN_SAMPLES: int = 5  # kept for detect_work_windows signature compat
+# Literature cold-start default for the work window (09:00–19:00 local).
+# Used when config.json carries no manual override AND there are too few
+# interaction-timestamp samples to infer the user's personal band.
+# This is a conventional day-shift band, not a fitted value; it only applies
+# during cold start, before enough data exists to infer the personal window.
+# Intentionally wide so it errs toward under-counting off-hours, not over.
+LITERATURE_WORK_WINDOW: tuple[time, time] = (time(9, 0), time(19, 0))
+
+# Minimum number of distinct weekday-dates (with at least one user message)
+# required to infer the personal work window from interaction timestamps.
+# Below this threshold the literature default is used (is_default=True).
+WORK_WINDOW_MIN_SAMPLES: int = 5
+
+# Off-hours additive load — an explicit modeling PRIOR (like the
+# background_weight β), not a measured value.  Off-hours INTERACTION outside
+# the work window (nights, early mornings) raises the daily score because
+# disengagement from work is a recovery resource (Sonnentag & Fritz 2007);
+# sustained off-hours work drains it.  Applies additively to the composite
+# so that a day with zero in-window work but real off-hours interaction still
+# scores > 0.  Anchored to USER/AGENT INTERACTION (within grace_seconds of
+# a user message), not stream liveness — automated git commits and background
+# sessions running while the human is away do NOT contribute.
+# 90 min of off-hours engaged minutes is taken as the ceiling (beyond that,
+# the signal saturates).  30 composite points is audible without dominating
+# the three primary axes on moderate days.
+OFF_HOURS_LOAD_CEILING_MIN: int = 90         # engaged off-hours minutes → max toll
+OFF_HOURS_LOAD_MAX_POINTS: float = 30.0      # composite points added at/above the ceiling
 
 # Personal optimum derivation — calibration period.
 OPTIMUM_MIN_DAYS_OF_DATA: int = 14
 OPTIMUM_BUCKET_WIDTH: float = 0.5  # CODL units
-
-
-def is_weekend(day: date) -> bool:
-    """Saturdays and Sundays are not treated as working days.
-
-    All weekend activity is surfaced as off-hours-minutes only — it is
-    excluded from weekday-only averages, percentiles, the personal
-    optimum, and the peak-day KPI. This is the v1 hard-coded behaviour;
-    if shift workers ever need different handling, plumb it through here.
-    """
-    return day.weekday() >= 5
 
 
 # ---------------------------------------------------------------------------
@@ -166,7 +183,8 @@ class DayMetrics:
     interruption_rate: float = 0.0   # per work hour
     closure_deficit: float = 0.0     # 0..1 (unclosed share of opened loops;
                                      # legacy C(t)>1 proxy when no closure src)
-    off_hours_minutes: int = 0
+    off_hours_minutes: int = 0       # engaged minutes outside the work window
+                                     # (interaction-anchored, not stream liveness)
     composite: float = 0.0           # 0..100
     work_window_local: tuple[time, time] | None = None
 
@@ -212,11 +230,10 @@ def build_profile(
             background_weight=codl_cfg.background_weight,
         )
 
-    # Percentiles are computed across active *workdays* only. Weekend
-    # activity is excluded by design (see is_weekend()).
+    # Percentiles are computed across all active days.
     composites = [
         m.composite for d, m in days.items()
-        if m.composite > 0 and not is_weekend(d)
+        if m.composite > 0
     ]
     p50 = _percentile(composites, 0.5) if composites else None
     p75 = _percentile(composites, 0.75) if composites else None
@@ -244,18 +261,76 @@ def detect_work_windows(
     local_tz: tzinfo,
     min_samples: int = WORK_WINDOW_MIN_SAMPLES,
 ) -> dict[int, WorkWindow]:
-    """Return the configured fixed work window for every weekday.
+    """Return the effective work-window band for every weekday (0=Mon … 6=Sun).
 
-    The working day is fixed (not auto-detected) and its value comes from
-    config.json (work_window), so every calculation and visualisation uses one
-    stable band. `aggregates`, `local_tz`, and `min_samples` are accepted for
-    signature compatibility but no longer influence the result.
+    Priority order:
+
+    1. OVERRIDE — if config.json supplies a ``work_window`` block, that band
+       is returned for all 7 weekdays (``is_default=False``).
+
+    2. INFER — pool the local-time fractional-hour of every user-message
+       timestamp from all aggregates (any day of the week).  If at least
+       ``min_samples`` *distinct* calendar dates contributed timestamps,
+       derive a single stable band applied to all 7 weekdays:
+         * start = floor(p10) clamped to [0, 23]
+         * end   = ceil(p90)  clamped to [1, 23] (24 → 23)
+       If the rounded band is degenerate (end <= start), widen end by 1 h
+       (capped at 23).  If still degenerate, fall through to (3).
+
+    3. FALLBACK — fewer than ``min_samples`` distinct sample-dates, or the
+       inferred band is still degenerate after widening → literature default
+       09:00–19:00 for all 7 weekdays (``is_default=True``).
     """
-    ww = load_config().work_window
-    return {
-        wd: WorkWindow(weekday=wd, start=ww.start, end=ww.end, is_default=False)
-        for wd in range(7)
-    }
+    # --- 1. Config override ---
+    cfg_ww = load_config().work_window
+    if cfg_ww is not None:
+        return {
+            wd: WorkWindow(weekday=wd, start=cfg_ww.start, end=cfg_ww.end,
+                           is_default=False)
+            for wd in range(7)
+        }
+
+    # --- 2. Infer from interaction timestamps ---
+    # Collect fractional hours for all user messages on any day of the week.
+    hours: list[float] = []
+    sample_dates: set[date] = set()
+    for day, agg in aggregates.items():
+        for stream in agg.streams:
+            for ts in stream.user_msg_timestamps:
+                local_dt = ts.astimezone(local_tz)
+                hours.append(local_dt.hour + local_dt.minute / 60.0)
+                sample_dates.add(local_dt.date())
+
+    if len(sample_dates) >= min_samples and hours:
+        hours_sorted = sorted(hours)
+        p10 = _percentile(hours_sorted, 0.10)
+        p90 = _percentile(hours_sorted, 0.90)
+        start_h = max(0, min(23, int(math.floor(p10))))
+        end_h = int(math.ceil(p90))
+        if end_h >= 24:
+            end_h = 23
+        end_h = max(1, min(23, end_h))
+        # Ensure end > start; widen by 1 h if degenerate.
+        if end_h <= start_h:
+            end_h = min(23, start_h + 1)
+        if end_h > start_h:
+            inferred_start = time(start_h, 0)
+            inferred_end = time(end_h, 0)
+            return {
+                wd: WorkWindow(weekday=wd, start=inferred_start,
+                               end=inferred_end, is_default=False)
+                for wd in range(7)
+            }
+
+    # --- 3. Literature default ---
+    return {wd: _default_window(wd) for wd in range(7)}
+
+
+def _default_window(weekday: int) -> WorkWindow:
+    """Return the literature-default work window (09:00–19:00, is_default=True)."""
+    lit_start, lit_end = LITERATURE_WORK_WINDOW
+    return WorkWindow(weekday=weekday, start=lit_start, end=lit_end,
+                      is_default=True)
 
 
 # ---------------------------------------------------------------------------
@@ -270,23 +345,11 @@ def per_day_metrics(
 ) -> DayMetrics:
     """Compute the three axes + composite for one day.
 
-    Weekend days (Sat/Sun) are surfaced as off-hours only: composite is
-    zero, axis values are zero, and all stream-active minutes count as
-    `off_hours_minutes`. They never contribute to weekday percentiles,
-    averages, peak-day, or the personal optimum.
+    Every day is treated identically regardless of what day of the week it
+    falls on. Off-hours interaction (engaged minutes outside the work window)
+    is captured as `off_hours_minutes` and adds an additive load to the
+    composite, whether it occurs on a weekday, Saturday, or Sunday.
     """
-    if is_weekend(agg.day):
-        if not agg.streams:
-            return DayMetrics(day=agg.day, work_window_local=None)
-        # Weekend: every active minute counts as off-hours. Use the union
-        # (overlapping sessions counted once) instead of summing per-stream
-        # durations, which would double-count parallel sessions.
-        return DayMetrics(
-            day=agg.day,
-            off_hours_minutes=_union_active_minutes(agg.streams),
-            work_window_local=None,
-        )
-
     if not agg.streams:
         return DayMetrics(
             day=agg.day,
@@ -344,17 +407,21 @@ def per_day_metrics(
     )
     interruption_rate = interruption_count / work_hours
 
-    # Off-hours minutes = wall-clock minutes of stream activity outside the
-    # work window. Computed as union(all stream activity) minus union(in
-    # work window) so simultaneous streams count once, not twice.
-    total_active = _union_active_minutes(agg.streams)
-    in_window_active = _union_active_minutes(
-        agg.streams,
-        start=window_start_utc, end=window_end_utc,
+    # Off-hours ENGAGED minutes = minutes outside the work window during which
+    # the operator was actively driving a session (within the foreground grace
+    # of one of their own messages). Anchored to interaction, not stream
+    # liveness: a background job that ran while the human was away contributes
+    # nothing, and git commits never enter here. The inferred window is the
+    # norm; engaged interaction outside it is the off-hours abuse.
+    off_hours_minutes = _off_hours_engaged_minutes(
+        agg.streams, window_start_utc, window_end_utc,
+        grace_seconds=foreground_grace_minutes * 60,
     )
-    off_hours_minutes = max(0, total_active - in_window_active)
 
-    composite = _composite_score(codl_avg, interruption_rate, closure_deficit)
+    # Additive off-hours toll: off-hours interaction always counts, even when
+    # the in-window base is zero (a day worked entirely outside the window).
+    base_composite = _composite_score(codl_avg, interruption_rate, closure_deficit)
+    composite = min(100.0, base_composite + _off_hours_load_points(off_hours_minutes))
 
     return DayMetrics(
         day=agg.day,
@@ -429,6 +496,52 @@ def _composite_score(
     w_codl, w_int, w_clo = COMPOSITE_WEIGHTS
     blend = w_codl * codl_norm + w_int * int_norm + w_clo * closure_norm
     return 100.0 * blend
+
+
+def _off_hours_load_points(off_hours_minutes: int) -> float:
+    """Additive composite points for off-hours interaction.
+
+    Returns a value in [0.0, OFF_HOURS_LOAD_MAX_POINTS] that scales linearly
+    with off-hours engaged minutes up to OFF_HOURS_LOAD_CEILING_MIN, then
+    saturates.  Added (not multiplied) to the 3-axis base so off-hours work
+    always counts, even on a day with zero in-window load.  Grounding:
+    disengagement from work is a recovery resource (Sonnentag & Fritz 2007);
+    sustained off-hours work drains it.  An explicit modeling PRIOR (like
+    background_weight β), not a measured value.
+    """
+    return OFF_HOURS_LOAD_MAX_POINTS * min(
+        1.0, off_hours_minutes / OFF_HOURS_LOAD_CEILING_MIN
+    )
+
+
+def _off_hours_engaged_minutes(
+    streams: Iterable[StreamDayActivity],
+    window_start_utc: datetime,
+    window_end_utc: datetime,
+    grace_seconds: float,
+) -> int:
+    """Distinct 1-minute instants OUTSIDE the work window during which the
+    operator was engaged — i.e. within ``grace_seconds`` after one of their own
+    messages (the same foreground notion as ``_stream_weight_at``).
+
+    Interaction-anchored: driven purely by ``user_msg_timestamps``, so a
+    background session alive off-hours with no user messages contributes
+    nothing, and closure/git events never enter. Overlapping grace windows are
+    de-duplicated via a set of minute-floored instants.
+    """
+    grace = timedelta(seconds=grace_seconds)
+    minute = timedelta(minutes=1)
+    engaged: set[datetime] = set()
+    for stream in streams:
+        for ts in stream.user_msg_timestamps:
+            # Walk the grace window after each message at 1-minute resolution.
+            t = ts.replace(second=0, microsecond=0)
+            end = ts + grace
+            while t <= end:
+                if t < window_start_utc or t >= window_end_utc:
+                    engaged.add(t)
+                t += minute
+    return len(engaged)
 
 
 def _window_utc_bounds(
@@ -542,41 +655,6 @@ def _count_cross_stream_starts(
     return cross
 
 
-def _union_active_minutes(
-    streams: tuple[StreamDayActivity, ...],
-    start: datetime | None = None,
-    end: datetime | None = None,
-) -> int:
-    """Wall-clock minutes covered by *any* stream's [first_ts, last_ts]
-    interval, with overlaps counted once. Optionally clip the union to
-    [start, end].
-
-    Sweep-line merge of sorted intervals — same shape as `_peak_concurrent`
-    but accumulating duration instead of peak count. Returns 0 on an empty
-    stream tuple or an empty clip range.
-    """
-    intervals: list[tuple[datetime, datetime]] = []
-    for s in streams:
-        first = s.first_ts if start is None else max(s.first_ts, start)
-        last = s.last_ts if end is None else min(s.last_ts, end)
-        if first < last:
-            intervals.append((first, last))
-    if not intervals:
-        return 0
-    intervals.sort()
-    total_seconds = 0
-    cur_start, cur_end = intervals[0]
-    for s_start, s_end in intervals[1:]:
-        if s_start <= cur_end:
-            if s_end > cur_end:
-                cur_end = s_end
-        else:
-            total_seconds += int((cur_end - cur_start).total_seconds())
-            cur_start, cur_end = s_start, s_end
-    total_seconds += int((cur_end - cur_start).total_seconds())
-    return total_seconds // 60
-
-
 def _apportion_to_window(
     streams: tuple[StreamDayActivity, ...],
     count_attr: str,
@@ -622,10 +700,9 @@ def derive_personal_optimum(
     and Csíkszentmihályi (1990): performance follows an inverted-U with
     cognitive load. Returns None when there is insufficient data — the
     rendered report treats that as "calibrating"."""
-    # Weekdays only — the optimum is "where do I perform best at work?"
     active_days = [
         m for m in days.values()
-        if m.codl_avg > 0 and not is_weekend(m.day)
+        if m.codl_avg > 0
     ]
     if len(active_days) < min_days:
         return None
@@ -643,7 +720,7 @@ def derive_personal_optimum(
             continue
         avg_closure = sum(m.closure_deficit for m in metrics) / len(metrics)
         avg_off = sum(m.off_hours_minutes for m in metrics) / len(metrics)
-        # Higher is better — low closure-deficit AND low off-hours.
+        # Higher is better — low closure-deficit AND low off-hours interaction.
         score = (1.0 - avg_closure) / (1.0 + avg_off / 60.0)
         if score > best_score:
             best_score = score

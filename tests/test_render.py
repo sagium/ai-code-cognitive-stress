@@ -140,18 +140,31 @@ def test_max_consecutive_days_above_counts_runs():
     assert _max_consecutive_days_above(profile, 70) == 3
 
 
-def test_max_consecutive_days_above_treats_weekends_as_skipped_not_breaking():
-    """A run from Friday into the next Monday counts as 2 consecutive workdays
-    above threshold — the weekend is skipped, not a break."""
+def test_max_consecutive_days_above_streak_requires_calendar_consecutive():
+    """Under the new logic, a streak requires consecutive CALENDAR days with
+    activity above the threshold. Fri → Mon is NOT consecutive (Sat and Sun
+    are in between), so each of those days counts as its own run of 1."""
     days = {
         date(2026, 5, 8): DayMetrics(day=date(2026, 5, 8), composite=80),   # Fri
-        # Sat May 9 / Sun May 10 — even with weekend activity, doesn't break
         date(2026, 5, 9): DayMetrics(day=date(2026, 5, 9), composite=0,
-                                      off_hours_minutes=120),
+                                      off_hours_minutes=120),                  # Sat (below threshold)
         date(2026, 5, 11): DayMetrics(day=date(2026, 5, 11), composite=80),  # Mon
     }
     profile = StressProfile(days=days)
-    assert _max_consecutive_days_above(profile, 70) == 2
+    # Fri is day 1; Sat is below threshold → breaks run; Mon starts a new run of 1.
+    assert _max_consecutive_days_above(profile, 70) == 1
+
+
+def test_max_consecutive_days_above_sat_sun_mon_streak():
+    """A Sat, Sun, Mon all above threshold forms a run of 3 consecutive
+    calendar days."""
+    days = {
+        date(2026, 5, 9): DayMetrics(day=date(2026, 5, 9), composite=80),   # Sat
+        date(2026, 5, 10): DayMetrics(day=date(2026, 5, 10), composite=80),  # Sun
+        date(2026, 5, 11): DayMetrics(day=date(2026, 5, 11), composite=80),  # Mon
+    }
+    profile = StressProfile(days=days)
+    assert _max_consecutive_days_above(profile, 70) == 3
 
 
 def test_max_consecutive_days_above_breaks_on_workday_gap():
@@ -182,7 +195,7 @@ def _next_weekdays(start: date, n: int):
 
 
 def _profile_with_active_days(active_days: int = 5) -> StressProfile:
-    # Weekdays only — weekends are off-hours-only by design.
+    # Weekdays only (fixture convenience — the logic applies to all days equally).
     weekdays = _next_weekdays(date(2026, 5, 4), active_days)  # Mon onward
     days = {}
     for i, d in enumerate(weekdays):
