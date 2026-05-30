@@ -205,3 +205,42 @@
   supports:
     - "Inverted-U law — performance peaks at moderate arousal/load"
     - "Underpins the personal-optimum target line"
+
+# Supervisory-control / automation-monitoring analogues — the closest-fitting
+# regime for the background weight β: a human who mostly steers but periodically
+# lets a semi-autonomous process run unsupervised, then resumes control.
+- key: endsley-kiris-1995
+  authors: "Endsley, M. R. & Kiris, E. O."
+  year: 1995
+  title: "The out-of-the-loop performance problem and level of control in automation"
+  venue: "Human Factors, 37(2), 381–394"
+  doi: "10.1518/001872095779064555"
+  supports:
+    - "Out-of-the-loop cost of letting a process run unsupervised — grounds β > 0 in-domain"
+
+- key: warm-parasuraman-matthews-2008
+  authors: "Warm, J. S., Parasuraman, R. & Matthews, G."
+  year: 2008
+  title: "Vigilance requires hard mental work and is stressful"
+  venue: "Human Factors, 50(3), 433–441"
+  doi: "10.1518/001872008X312152"
+  supports:
+    - "Sustained monitoring is effortful and stressful — a background locus is not free"
+
+- key: parasuraman-manzey-2010
+  authors: "Parasuraman, R. & Manzey, D. H."
+  year: 2010
+  title: "Complacency and bias in human use of automation: An attentional integration"
+  venue: "Human Factors, 52(3), 381–410"
+  doi: "10.1177/0018720810376055"
+  supports:
+    - "Attentional cost of monitoring automation under concurrent task load"
+
+- key: eriksson-stanton-2017
+  authors: "Eriksson, A. & Stanton, N. A."
+  year: 2017
+  title: "Takeover time in highly automated vehicles: Noncritical transitions to and from manual control"
+  venue: "Human Factors, 59(4), 689–705"
+  doi: "10.1177/0018720816685832"
+  supports:
+    - "Cost of resuming control after letting an automated process run"

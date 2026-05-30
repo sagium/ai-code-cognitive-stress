@@ -42,7 +42,7 @@ ai-code-cognitive-stress/
 │   ├── widget.py               # live tkinter daily-view widget + compute_today_dayview
 │   ├── serialize.py            # JSON sibling for the chat skill
 │   ├── citations.py            # research-registry loader
-│   ├── citations.yml           # 20-entry literature registry (single source of truth)
+│   ├── citations.yml           # 24-entry literature registry (single source of truth)
 │   └── sources/                # pluggable input adapters
 │       ├── base.py             # the SessionSource protocol every adapter implements
 │       ├── git_closure.py      # local git commits/merges (closure signal)
