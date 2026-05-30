@@ -334,6 +334,43 @@ active days to stabilise, below which the report shows ``calibrating.''
 Off-hours activity (on any date) is flagged because sustained load without
 detachment, not peaks, predicts harm~\cite{mcewen1998,sonnentag2007,sonnentag2010}.
 
+\subsection{Method revision: the paper as adversarial reviewer}\label{sec:reflexive}
+The method above is not static; it is the current state of a deliberate revision
+loop in which the paper and the implementation co-evolve under human direction.
+The tool was built first, as the concrete artifact this paper documents
+(\S\ref{sec:impl}). Writing the paper then forced each assumption to be stated
+precisely enough to attack, and the resulting self-critique (\S\ref{sec:threats})
+became the \emph{driver} of subsequent change rather than a closing disclaimer:
+each threat is read as an adversarial review of the code and of the premise behind
+an axis.
+
+A single pass takes one self-critique and first \emph{verifies it against the
+running code}---does the weakness actually exist, and is it described
+accurately?---then either corrects the paper where it mis-states its own artifact,
+or changes the method and code to remove the weakness and rewrites the affected
+\S\ref{sec:method} and \S\ref{sec:threats} text to match, or both. The work is
+carried out with agentic coding assistants---the same class of tool this paper
+measures---under a human-in-the-loop gate: an agent investigates and proposes a
+plan; the human approves it before any code or prose is touched; an agent
+implements; the test suite must stay green; the paper is rebuilt; and the human
+reviews the rendered result and the diff before the change is accepted. Several
+axes reached their current form this way---the per-operator inferred work window,
+the interaction-anchored off-hours load, the removal of the hard-coded weekend, and
+the in-domain grounding of the background weight $\beta$ each began as a
+\S\ref{sec:threats} critique.
+
+Two properties make this more than ordinary editing. First, the artifact is
+\emph{executable}, so a critique of the premise is checkable: if the paper claims
+the code does $X$, that is either true of the running code or it is a defect in one
+of them, and the loop must resolve the disagreement rather than soften the wording.
+Second, the process is \emph{reflexive}---a paper about the cost of supervising
+agentic coding is itself produced by supervising agentic coding---so the authors
+are incidentally $n{=}1$ subjects of the regime the index scores
+(\S\ref{sec:threats}). We make the loop explicit because it, more than any single
+threshold, is the method's route to eventually being right: the index is built to
+be falsified and revised, and \S\ref{sec:validation} states the external evidence
+meant to drive later passes.
+
 \section{Implementation}\label{sec:impl}
 The method is realised in an open-source reference
 implementation~\cite{acsrepo} that doubles as the proof of concept for this
