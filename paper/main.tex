@@ -204,14 +204,26 @@ $\max_t H(t)$ as a descriptive ``sessions open at once,'' but the \emph{scored}
 quantities use the weighted form.
 
 \paragraph{Choosing $\beta$.} A background locus is neither free nor full cost.
-The prospective-memory literature puts the cost of holding a pending intention
-at $\approx$15--20\%\ of ongoing-task capacity~\cite{smith2003}, and unfulfilled
-goals consume working memory until closed~\cite{masicampo2011}; the
-supervisory-control ``attention demand'' fraction makes the same point from the
-operator side~\cite{crandall2007}. We set $\beta=0.25$, the conservative top of
-that empirical band, erring toward a stronger anti-fire-and-forget signal.
-$\beta$ and $g$ are configuration parameters, not hard-coded constants, so the
-assumption is auditable and tunable (\S\ref{sec:validation}).
+A session left ``cooking'' while the operator attends elsewhere is precisely the
+\emph{out-of-the-loop} regime of human supervisory control: the operator
+periodically lets a semi-autonomous process run unattended and must re-engage to
+judge or correct it. That literature is consistent on three points that bear
+directly on $\beta$. Monitoring a process you have let run is not idle time but
+\emph{effortful}, and sustained monitoring is itself a source of
+stress~\cite{warm2008}; remaining out of the loop degrades situation awareness
+and imposes a cost when control is resumed~\cite{endsley1995,eriksson2017}; and
+under concurrent load operators systematically under-monitor automation
+(complacency), so the divided-attention cost is real rather than
+hypothetical~\cite{parasuraman2010}. Together these ground a positive residual
+cost---$\beta>0$---in a regime far closer to ours than the laboratory. For the
+\emph{magnitude} we still borrow a number: the prospective-memory cost of holding
+a pending intention, $\approx$15--20\%\ of ongoing-task capacity~\cite{smith2003},
+with unfulfilled goals consuming working memory until closed~\cite{masicampo2011},
+and the supervisory-control ``attention demand'' fraction on the operator
+side~\cite{crandall2007}. We set $\beta=0.25$, the conservative top of that band,
+erring toward a stronger anti-fire-and-forget signal. $\beta$ and $g$ are
+configuration parameters, not hard-coded constants, so the assumption is auditable
+and tunable (\S\ref{sec:validation}).
 
 \subsection{Interruption Index}
 Tool calls \emph{within} an active session are not counted: while an agent
@@ -373,12 +385,18 @@ plausible---both involve one human time-sharing across semi-autonomous
 processes---but unproven. LLM agents differ in failure modes, feedback latency,
 and the verbal/code modality of interaction.
 
-\paragraph{The background weight $\beta$ is imported across domains.} The
-$15$--$20\%$ monitoring cost~\cite{smith2003} and unfulfilled-goal
-effects~\cite{masicampo2011} come from laboratory prospective-memory and
-goal-priming paradigms, not from software supervision. Reusing them to set
-$\beta=0.25$ is a defensible prior, not a measurement. The true value may differ
-by person, task, and tool, and may not be constant within a day.
+\paragraph{The background weight $\beta$ is a prior, calibrated only in
+magnitude.} That a background locus carries a positive, effortful, and
+stress-inducing monitoring cost is supported \emph{in domain} by the
+supervisory-control and automation literature on out-of-the-loop operation,
+vigilance, and complacency (\S\ref{sec:codl})~\cite{endsley1995,warm2008,parasuraman2010,eriksson2017}---a
+regime far closer to agent supervision than the laboratory. What remains imported
+is the \emph{magnitude}: the specific $15$--$20\%$ figure behind $\beta=0.25$
+comes from prospective-memory and goal-priming
+paradigms~\cite{smith2003,masicampo2011}, not from software supervision, so the
+value is a defensible prior rather than a measurement. The true $\beta$ may differ
+by person, task, and tool, and may not be constant within a day; recovering it
+from data is a validation target (\S\ref{sec:validation}).
 
 \paragraph{Equal composite weights are a placeholder.} We assert no axis
 dominates; this is almost certainly false in detail. Without calibration against
