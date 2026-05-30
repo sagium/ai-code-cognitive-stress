@@ -36,6 +36,21 @@ merges; this skill only prepares the branch.
   `\paragraph{}` (e.g. `engagement`, `beta`, `closure`, `cross-tool`, `composite
   weights`), or its 1-based position in the section. **One critique per run.**
 
+## Model roles
+
+- **Opus plans; Sonnet codes.** Investigation, verifying the critique, designing the
+  fix, writing the paper, and reviewing the coder's diff are Opus work — done in the
+  main session (which the maintainer runs on Opus). Routine code implementation is
+  delegated to **Sonnet**.
+- In **Phase 4**, spawn the implementation as a Sonnet coding agent via the `Agent`
+  tool: `subagent_type: "claude"`, `model: "sonnet"`, `isolation: "worktree"`. Give
+  it the approved plan, the local-only invariant, and the exact files/tests to
+  change. The Opus session then reviews the returned diff, runs the tests, and writes
+  the paper updates itself. If a change is too small to be worth delegating, the Opus
+  session may make it directly — but anything beyond a few lines goes to Sonnet.
+- Phases 0–3 (setup, reading, verification, plan) and the paper edits in Phase 4 stay
+  on Opus.
+
 ## Operating rules
 
 - **One critique, one run.** Do not batch the whole section. Pick exactly the
@@ -131,10 +146,11 @@ Apply the approved plan in focused commits. Order:
 
 1. **Correct the critique/method text first** if the critique was not fully real, so
    the paper stops misdescribing itself. Commit.
-2. **Improve the code/method** for confirmed weaknesses: edit `stress_levels/`, add
-   or update `tests/` with synthetic fixtures only, and keep the change minimal and
-   auditable. Run `python -m pytest` (or the repo's documented test command) and get
-   it green. Commit.
+2. **Improve the code/method** for confirmed weaknesses: delegate the implementation
+   to a **Sonnet** coding agent (see *Model roles*) — editing `stress_levels/` and
+   adding/updating `tests/` with synthetic fixtures only, keeping the change minimal
+   and auditable. The Opus session reviews the returned diff and runs
+   `python -m pytest` (or the repo's documented test command) until green. Commit.
 3. **Update the paper to match the new experiment**: revise §3/§4 (Method/
    Implementation) to describe the code as it now is, then **reconcile the §7
    paragraph** — narrow it to the honest residual weakness (or remove it only if the
