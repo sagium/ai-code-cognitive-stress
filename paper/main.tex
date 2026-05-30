@@ -14,6 +14,8 @@
 \usepackage{microtype}
 \usepackage[hidelinks]{hyperref}
 \usepackage{xcolor}
+\usepackage{tikz}
+\usetikzlibrary{positioning,shapes.geometric}
 
 \setlength{\columnsep}{0.28in}
 
@@ -335,8 +337,54 @@ Off-hours activity (on any date) is flagged because sustained load without
 detachment, not peaks, predicts harm~\cite{mcewen1998,sonnentag2007,sonnentag2010}.
 
 \subsection{Method revision: the paper as adversarial reviewer}\label{sec:reflexive}
+
+\begin{figure}[t]
+\centering
+\scriptsize
+\begin{tikzpicture}[
+  node distance=4mm,
+  box/.style={draw, rounded corners, align=center, inner sep=2.5pt,
+              text width=40mm, minimum height=6mm},
+  gate/.style={box, fill=black!8, very thick},
+  dec/.style={draw, diamond, aspect=2.2, align=center, inner sep=0pt,
+              text width=13mm},
+  every path/.style={draw, ->}
+]
+\node[box] (artifact) {Code artifact $+$ paper (with self-critique)};
+\node[box, below=of artifact] (pick) {Pick one self-critique:\\an adversarial review of code \emph{and} premise};
+\node[box, below=of pick] (verify) {Verify against the \emph{running} code (Opus): real? accurate?};
+\node[dec, below=of verify] (real) {critique real?};
+\node[box, below=8mm of real] (plan) {Plan the fix (Opus)};
+\node[gate, below=of plan] (approve) {Human approves the plan};
+\node[box, below=of approve] (impl) {Implement (Sonnet); tests stay green};
+\node[box, below=of impl] (recon) {Reconcile paper: method $+$ self-critique};
+\node[box, right=5mm of plan, text width=24mm] (correct) {Correct the paper to match the code};
+\node[gate, below=of recon] (merge) {Rebuild PDF; human reviews PDF $+$ diff; merge};
+
+\path (artifact) -- (pick);
+\path (pick) -- (verify);
+\path (verify) -- (real);
+\path (real) -- node[left] {yes} (plan);
+\path (real.east) -| node[above,pos=0.25] {no} (correct.north);
+\path (plan) -- (approve);
+\path (approve) -- (impl);
+\path (impl) -- (recon);
+\path (recon) -- (merge);
+\path (correct) |- (merge);
+\node[left=6mm of impl, align=center, font=\scriptsize] {improved\\code $+$ paper};
+\path (merge.west) -- ++(-6mm,0) |- (artifact.west);
+\end{tikzpicture}
+\caption{The \texttt{reconcile-critique} loop (\S\ref{sec:reflexive}): the paper's
+self-critique drives revision of an \emph{executable} artifact. Two human gates
+(shaded) bracket every change---plan approval and merge review. Verification and
+planning use one model (Opus); implementation another (Sonnet). A pass that finds
+the critique unfounded corrects the paper instead of the code.}
+\label{fig:loop}
+\end{figure}
+
 The method above is not static; it is the current state of a deliberate revision
-loop in which the paper and the implementation co-evolve under human direction.
+loop (Figure~\ref{fig:loop}) in which the paper and the implementation co-evolve
+under human direction.
 The tool was built first, as the concrete artifact this paper documents
 (\S\ref{sec:impl}). Writing the paper then forced each assumption to be stated
 precisely enough to attack, and the resulting self-critique (\S\ref{sec:threats})
