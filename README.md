@@ -166,12 +166,14 @@ The tool **never sends anything** — it writes a local file, you choose to uplo
 The export shows you a consent statement and (in a terminal) asks you to type `yes`;
 pass `--i-consent` to acknowledge non-interactively. What's in the file:
 
-- ✅ only **derived daily metrics** (the three axes + composite) and your typical
-  **working-hour ranges**;
+- ✅ **derived daily metrics** (the three axes + composite) and the **components
+  behind them**, **per-session activity counts** (message/tool-call tallies and
+  durations), an **hourly activity-load shape**, and your typical **working-hour
+  ranges** — enough to debug the metrics and ingestion;
 - 🔀 calendar **dates randomly shifted** and a **random per-export id** — so the data
   isn't tied to you or a real calendar;
-- 🚫 **no** source code, file paths, repo names, commit messages, session text,
-  usernames, or timezone.
+- 🚫 **no** source code, file paths, repo or branch names, commit messages, session
+  text, usernames, or timezone.
 
 Open the JSON first if you'd like to see exactly what you'd send. Because the upload
 is anonymous it can't be traced back and withdrawn afterwards, so it's entirely your

@@ -146,8 +146,10 @@ python -m stress_levels --export-research --year 2026 --i-consent \
     --output ~/stress-levels-research-2026.json
 ```
 
-- This writes **one anonymized year** to a local file: derived daily metrics +
-  typical working-hour ranges only; **no** code, paths, repo/usernames, or
+- This writes **one anonymized year** to a local file: derived daily metrics and
+  the components behind them, per-session activity counts (message/tool-call
+  tallies and durations), an hourly activity-load shape, and typical
+  working-hour ranges; **no** code, paths, repo/branch names, usernames, or
   timezone; calendar dates are randomly shifted and a random per-export id is
   used.
 - `--i-consent` records the consent acknowledgment (it is embedded in the file).
