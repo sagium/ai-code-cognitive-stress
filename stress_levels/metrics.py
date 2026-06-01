@@ -436,6 +436,86 @@ def per_day_metrics(
     )
 
 
+def per_day_debug(
+    agg: DayAggregate,
+    work_window: WorkWindow,
+    local_tz: tzinfo,
+    foreground_grace_minutes: int = FOREGROUND_GRACE_MINUTES_DEFAULT,
+    background_weight: float = BACKGROUND_WEIGHT_DEFAULT,
+) -> dict:
+    """Per-day component breakdown behind the scores, for the research export's
+    debug detail. Mirrors the inputs `per_day_metrics` reduces, so the two stay
+    in sync. Returns only counts/durations and an hourly activity shape — no
+    project/branch names and no absolute timestamps (anonymized at the source).
+
+    Computed on demand by the export only; not part of `build_profile`, so the
+    report/widget path pays nothing for it.
+    """
+    if not agg.streams:
+        return {}
+
+    ws, we = _window_utc_bounds(agg.day, work_window, local_tz)
+    work_hours = max(1, int((we - ws).total_seconds())) / 3600.0
+    grace = foreground_grace_minutes * 60
+
+    headcounts = _codl_samples(agg.streams, ws, we)
+    weighted = _codl_weighted_samples(
+        agg.streams, ws, we, grace_seconds=grace,
+        background_weight=background_weight,
+    )
+    cross_starts = _count_cross_stream_starts(agg.streams, ws, we)
+    in_window_errors = _apportion_to_window(
+        agg.streams, "tool_error_count", ws, we,
+    )
+    loops_opened = sum(1 for s in agg.streams if ws <= s.first_ts <= we)
+
+    # Hourly activity shape: average engagement-weighted concurrency per local
+    # hour. Samples are one-per-minute from ws, so sample i is ws + i minutes.
+    # Sparse — only hours with non-zero load are emitted, keeping it compact.
+    hourly: dict[str, list[float]] = {}
+    for i, v in enumerate(weighted):
+        if v <= 0:
+            continue
+        hour = (ws + timedelta(minutes=i)).astimezone(local_tz).hour
+        hourly.setdefault(str(hour), []).append(v)
+    hourly_concurrency = {
+        h: round(sum(vs) / len(vs), 3) for h, vs in sorted(hourly.items())
+    }
+
+    sessions = [
+        {
+            "start_hour": s.first_ts.astimezone(local_tz).hour,
+            "duration_min": round(s.active_seconds / 60),
+            "user_msgs": s.user_msg_count,
+            "assistant_msgs": s.assistant_msg_count,
+            "tool_uses": s.tool_use_count,
+            "tool_results": s.tool_result_count,
+            "tool_errors": s.tool_error_count,
+        }
+        for s in agg.streams
+    ]
+
+    return {
+        "stream_count": agg.stream_count,
+        "peak_headcount": max(headcounts) if headcounts else 0,
+        "peak_weighted": round(max(weighted), 3) if weighted else 0.0,
+        "work_hours": round(work_hours, 2),
+        "cross_stream_starts": cross_starts,
+        "in_window_tool_errors": in_window_errors,
+        "total_tool_errors": sum(s.tool_error_count for s in agg.streams),
+        "interruption_numerator": round(
+            in_window_errors * W_TOOL_ERROR + cross_starts * W_CROSS_STREAM, 3,
+        ),
+        "loops_opened": loops_opened,
+        "closures": agg.closure_count,
+        "off_hours_minutes": _off_hours_engaged_minutes(
+            agg.streams, ws, we, grace_seconds=grace,
+        ),
+        "hourly_concurrency": hourly_concurrency,
+        "sessions": sessions,
+    }
+
+
 def _closure_deficit(
     agg: DayAggregate,
     window_start_utc: datetime,

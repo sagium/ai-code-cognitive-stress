@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import json
 import random
-from datetime import date, time
+from datetime import date, datetime, time, timezone
+from types import SimpleNamespace
 
-from stress_levels.aggregate import AggregateStats
+from stress_levels.aggregate import AggregateStats, DayAggregate, StreamDayActivity
 from stress_levels.metrics import DayMetrics, StressProfile, WorkWindow
 from stress_levels.research_export import (
     CONSENT_TEXT,
+    CONSENT_VERSION,
     SCHEMA,
     build_research_export,
     consent_satisfied,
@@ -120,9 +122,15 @@ def test_profile_aggregates_and_work_windows_kept():
 def test_consent_record_embedded():
     c = _export()["consent"]
     assert c["acknowledged"] is True
-    assert c["version"] == "1"
+    assert c["version"] == CONSENT_VERSION
     assert c["statement"] == CONSENT_TEXT
     assert c["acknowledged_on"] == "2026-06-01"
+
+
+def test_no_debug_block_without_aggregates():
+    # Back-compat: omitting aggregates yields the lean per-day rows only.
+    day = _export()["profile"]["days"][0]
+    assert "debug" not in day
 
 
 def test_ingest_stats_optional_and_counts_only():
@@ -171,6 +179,93 @@ def test_consent_prompt_rejects_anything_else():
     assert consent_satisfied(
         flag=False, isatty=True, prompt_fn=lambda _p: "no",
     ) is False
+
+
+# --- debug detail (with aggregates) ---------------------------------------
+
+_PROJECT_NAME = "secret-internal-project"
+_BRANCH_NAME = "feature/secret-branch"
+_STREAM_ID = "sess-deadbeef"
+
+
+def _stub_aggregates() -> dict:
+    def _ts(h, m=0):
+        return datetime(2026, 5, 14, h, m, tzinfo=timezone.utc)
+    s1 = StreamDayActivity(
+        stream_id=_STREAM_ID, project=_PROJECT_NAME,
+        first_ts=_ts(10), last_ts=_ts(12),
+        user_msg_count=8, assistant_msg_count=9, tool_use_count=20,
+        tool_result_count=18, tool_error_count=2,
+        branches=(_BRANCH_NAME,),
+        user_msg_timestamps=(_ts(10), _ts(11)),
+    )
+    s2 = StreamDayActivity(
+        stream_id="sess-2", project="another-project",
+        first_ts=_ts(11), last_ts=_ts(13),
+        user_msg_count=3, assistant_msg_count=4, tool_use_count=6,
+        tool_result_count=6, tool_error_count=0,
+        branches=(), user_msg_timestamps=(_ts(11, 30),),
+    )
+    agg = DayAggregate(
+        day=_ACTIVE_DAY, streams=(s1, s2), peak_concurrent_streams=2,
+        closure_events=None,
+    )
+    return {_ACTIVE_DAY: agg}
+
+
+def _export_with_debug() -> dict:
+    return build_research_export(
+        _stub_profile(), since=date(2026, 1, 1), until=date(2026, 12, 31),
+        package_version="0.1.0", ingest_stats=None,
+        aggregates=_stub_aggregates(),
+        local_tz=timezone.utc,
+        codl_cfg=SimpleNamespace(foreground_grace_minutes=5, background_weight=0.25),
+        rng=random.Random(1234), participant_id="fixedpid",
+        generated_on=date(2026, 6, 1),
+    )
+
+
+def test_debug_block_present_with_components():
+    dbg = _export_with_debug()["profile"]["days"][0]["debug"]
+    assert dbg["stream_count"] == 2
+    assert dbg["peak_headcount"] == 2          # both streams overlap 11:00–12:00
+    assert dbg["cross_stream_starts"] == 1     # s2 starts while s1 is active
+    assert dbg["loops_opened"] == 2            # both start inside the window
+    assert dbg["total_tool_errors"] == 2
+    assert dbg["closures"] == 0
+    for key in ("peak_weighted", "work_hours", "in_window_tool_errors",
+                "interruption_numerator", "off_hours_minutes",
+                "hourly_concurrency", "sessions"):
+        assert key in dbg
+
+
+def test_debug_sessions_are_anonymized():
+    dbg = _export_with_debug()["profile"]["days"][0]["debug"]
+    assert len(dbg["sessions"]) == 2
+    row = dbg["sessions"][0]
+    assert set(row.keys()) == {
+        "start_hour", "duration_min", "user_msgs", "assistant_msgs",
+        "tool_uses", "tool_results", "tool_errors",
+    }
+    # counts preserved, identifiers absent
+    assert row["tool_errors"] == 2
+    assert row["duration_min"] == 120
+    assert "project" not in row and "branches" not in row
+    assert "stream_id" not in row and "first_ts" not in row
+
+
+def test_debug_hourly_concurrency_is_sparse_and_keyed_by_hour():
+    dbg = _export_with_debug()["profile"]["days"][0]["debug"]
+    hc = dbg["hourly_concurrency"]
+    assert hc  # non-empty
+    assert all(0 <= int(h) <= 23 for h in hc)
+    assert all(v > 0 for v in hc.values())  # only active hours emitted
+
+
+def test_debug_leaks_no_project_or_branch_or_stream_id():
+    dump = json.dumps(_export_with_debug())
+    for token in (_PROJECT_NAME, _BRANCH_NAME, _STREAM_ID, "another-project"):
+        assert token not in dump
 
 
 # --- CLI integration -------------------------------------------------------

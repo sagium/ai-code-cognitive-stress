@@ -31,25 +31,28 @@ import uuid
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
-from .aggregate import AggregateStats
-from .metrics import DayMetrics, StressProfile, WorkWindow
+from .aggregate import AggregateStats, DayAggregate
+from .metrics import DayMetrics, StressProfile, WorkWindow, per_day_debug
 
-SCHEMA = "ai-code-cognitive-stress.research-export.v1"
+SCHEMA = "ai-code-cognitive-stress.research-export.v2"
 
-CONSENT_VERSION = "1"
+CONSENT_VERSION = "2"
 
 # Affirmed by the operator before an export is written, and embedded verbatim in
 # the file so the acknowledgment travels with the data. Kept in sync with the
 # acceptance text on the upload form.
 CONSENT_TEXT = (
-    "I voluntarily share this file for research calibration of the "
-    "cognitive-stress index. I understand that it contains only derived daily "
-    "metrics and my typical working-hour ranges — no source code, file "
-    "paths, repository names, commit messages, session text, usernames, or "
-    "timezone — that the calendar dates have been randomly shifted and a "
-    "random per-export id is used so the data is not personally identifying, "
-    "and that sharing is entirely optional. Because the submission is "
-    "anonymous, it cannot be traced back and withdrawn once uploaded."
+    "I voluntarily share this file for research calibration and debugging of "
+    "the cognitive-stress index. I understand that it contains only derived, "
+    "non-identifying data computed on my own machine: daily metrics and the "
+    "components behind them, per-session activity counts (message and "
+    "tool-call tallies and durations) and an hourly activity-load shape, plus "
+    "my typical working-hour ranges. It contains no source code, file paths, "
+    "repository or branch names, commit messages, session text, usernames, or "
+    "timezone; calendar dates are randomly shifted and a random per-export id "
+    "is used, so the data is not personally identifying. Sharing is entirely "
+    "optional, and because the submission is anonymous it cannot be traced "
+    "back and withdrawn once uploaded."
 )
 
 _WEEKDAY_NAMES = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
@@ -87,11 +90,21 @@ def build_research_export(
     until: date,
     package_version: str,
     ingest_stats: AggregateStats | None,
+    aggregates: dict[date, DayAggregate] | None = None,
+    local_tz=None,
+    codl_cfg=None,
     rng: random.Random | None = None,
     participant_id: str | None = None,
     generated_on: date | None = None,
 ) -> dict[str, Any]:
     """Return the anonymized, JSON-friendly research export dict.
+
+    When ``aggregates`` is supplied, each emitted day carries a ``debug`` block
+    (the per-axis component breakdown, hourly activity shape, and anonymized
+    per-session counts) for calibrating data collection and the metrics —
+    still free of names, paths, and absolute timestamps. ``local_tz`` /
+    ``codl_cfg`` default to the same system timezone and config the profile was
+    built with.
 
     ``rng`` / ``participant_id`` / ``generated_on`` are injectable so the output
     is deterministic under test; in production they default to system entropy,
@@ -100,8 +113,30 @@ def build_research_export(
     rng = rng if rng is not None else random.SystemRandom()
     participant_id = participant_id or uuid.uuid4().hex
     generated_on = generated_on or datetime.now(timezone.utc).date()
+    if aggregates is not None:
+        if local_tz is None:
+            local_tz = datetime.now().astimezone().tzinfo or timezone.utc
+        if codl_cfg is None:
+            from .config import load_config
+            codl_cfg = load_config().codl
 
     shift = timedelta(days=7 * rng.randint(-_MAX_SHIFT_WEEKS, _MAX_SHIFT_WEEKS))
+
+    days_out: list[dict[str, Any]] = []
+    for d, m in sorted(profile.days.items()):
+        if not (m.composite > 0 or m.off_hours_minutes > 0):
+            continue
+        entry = _day_metrics_dict(m, shift)
+        if aggregates is not None:
+            agg = aggregates.get(d)
+            window = profile.work_windows.get(d.weekday())
+            if agg is not None and window is not None:
+                entry["debug"] = per_day_debug(
+                    agg, window, local_tz,
+                    foreground_grace_minutes=codl_cfg.foreground_grace_minutes,
+                    background_weight=codl_cfg.background_weight,
+                )
+        days_out.append(entry)
 
     return {
         "schema": SCHEMA,
@@ -119,11 +154,11 @@ def build_research_export(
         "window_days": (until - since).days + 1,
         "profile": {
             "baseline_window_days": profile.baseline_window_days,
-            "personal_optimum": profile.personal_optimum,
+            "personal_optimum": _round(profile.personal_optimum, 3),
             "composite_percentiles": {
-                "p50": profile.composite_p50,
-                "p75": profile.composite_p75,
-                "p90": profile.composite_p90,
+                "p50": _round(profile.composite_p50, 2),
+                "p75": _round(profile.composite_p75, 2),
+                "p90": _round(profile.composite_p90, 2),
             },
             "work_windows": {
                 str(wd): _work_window_dict(profile.work_windows.get(wd))
@@ -132,14 +167,14 @@ def build_research_export(
             "active_day_count": sum(
                 1 for m in profile.days.values() if m.composite > 0
             ),
-            "days": [
-                _day_metrics_dict(m, shift)
-                for _, m in sorted(profile.days.items())
-                if m.composite > 0 or m.off_hours_minutes > 0
-            ],
+            "days": days_out,
         },
         "ingest_stats": _ingest_stats_dict(ingest_stats),
     }
+
+
+def _round(value: float | None, ndigits: int) -> float | None:
+    return round(value, ndigits) if value is not None else None
 
 
 def _work_window_dict(window: WorkWindow | None) -> dict[str, Any] | None:
