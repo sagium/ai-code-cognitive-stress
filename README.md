@@ -92,7 +92,8 @@ sibling (structured data for the chat skill or any other analysis layer).
 Common flags: `--year YYYY` · `--month YYYY-MM` (default: current month) ·
 `--day YYYY-MM-DD` · `--source <tool>` (repeatable, or `auto`; run `--help`
 for the available keys) · `-o <path>` · `--open` · `--rebuild-cache` (nuke the
-on-disk cache and recompute from raw logs).
+on-disk cache and recompute from raw logs) · `--export-research` (write an
+anonymized year for the calibration study — see below).
 
 The per-day aggregate cache lives at `${XDG_CACHE_HOME:-~/.cache}/ai-code-cognitive-stress/`.
 Metrics are always recomputed from it, so algorithm changes apply on every run;
@@ -146,6 +147,36 @@ from one shared model (`stress_levels/dayview.py`), so they can't drift.
 > `python install.py` (the agent-install path above) also registers the chat
 > *skill* so you can just ask "show me my stress profile" — separate from, and
 > in addition to, the CLI and widgets.
+
+---
+
+## Help calibrate the index (optional, anonymous)
+
+The thresholds the index leans on (working-memory capacity ≈ 4, ~10 interruptions/hour)
+are borrowed from the literature and not yet fitted to agent-coding developers.
+You can help fix that by donating **one anonymized year** of your own metrics — it
+takes two steps and stays under your control:
+
+```bash
+aicogstress --export-research --year 2026     # writes ./stress-levels-research-2026.json
+# then upload that file at: https://tally.so/r/EkMM4q
+```
+
+The tool **never sends anything** — it writes a local file, you choose to upload it.
+The export shows you a consent statement and (in a terminal) asks you to type `yes`;
+pass `--i-consent` to acknowledge non-interactively. What's in the file:
+
+- ✅ only **derived daily metrics** (the three axes + composite) and your typical
+  **working-hour ranges**;
+- 🔀 calendar **dates randomly shifted** and a **random per-export id** — so the data
+  isn't tied to you or a real calendar;
+- 🚫 **no** source code, file paths, repo names, commit messages, session text,
+  usernames, or timezone.
+
+Open the JSON first if you'd like to see exactly what you'd send. Because the upload
+is anonymous it can't be traced back and withdrawn afterwards, so it's entirely your
+call. (Tally logs submitter IPs at the platform level; the *file contents* carry no
+identity.)
 
 ---
 

@@ -135,6 +135,28 @@ analysis is in the report; the chat doesn't repeat it.
 - The HTML and JSON paths can be anywhere convenient — `~/`, `/tmp/`, a
   per-window subdirectory, whatever the user prefers.
 
+## Contributing anonymized data (optional)
+
+If the user asks to **share / donate / contribute their data** for the
+calibration study (or asks how to help fit the borrowed thresholds), use the
+research-export path — never hand-roll a dump:
+
+```bash
+python -m stress_levels --export-research --year 2026 --i-consent \
+    --output ~/stress-levels-research-2026.json
+```
+
+- This writes **one anonymized year** to a local file: derived daily metrics +
+  typical working-hour ranges only; **no** code, paths, repo/usernames, or
+  timezone; calendar dates are randomly shifted and a random per-export id is
+  used.
+- `--i-consent` records the consent acknowledgment (it is embedded in the file).
+  Only pass it when the user has actually agreed to share — surface the consent
+  statement to them first.
+- **The tool uploads nothing.** Tell the user to upload the file themselves at
+  **https://tally.so/r/EkMM4q**, and that an anonymous submission can't be
+  withdrawn afterwards. Offer to open the file so they can inspect it first.
+
 ## What the report contains
 
 - **Year overview**: 12 monthly cells with avg composite stress, trend arrows,
@@ -165,6 +187,8 @@ Key references:
 
 ## Privacy
 
-All processing is local. The tool never sends data off-machine. Session
-transcripts often contain proprietary code and credentials; treat the
-generated HTML as similarly sensitive.
+All processing is local. The tool never sends data off-machine — including the
+optional `--export-research` path, which only **writes a file**; the user
+uploads it manually if they choose. Session transcripts often contain
+proprietary code and credentials; treat the generated HTML as similarly
+sensitive.
