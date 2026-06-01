@@ -135,6 +135,19 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Acknowledge the research-export consent statement "
              "non-interactively, for use with --export-research in scripts.",
     )
+    parser.add_argument(
+        "--calibrate", nargs="+", default=None, metavar="PATH",
+        help="MAINTAINER tool: pool anonymized research exports (files and/or "
+             "directories of *.json) and crunch the population to suggest "
+             "calibrated normalization ceilings and composite weights, plus a "
+             "work-pattern coverage map. Writes a report and prints a suggested "
+             "config 'scoring' block; changes nothing on its own. Local-only.",
+    )
+    parser.add_argument(
+        "--calibrate-out", default="calibration-report.json", metavar="PATH",
+        help="Where --calibrate writes its JSON report "
+             "(default: ./calibration-report.json).",
+    )
     return parser
 
 
@@ -280,6 +293,40 @@ def main(argv: list[str] | None = None) -> int:
             closure_sources=closure_sources,
         )
         print(json.dumps(dayview_to_dict(view), default=str))
+        return 0
+
+    # Calibration mode (maintainer): pool anonymized exports the maintainer has
+    # collected and crunch the population into suggested scaling. Reads local
+    # files, writes a local report — no network, changes nothing on its own.
+    if args.calibrate is not None:
+        from .calibrate import (
+            calibrate, load_exports, pool_day_records, render_report,
+        )
+
+        exports, warns = load_exports(args.calibrate)
+        for w in warns:
+            print(f"calibrate: {w}", file=sys.stderr)
+        if not exports:
+            print(
+                "stress-levels: no research exports found to calibrate.",
+                file=sys.stderr,
+            )
+            return 1
+        records = pool_day_records(exports)
+        if not records:
+            print(
+                "stress-levels: exports contained no day records.",
+                file=sys.stderr,
+            )
+            return 1
+        machine, text = render_report(calibrate(records))
+        out_path = Path(args.calibrate_out).expanduser().resolve()
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(
+            json.dumps(machine, indent=2, default=str), encoding="utf-8",
+        )
+        print(text, file=sys.stderr)
+        print(f"\ncalibration report: {out_path}", file=sys.stderr)
         return 0
 
     # Research-export mode: write an ANONYMIZED full-year snapshot to disk for
