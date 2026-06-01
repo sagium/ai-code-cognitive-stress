@@ -585,7 +585,11 @@ across tools without normalization risks systematic bias.
 \paragraph{Single subject and borrowed thresholds.} The capacity threshold
 ($\approx 4$~\cite{cowan2001}) and interruption ceiling ($10$/hour) are
 literature values, not fitted to the population of agent-coding developers, who
-may differ. All reported behaviour is $n{=}1$ and from an author.
+may differ. All reported behaviour is $n{=}1$ and from an author. A
+multi-developer data collection---each participant running the local-only tool
+on their own machine, with only the derived metrics pooled for analysis---is
+planned to fit these thresholds to the agent-coding population and move beyond
+the single-subject example (\S\ref{sec:validation}).
 
 \paragraph{Modelling and boundary choices.} One-minute sampling, the
 over-approximation of a stream as alive across $[a_s,b_s]$, and timezone
@@ -662,10 +666,18 @@ predictions that would, if tested, confirm or refute the design.
   if the load does not track reduced recovery, its magnitude
   ($+30$ points, $90$-minute saturation) is mis-specified and should be
   refit or dropped.
+  \item \textbf{Population threshold check.} With multi-developer data, the
+  $\approx 4$ capacity ceiling~\cite{cowan2001} and $10$/hour interruption
+  ceiling can be checked and, if warranted, refit to the agent-coding
+  population; large divergence would mean the borrowed values mis-set the axis
+  scales.
 \end{enumerate}
-A modest multi-developer study with experience sampling would address the
-majority of the threats in \S\ref{sec:threats} and convert this from a
-principled instrument into a validated one. Folding real closure events
+A modest multi-developer study with experience sampling---each participant
+running the local-only tool on their own machine, with only the derived per-day
+metrics and subjective ratings pooled for analysis, so no off-machine data path
+is added to the tool---is planned, and would address the majority of the threats
+in \S\ref{sec:threats}, in particular the single-subject and borrowed-threshold
+limitations, converting this from a principled instrument into a validated one. Folding real closure events
 (commits/merges) into the Closure Deficit, previously listed here as future
 work, is now done (\S\ref{sec:closure}); the remaining closure-side work is
 session$\leftrightarrow$commit attribution beyond the in-window count ratio.
