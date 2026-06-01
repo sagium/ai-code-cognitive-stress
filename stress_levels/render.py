@@ -977,6 +977,26 @@ def _render_range_bar(
 # Section: methodology footer
 
 def _render_methodology(profile: StressProfile, stats: AggregateStats | None) -> str:
+    from .config import load_config
+    sc = load_config().scoring
+    wsum = sum(sc.weights) or 1.0
+    wpct = tuple(round(100 * w / wsum) for w in sc.weights)
+    default_w = abs(sc.weights[0] - sc.weights[1]) < 1e-9 and abs(sc.weights[1] - sc.weights[2]) < 1e-9
+    default_c = sc.codl_ceiling == 5.0 and sc.interruption_ceiling == 10.0
+    if default_w and default_c:
+        scoring_note = (
+            "blended with <strong>equal weights</strong> (the v1 null hypothesis) "
+            "and literature normalization ceilings (CODL &divide; 5, "
+            "interruption &divide; 10/hr)."
+        )
+    else:
+        scoring_note = (
+            f"blended with weights CODL/interruption/closure = "
+            f"{wpct[0]}/{wpct[1]}/{wpct[2]}% and normalization ceilings "
+            f"CODL &divide; {sc.codl_ceiling:g}, interruption &divide; "
+            f"{sc.interruption_ceiling:g}/hr — population-calibrated overrides "
+            "set in <code>config.json</code>, not the v1 equal-weight defaults."
+        )
     registry = load_registry()
     citations_html = "\n  ".join(
         f'<li><strong>{escape(c.authors)} ({c.year}).</strong> '
@@ -1032,6 +1052,13 @@ def _render_methodology(profile: StressProfile, stats: AggregateStats | None) ->
         until it's closed or planned (Masicampo &amp; Baumeister, 2011). So a
         session you leave running while you step away is penalised lightly, not
         as if you were juggling it.
+      </p>
+      <p>
+        <strong>Composite scoring.</strong> The three normalized axes are
+        {scoring_note} Weights and ceilings are configuration parameters
+        (<code>config.json</code> <code>scoring</code>) and can be set from a
+        population calibration over pooled, anonymized exports; the defaults are
+        the literature / null-hypothesis values.
       </p>
       <h3>Research basis</h3>
       <ul class="cite-list">
