@@ -13,6 +13,10 @@ from pathlib import Path
 _YEAR_RE = re.compile(r'\d{4}')
 _MONTH_RE = re.compile(r'\d{4}-\d{2}')
 
+# Where the operator manually uploads a --export-research file. This is a plain
+# link printed to stderr; the tool itself performs no upload.
+RESEARCH_UPLOAD_URL = "https://tally.so/r/EkMM4q"
+
 
 def _parse_range(
     args: argparse.Namespace,
@@ -116,6 +120,20 @@ def _build_parser() -> argparse.ArgumentParser:
              "changes, or to force a clean full rebuild. (Metric/algorithm "
              "changes alone don't need this — metrics are always recomputed "
              "from the cached aggregates.)",
+    )
+    parser.add_argument(
+        "--export-research", nargs="?", const="", default=None, metavar="PATH",
+        help="Write an ANONYMIZED full-year JSON snapshot to PATH (default: "
+             "./stress-levels-research-<year>.json) for voluntary upload to "
+             "the research-calibration form, then exit. Covers --year if given, "
+             "else the current calendar year. Local-only: writes a file and "
+             "nothing else — you upload it manually; the tool never sends data. "
+             "Requires consent (interactive prompt, or --i-consent).",
+    )
+    parser.add_argument(
+        "--i-consent", action="store_true",
+        help="Acknowledge the research-export consent statement "
+             "non-interactively, for use with --export-research in scripts.",
     )
     return parser
 
@@ -262,6 +280,49 @@ def main(argv: list[str] | None = None) -> int:
             closure_sources=closure_sources,
         )
         print(json.dumps(dayview_to_dict(view), default=str))
+        return 0
+
+    # Research-export mode: write an ANONYMIZED full-year snapshot to disk for
+    # voluntary manual upload. Local-only — writes a file and nothing else.
+    # Overrides the date span with a full calendar year (--year if given, else
+    # the current year). Gated on explicit consent.
+    if args.export_research is not None:
+        from .research_export import (
+            CONSENT_TEXT, build_research_export, consent_satisfied,
+        )
+
+        year = int(args.year) if args.year else date.today().year
+        rs_since, rs_until = date(year, 1, 1), date(year, 12, 31)
+
+        print(CONSENT_TEXT, file=sys.stderr)
+        if not consent_satisfied(
+            flag=args.i_consent, isatty=sys.stdin.isatty(),
+        ):
+            print(
+                "stress-levels: research export cancelled — consent not given. "
+                "Re-run with --i-consent to acknowledge non-interactively.",
+                file=sys.stderr,
+            )
+            return 1
+
+        rs_aggs, rs_stats = get_day_aggregates(
+            rs_since, rs_until, sources=sources, closure_sources=closure_sources,
+        )
+        rs_profile = build_profile(rs_aggs, baseline_days=args.baseline_days)
+        payload = build_research_export(
+            rs_profile, since=rs_since, until=rs_until,
+            package_version=__version__, ingest_stats=rs_stats,
+        )
+        rs_path = Path(
+            args.export_research
+            or f"stress-levels-research-{year}.json"
+        ).expanduser().resolve()
+        rs_path.parent.mkdir(parents=True, exist_ok=True)
+        rs_path.write_text(
+            json.dumps(payload, indent=2, default=str), encoding="utf-8",
+        )
+        print(f"research export: {rs_path}", file=sys.stderr)
+        print(f"upload it at:    {RESEARCH_UPLOAD_URL}", file=sys.stderr)
         return 0
 
     print(
