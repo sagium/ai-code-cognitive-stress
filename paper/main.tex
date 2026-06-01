@@ -558,11 +558,24 @@ auditable count ratio and state the proxy plainly. Platform PR/MR events would
 sharpen the signal but require a network call and are out of scope for a
 local-only tool.
 
-\paragraph{Engagement is inferred from message timing.} Foreground is proxied by
-proximity to the operator's own messages within a grace window $g$. This misses
-silent engagement (reading, thinking, reviewing diffs without typing) and may
-misclassify a quick acknowledgement as full engagement. The $5$-minute grace is
-uncalibrated.
+\paragraph{Engagement is interaction-anchored by design.} Foreground is proxied
+by proximity to the operator's own messages within a grace window $g$. Silent
+engagement (reading, thinking, reviewing diffs without typing) leaves no event
+and is therefore not counted---but this is a scope boundary by construction, not
+a measurement gap (\S\ref{sec:method}): the index measures the load \emph{driven
+by agent interaction}, not total cognitive work. The consequence is conservative
+in the direction that matters. Anchoring to logged interaction can only
+\emph{understate} the operator's true cognitive load, so the measured
+agent-supervision load is a lower bound on total load: a high score is a
+sufficient indicator of overload regardless of whatever silent work goes
+unrecorded, because if agent supervision alone saturates capacity there is no
+headroom left for the rest. The one bias in the other direction is that any
+operator message---including a perfunctory acknowledgement---grants full
+foreground weight for the whole window, so a trivial message can be over-weighted
+by up to $g$. The $5$-minute grace is a default, not fitted; like $\beta$ it is a
+configurable, auditable parameter rather than a hidden constant, and both the
+value of engagement weighting and the sensitivity to $g$ are validation targets
+(\S\ref{sec:validation}).
 
 \paragraph{Cross-tool comparability is unestablished.} Different tools log at
 different granularities (e.g.\ per-keystroke vs.\ per-turn), so event counts and
