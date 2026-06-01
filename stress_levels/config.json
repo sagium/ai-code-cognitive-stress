@@ -9,5 +9,11 @@
   "closure": {
     "_comment": "Real closure-event ingestion for the Closure Deficit axis. 'repos' is an OPT-IN list of local git repo paths (absolute). When non-empty, commits/merges in those repos within the work window are counted as closed loops and the deficit becomes 1 - closures/loops_opened (loops_opened = streams started in the window). The tool never auto-discovers repos — it only scans what you list here (local git only, read-only, nothing leaves the machine). Leave empty to fall back to the legacy concurrency-presence proxy. Research basis: an open loop keeps consuming working memory until closed (Masicampo & Baumeister 2011); closure removes attention residue (Leroy 2009) and is a recovery resource (Sonnentag & Fritz 2007); demands without recoverable resources drive burnout (Demerouti et al. 2001).",
     "repos": []
+  },
+  "scoring": {
+    "_comment": "Composite-scoring scales and weights. Each axis is mapped to [0,1] by dividing by its ceiling (codl_avg / codl_ceiling, interruption_rate / interruption_ceiling; closure_deficit is already 0..1), then blended with 'weights' (codl, interruption, closure; normalized by their sum). Defaults are the v1 literature / null-hypothesis values: codl_ceiling=5 (one above Cowan's ~4 capacity limit), interruption_ceiling=10/hour, equal weights. These can be replaced with values suggested by population calibration (run: aicogstress --calibrate <export files>) — review the calibration report first. Calibrated weights are an unsupervised heuristic, NOT validated against felt load.",
+    "codl_ceiling": 5.0,
+    "interruption_ceiling": 10.0,
+    "weights": [0.3333333333333333, 0.3333333333333333, 0.3333333333333333]
   }
 }

@@ -218,7 +218,9 @@ def build_profile(
     """
     local_tz = local_tz or datetime.now().astimezone().tzinfo or timezone.utc
     work_windows = detect_work_windows(aggregates, local_tz=local_tz)
-    codl_cfg = load_config().codl
+    cfg = load_config()
+    codl_cfg = cfg.codl
+    scoring = cfg.scoring
 
     days: dict[date, DayMetrics] = {}
     for day, agg in sorted(aggregates.items()):
@@ -228,6 +230,9 @@ def build_profile(
             agg, window, local_tz,
             foreground_grace_minutes=codl_cfg.foreground_grace_minutes,
             background_weight=codl_cfg.background_weight,
+            codl_ceiling=scoring.codl_ceiling,
+            interruption_ceiling=scoring.interruption_ceiling,
+            weights=scoring.weights,
         )
 
     # Percentiles are computed across all active days.
@@ -342,6 +347,9 @@ def per_day_metrics(
     local_tz: tzinfo,
     foreground_grace_minutes: int = FOREGROUND_GRACE_MINUTES_DEFAULT,
     background_weight: float = BACKGROUND_WEIGHT_DEFAULT,
+    codl_ceiling: float = CODL_NORMALISATION_CEILING,
+    interruption_ceiling: float = INTERRUPTION_NORMALISATION_CEILING,
+    weights: tuple[float, float, float] = COMPOSITE_WEIGHTS,
 ) -> DayMetrics:
     """Compute the three axes + composite for one day.
 
@@ -420,7 +428,11 @@ def per_day_metrics(
 
     # Additive off-hours toll: off-hours interaction always counts, even when
     # the in-window base is zero (a day worked entirely outside the window).
-    base_composite = _composite_score(codl_avg, interruption_rate, closure_deficit)
+    base_composite = _composite_score(
+        codl_avg, interruption_rate, closure_deficit,
+        codl_ceiling=codl_ceiling, interruption_ceiling=interruption_ceiling,
+        weights=weights,
+    )
     composite = min(100.0, base_composite + _off_hours_load_points(off_hours_minutes))
 
     return DayMetrics(
@@ -567,14 +579,20 @@ def _composite_score(
     codl_avg: float,
     interruption_rate: float,
     closure_deficit: float,
+    codl_ceiling: float = CODL_NORMALISATION_CEILING,
+    interruption_ceiling: float = INTERRUPTION_NORMALISATION_CEILING,
+    weights: tuple[float, float, float] = COMPOSITE_WEIGHTS,
 ) -> float:
     """Weighted blend of the three axes, mapped to 0..100. Each axis is
-    clamped to [0, 1] before weighting."""
-    codl_norm = min(1.0, codl_avg / CODL_NORMALISATION_CEILING)
-    int_norm = min(1.0, interruption_rate / INTERRUPTION_NORMALISATION_CEILING)
+    clamped to [0, 1] before weighting; weights are normalized by their sum, so
+    a calibrated weight vector that doesn't sum to 1 still yields a 0..100
+    score."""
+    codl_norm = min(1.0, codl_avg / codl_ceiling)
+    int_norm = min(1.0, interruption_rate / interruption_ceiling)
     closure_norm = max(0.0, min(1.0, closure_deficit))
-    w_codl, w_int, w_clo = COMPOSITE_WEIGHTS
-    blend = w_codl * codl_norm + w_int * int_norm + w_clo * closure_norm
+    w_codl, w_int, w_clo = weights
+    w_total = w_codl + w_int + w_clo
+    blend = (w_codl * codl_norm + w_int * int_norm + w_clo * closure_norm) / w_total
     return 100.0 * blend
 
 

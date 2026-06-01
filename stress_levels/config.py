@@ -58,10 +58,26 @@ class ClosureConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class ScoringConfig:
+    """Composite-scoring scales and weights.
+
+    Defaults are the v1 literature / null-hypothesis values (mirroring the
+    constants in ``metrics.py``): each axis is mapped to [0,1] by dividing by a
+    ceiling, then blended with equal weights. Population calibration
+    (``calibrate.py``) can suggest data-fitted overrides that the operator opts
+    into here. ``weights`` is (codl, interruption, closure) and need not sum to
+    1 — the composite normalizes by their sum."""
+    codl_ceiling: float = 5.0
+    interruption_ceiling: float = 10.0
+    weights: tuple[float, float, float] = (1 / 3, 1 / 3, 1 / 3)
+
+
+@dataclass(frozen=True, slots=True)
 class Config:
     work_window: WorkWindow | None = None
     codl: CodlConfig = CodlConfig()
     closure: ClosureConfig = ClosureConfig()
+    scoring: ScoringConfig = ScoringConfig()
 
 
 def _parse_hhmm(value: str) -> time:
@@ -96,9 +112,35 @@ def load_config(path: Path | None = None) -> Config:
         work_window=work_window,
         codl=_parse_codl(data.get("codl") or {}),
         closure=_parse_closure(data.get("closure") or {}),
+        scoring=_parse_scoring(data.get("scoring") or {}),
     )
     _CONFIG_CACHE[key] = config
     return config
+
+
+def _parse_scoring(raw: dict) -> ScoringConfig:
+    """Parse + validate the composite-scoring block, falling back to the
+    literature defaults for any missing key. Ceilings must be > 0; weights must
+    be three non-negative numbers that don't all sum to zero."""
+    d = ScoringConfig()
+    codl_c = raw.get("codl_ceiling", d.codl_ceiling)
+    int_c = raw.get("interruption_ceiling", d.interruption_ceiling)
+    weights = raw.get("weights", list(d.weights))
+    for name, c in (("codl_ceiling", codl_c), ("interruption_ceiling", int_c)):
+        if not isinstance(c, (int, float)) or c <= 0:
+            raise ValueError(f"scoring.{name} must be > 0, got {c!r}")
+    if (not isinstance(weights, (list, tuple)) or len(weights) != 3
+            or not all(isinstance(w, (int, float)) and w >= 0 for w in weights)):
+        raise ValueError(
+            f"scoring.weights must be three non-negative numbers, got {weights!r}"
+        )
+    if sum(weights) <= 0:
+        raise ValueError("scoring.weights must not sum to zero")
+    return ScoringConfig(
+        codl_ceiling=float(codl_c),
+        interruption_ceiling=float(int_c),
+        weights=(float(weights[0]), float(weights[1]), float(weights[2])),
+    )
 
 
 def _parse_closure(raw: dict) -> ClosureConfig:
