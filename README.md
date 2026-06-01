@@ -180,6 +180,26 @@ is anonymous it can't be traced back and withdrawn afterwards, so it's entirely 
 call. (Tally logs submitter IPs at the platform level; the *file contents* carry no
 identity.)
 
+### Calibrating from collected exports (maintainer)
+
+Once a batch of exports has been collected, pool them and crunch the population to
+recalibrate the index so it covers the real range of work patterns:
+
+```bash
+aicogstress --calibrate ./exports --calibrate-out ./calibration-report.json
+```
+
+This reads the export files (a directory or a list of files — local only, no
+network), and suggests population-fitted **normalization ceilings** and
+redundancy-informed **composite weights**, plus a **work-pattern coverage map** and
+population reference percentiles. It prints a ready-to-paste `scoring` block but
+changes nothing on its own — review it, then opt in by setting the `scoring` block
+in `config.json` (`codl_ceiling`, `interruption_ceiling`, `weights`; defaults are the
+current literature values). Because the exports carry no felt-load labels, the
+calibration is **unsupervised**: it fits scales and suggests weights from axis
+redundancy, but does **not** validate weights against felt load — that needs a
+subjective criterion (NASA-TLX / EMA) and stays future work.
+
 ---
 
 ## Project structure

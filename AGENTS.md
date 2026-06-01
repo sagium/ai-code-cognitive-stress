@@ -33,6 +33,12 @@ it **only writes an anonymized file to local disk** — the user uploads it
 manually. It performs no network I/O. Do not "improve" it into an auto-upload or
 add any network call to it.
 
+`--calibrate` (`stress_levels/calibrate.py`) is the maintainer-side companion: it
+reads exports the maintainer has already collected on disk and writes a local
+calibration report. Same invariant — local files in, local report out, no
+network. It only *suggests* a `scoring` config block; it never mutates config or
+the index on its own.
+
 ## Project structure
 
 ```
@@ -48,6 +54,7 @@ ai-code-cognitive-stress/
 │   ├── widget.py               # live tkinter daily-view widget + compute_today_dayview
 │   ├── serialize.py            # JSON sibling for the chat skill
 │   ├── research_export.py      # anonymized full-year export (local file; manual upload)
+│   ├── calibrate.py            # maintainer: pool exports → suggest scoring (local-only, unsupervised)
 │   ├── citations.py            # research-registry loader
 │   ├── citations.yml           # 24-entry literature registry (single source of truth)
 │   └── sources/                # pluggable input adapters
