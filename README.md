@@ -7,6 +7,8 @@
 > Your day gets a 0–100 score and a one-word verdict —
 > from `Chill` 🧊 `▁▂▃▄▅▆▇█` 🍳 `Cooked`. Playful label, real research underneath.
 
+📄 **Read the paper:** [*Measuring the Cognitive Load of Supervising Parallel AI Coding Agents — A Local, Research-Grounded, Individualized Index*](paper/ai-code-cognitive-stress-paper.pdf) (PDF). The method, the literature behind every axis, and a section devoted to attacking our own construct.
+
 Running several LLM coding tools at once — or many sessions of one — puts you in a role
 humans rarely held before: one operator supervising multiple semi-autonomous
 agents at machine pace, switching between them all day and judging their output
@@ -21,16 +23,19 @@ own** baseline, computed **entirely on your machine**.
 
 ### Why this matters now
 
-- **AI tools made parallel-agent supervision an everyday workflow.** The closest
-  studied analogue is supervisory control of multiple drones, where one
-  operator's performance collapses non-linearly past a personal "fan-out" limit —
-  *before* they consciously feel overloaded.
-- **Burnout comes from load without recovery, not load alone.** Days that never
-  close out, evenings that never detach, weeks that only climb — these are the
-  signal, and they're hard to notice from the inside.
-- **Nothing measured this.** Productivity dashboards count output; this counts
-  *cognitive cost* — concurrency, interruption, and lack of closure — and tells
-  you where you sit relative to your own healthy range.
+This isn't speculative. AI assistance doesn't remove cognitive effort — it
+**shifts it from writing to verifying and supervising**, and that load is hard to
+feel from the inside. In one randomized trial, experienced developers were
+**slowed ~19% by AI tooling yet believed it had sped them up** — exactly the
+perception gap an honest, behavioural, after-the-fact picture is built to close.
+Running many agents at once is a role humans rarely held before; its closest
+studied analogue (supervising multiple drones) shows performance collapsing
+non-linearly past a personal "fan-out" limit *before* the operator feels
+overloaded. And burnout tracks load *without recovery*, not load alone.
+
+Productivity dashboards count output; this counts *cognitive cost* — concurrency,
+interruption, and lack of closure — against your own healthy range. The full
+argument and every citation are in the [paper](paper/ai-code-cognitive-stress-paper.pdf).
 
 ### How it tackles the problem
 
@@ -152,10 +157,19 @@ from one shared model (`stress_levels/dayview.py`), so they can't drift.
 
 ## Help calibrate the index (optional, anonymous)
 
-The thresholds the index leans on (working-memory capacity ≈ 4, ~10 interruptions/hour)
-are borrowed from the literature and not yet fitted to agent-coding developers.
-You can help fix that by donating **one anonymized year** of your own metrics — it
-takes two steps and stays under your control:
+**Why your data moves the research forward.** Today the index is honest but
+*borrowed* and *single-subject*: its thresholds come from adjacent fields and have
+never been fitted to agent-coding developers, and its three axes are weighted
+*equally* as an explicit null hypothesis, not a measured fact. A modest
+multi-developer sample is what lets those thresholds and weights be checked, refit,
+and validated — turning a *principled* instrument into a *validated* one. The
+paper's [validation roadmap](paper/ai-code-cognitive-stress-paper.pdf) (§7) details
+exactly what pooled data unlocks.
+
+So you can help by donating **one anonymized year** of your own metrics — the
+project's single, deliberate, **opt-in** sharing path. The tool still never makes a
+network call; it writes a local file and *you* choose to upload it. Two steps,
+entirely under your control:
 
 ```bash
 aicogstress --export-research --year 2026     # writes ./stress-levels-research-2026.json
@@ -217,10 +231,14 @@ render, cache) is identical.
 
 ## The metrics, why they matter, and the literature
 
-Three behavioural axes are computed inside a **fixed working day** (09:00–19:00
-local by default, configurable in `stress_levels/config.json`). Weekends never
-count as working days — weekend activity surfaces only as an off-hours
-*recovery* signal.
+Three behavioural axes are computed inside a **work window inferred per operator** —
+the band between the 10th and 90th percentile of the hours *you* actually message
+your agents, floored/ceiled outward to whole hours and applied as one stable band to
+every date. There's no privileged weekend: work is whatever falls inside *your* own
+hours on *any* date, and activity outside them surfaces only as an off-hours
+*recovery* signal. Before ~5 days of data accrue (or if you pin one in
+`stress_levels/config.json`) a conventional 09:00–19:00 band serves as a cold-start
+default.
 
 <p align="center">
   <img src="docs/screenshots/day-modal.svg" alt="Day drill-down — composite score, hourly concurrency, and the three axis tiles with range bars" width="100%">
@@ -237,16 +255,13 @@ the explicit v1 null hypothesis (no evidence yet favours one axis), stated as su
 in the report's methodology footer.
 
 **Personal optimum** is the CODL band where you historically closed the most work
-with the least off-hours follow-up — your individual *flow channel*, marked on the
-charts as a target, not a ceiling. Performance follows an inverted-U with load
-(**Yerkes & Dodson 1908**; **Csíkszentmihályi 1990**). It needs ~14 active
-workdays to stabilise; below that the report shows `calibrating`.
+with the least off-hours follow-up — your individual *flow channel* (performance
+follows an inverted-U with load), marked on the charts as a target, not a ceiling.
+It needs ~14 active workdays to stabilise; below that the report shows `calibrating`.
 
 **Recovery & off-hours.** Days that never reach low load, and work that spills
-into evenings/weekends, are flagged — because chronic load without recovery, not
-peaks, is what damages you over time (allostatic load, **McEwen 1998**;
-detachment predicts next-day vigour, **Sonnentag & Fritz 2007**; **Sonnentag,
-Binnewies & Mojza 2010**).
+outside your inferred hours, are flagged — because chronic load *without recovery*,
+not peaks, is what damages you over time.
 
 ### Honest about what it can't tell you
 
@@ -268,29 +283,11 @@ Every threshold, weight, and recommendation traces to an entry in
 [`stress_levels/citations.yml`](stress_levels/citations.yml) — the report renders
 each citation at the point the number appears, never as a bare figure.
 
-<details>
-<summary><strong>Full reference list (20)</strong></summary>
-
-- Cowan, N. (2001). *The magical number 4 in short-term memory.* Behavioral and Brain Sciences, 24(1).
-- Cummings, M. L. & Mitchell, P. J. (2008). *Predicting controller capacity in supervisory control of multiple UAVs.* IEEE Trans. SMC-A, 38(2).
-- Crandall, J. W. & Cummings, M. L. (2007). *Identifying predictive metrics for supervisory control of multiple robots.* IEEE Trans. Robotics, 23(5).
-- Sheridan, T. B. (1992). *Telerobotics, Automation, and Human Supervisory Control.* MIT Press.
-- González, V. M. & Mark, G. (2004). *"Constant, constant, multi-tasking craziness": Managing multiple working spheres.* CHI '04, pp. 113–120.
-- Mark, G., Gudith, D. & Klocke, U. (2008). *The cost of interrupted work: more speed and stress.* CHI '08.
-- Mark, G., Gonzalez, V. M. & Harris, J. (2005). *No task left behind? Examining the nature of fragmented work.* CHI '05.
-- Mark, G. (2023). *Attention Span.* Hanover Square Press.
-- Leroy, S. (2009). *Why is it so hard to do my work? … attention residue.* OBHDP, 109(2).
-- Wickens, C. D. (2008). *Multiple resources and mental workload.* Human Factors, 50(3).
-- Demerouti, E., Bakker, A. B., Nachreiner, F. & Schaufeli, W. B. (2001). *The Job Demands–Resources Model of Burnout.* J. Applied Psychology, 86(3).
-- McEwen, B. S. (1998). *Protective and damaging effects of stress mediators.* NEJM, 338(3).
-- Sonnentag, S. & Fritz, C. (2007). *The Recovery Experience Questionnaire.* J. Occupational Health Psychology, 12(3).
-- Sonnentag, S., Binnewies, C. & Mojza, E. J. (2010). *Staying well and engaged when demands are high.* J. Applied Psychology, 95(5).
-- Yerkes, R. M. & Dodson, J. D. (1908). *The relation of strength of stimulus to rapidity of habit-formation.* J. Comparative Neurology and Psychology, 18(5).
-- Csíkszentmihályi, M. (1990). *Flow: The Psychology of Optimal Experience.* Harper & Row.
-- Hart, S. G. & Staveland, L. E. (1988). *Development of NASA-TLX.* Human Mental Workload (Advances in Psychology, 52).
-- Maslach, C. & Jackson, S. E. (1981). *The measurement of experienced burnout.* J. Occupational Behaviour, 2(2).
-
-</details>
+The full bibliography (working memory, supervisory-control fan-out, the
+interruption/attention-residue literature, the Job Demands–Resources model, and the
+recent AI-assisted-coding studies) lives in the
+[paper](paper/ai-code-cognitive-stress-paper.pdf) and in machine-readable form in
+[`stress_levels/citations.yml`](stress_levels/citations.yml).
 
 ---
 

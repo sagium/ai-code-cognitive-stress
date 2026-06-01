@@ -30,6 +30,8 @@ uv.lock
 *.toc
 *.synctex.gz
 paper/*.pdf
+# …except the rendered paper, which is committed and linked from the README.
+!paper/ai-code-cognitive-stress-paper.pdf
 
 # Build artifacts
 /dist/
