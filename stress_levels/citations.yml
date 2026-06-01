@@ -244,3 +244,90 @@
   doi: "10.1177/0018720816685832"
   supports:
     - "Cost of resuming control after letting an automated process run"
+
+# --- AI-assisted coding and developer cognition. Direct, in-domain evidence
+# --- that the supervisory burden this index measures is real, not speculative.
+# --- These motivate the index rather than back a specific threshold; they
+# --- mirror the paper's references.bib so the report's Research basis and the
+# --- paper cite the same works.
+
+- key: mozannar-2024
+  authors: "Mozannar, H., Bansal, G., Fourney, A. & Horvitz, E."
+  year: 2024
+  title: "Reading between the lines: Modeling user behavior and costs in AI-assisted programming"
+  venue: "Proc. CHI Conf. on Human Factors in Computing Systems (CHI '24)"
+  doi: "10.1145/3613904.3641936"
+  supports:
+    - "Effort shifts from writing to verification — programmers spend ~51.5% of session time in suggestion-specific states (verifying, deferring, prompt-crafting)"
+
+- key: perry-2023
+  authors: "Perry, N., Srivastava, M., Kumar, D. & Boneh, D."
+  year: 2023
+  title: "Do users write more insecure code with AI assistants?"
+  venue: "Proc. ACM SIGSAC Conf. on Computer and Communications Security (CCS '23), 2785–2799"
+  doi: "10.1145/3576915.3623157"
+  supports:
+    - "Over-reliance / false sense of security — assistant users write less secure but more confidently-trusted code"
+
+- key: qian-wexler-2024
+  authors: "Qian, C. & Wexler, J."
+  year: 2024
+  title: "Take it, leave it, or fix it: Measuring productivity and trust in human–AI collaboration"
+  venue: "Proc. 29th Int. Conf. on Intelligent User Interfaces (IUI '24)"
+  doi: "10.1145/3640543.3645198"
+  supports:
+    - "Automation complacency and rising reliance over a single task in professional engineers — in-domain support for the supervisory fan-out/neglect analogy"
+
+- key: tang-2024
+  authors: "Tang, N., Chen, M., Ning, Z., Bansal, A., Huang, Y., McMillan, C. & Li, T. J.-J."
+  year: 2024
+  title: "Developer behaviors in validating and repairing LLM-generated code using IDE and eye tracking"
+  venue: "IEEE Symp. on Visual Languages and Human-Centric Computing (VL/HCC), 40–46"
+  doi: "10.1109/VL/HCC60511.2024.00015"
+  supports:
+    - "Merely informing developers that code is LLM-generated raises their measured NASA-TLX workload"
+
+- key: barke-james-polikarpova-2023
+  authors: "Barke, S., James, M. B. & Polikarpova, N."
+  year: 2023
+  title: "Grounded Copilot: How programmers interact with code-generating models"
+  venue: "Proc. ACM on Programming Languages, 7(OOPSLA1)"
+  doi: "10.1145/3586030"
+  supports:
+    - "Interaction is bimodal — fast acceleration alternating with slow, validation-heavy exploration"
+
+- key: feng-afroz-sarma-2026
+  authors: "Feng, Z., Afroz, S. & Sarma, A."
+  year: 2026
+  title: "From gains to strains: Modeling developer burnout with GenAI adoption"
+  venue: "Proc. 48th Int. Conf. on Software Engineering, Software Engineering in Society Track (ICSE-SEIS '26); arXiv:2510.07435"
+  doi: null
+  supports:
+    - "First peer-reviewed link from GenAI adoption to burnout via intensified job demands (Job Demands–Resources model)"
+
+- key: sergeyuk-2026
+  authors: "Sergeyuk, A., Huang, E., Karaeva, D., Serova, A., Golubev, Y. & Ahmed, I."
+  year: 2026
+  title: "Evolving with AI: A longitudinal analysis of developer logs"
+  venue: "Proc. 48th Int. Conf. on Software Engineering (ICSE '26)"
+  doi: "10.1145/3744916.3787811"
+  supports:
+    - "Longitudinal telemetry of AI-assisted developers — motivates continuous behavioural measurement over one-off laboratory studies"
+
+- key: becker-2025
+  authors: "Becker, J., Rush, N., Barnes, B. & Rein, D."
+  year: 2025
+  title: "Measuring the impact of early-2025 AI on experienced open-source developer productivity"
+  venue: "METR technical report; arXiv:2507.09089 (preprint, not peer-reviewed)"
+  doi: null
+  supports:
+    - "Perception–reality gap — experienced developers were slowed ~19% by AI tooling yet believed it had sped them up"
+
+- key: stackoverflow-2025
+  authors: "Stack Overflow"
+  year: 2025
+  title: "2025 Developer Survey"
+  venue: "Industry survey, 49,000+ respondents (not peer-reviewed)"
+  doi: null
+  supports:
+    - "Large-scale corroboration of the developer perception–reality gap in AI tooling"

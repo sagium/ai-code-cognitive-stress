@@ -83,6 +83,23 @@ the Job Demands--Resources model~\cite{demerouti2001}. Chronic load without
 recovery---not isolated peaks---is what damages people over
 time~\cite{mcewen1998,sonnentag2010}.
 
+This is not a speculative concern. For AI-assisted coding specifically, a
+growing body of peer-reviewed work finds that effort does not disappear under
+assistance but \emph{shifts} from writing to verification and oversight:
+programmers spend roughly half their session time in assistant-specific
+states---verifying suggestions, deferring thought, prompt-crafting, and
+editing~\cite{mozannar2024}; developers given an AI assistant write less secure
+code while being \emph{more} confident it is secure~\cite{perry2023}; and
+professional engineers show automation complacency and rising reliance over the
+course of a single task~\cite{qian2024}. A mixed-methods survey of $442$
+developers links GenAI adoption to burnout through intensified job
+demands~\cite{feng2026}. Crucially, this load is hard to read from the inside:
+in a randomized trial, experienced developers were slowed by $\approx 19\%$ when
+allowed AI tooling yet believed it had sped them up~\cite{metr2025}---a
+perception--reality gap echoed in longitudinal telemetry~\cite{sergeyuk2026} and
+large-scale developer surveys~\cite{so2025}. A self-perception this miscalibrated
+is precisely what an honest, behavioural, after-the-fact picture is for.
+
 Our goal is modest and concrete: to give an individual developer an honest,
 research-grounded, \emph{private} picture of this load over time, scored against
 \emph{their own} historical baseline rather than a population norm. We do not
@@ -156,6 +173,26 @@ concrete plan is made~\cite{masicampo2011}; and maintaining a pending intention
 while doing other work measurably slows that ongoing task---the
 prospective-memory ``monitoring cost,'' on the order of 15--20\%\ of
 baseline~\cite{smith2003}.
+
+\paragraph{AI-assisted coding and developer cognition.} A young but fast-growing
+empirical literature studies these tools directly, and it is what makes the
+present concern concrete rather than analogical. AI assistance shifts effort
+toward verification: programmers spend $\approx$$51.5\%$ of session time in
+suggestion-specific states~\cite{mozannar2024}, and merely \emph{informing}
+developers that code is LLM-generated raises their measured NASA-TLX
+workload~\cite{tang2024}. Over-reliance is demonstrated rather than
+hypothesised---a ``false sense of security'' among assistant users who write
+less secure but more confidently-trusted code~\cite{perry2023}, and automation
+complacency among professional engineers~\cite{qian2024}---and the interaction
+is bimodal, alternating fast \emph{acceleration} with slow, validation-heavy
+\emph{exploration}~\cite{barke2023}. Burnout now has its first peer-reviewed
+anchor in a Job Demands--Resources analysis of GenAI
+adoption~\cite{feng2026}. What this literature still largely lacks is direct,
+longitudinal, AI-vs-no-AI measurement of cognitive load in everyday professional
+work~\cite{sergeyuk2026}; our index approaches that gap from the opposite
+direction---an objective behavioural signal computed continuously from real
+sessions on the developer's own machine, rather than a one-off laboratory
+measurement.
 
 \paragraph{What we are \emph{not}.} The validated instrument for subjective
 workload is NASA-TLX~\cite{hart1988}; for diagnosed burnout it is the Maslach
@@ -537,7 +574,14 @@ Fan-out, neglect time, and attention demand were developed for UAV/robot
 operators~\cite{cummings2008,crandall2007}. Their transfer to LLM oversight is
 plausible---both involve one human time-sharing across semi-autonomous
 processes---but unproven. LLM agents differ in failure modes, feedback latency,
-and the verbal/code modality of interaction.
+and the verbal/code modality of interaction. Recent AI-coding studies give the
+transfer partial, in-domain support: automation complacency and rising reliance
+have now been observed directly in professional developers using LLM
+assistants~\cite{qian2024}, and informing developers that code is LLM-generated
+measurably raises their NASA-TLX workload~\cite{tang2024}. These vary trust and
+provenance rather than the supervisory fan-out our axes model, so they
+corroborate the cognitive cost without yet validating the specific
+fan-out/neglect-time constructs we borrow.
 
 \paragraph{The background weight $\beta$ is a prior, calibrated only in
 magnitude.} That a background locus carries a positive, effortful, and
