@@ -249,11 +249,11 @@ That is, a session counts fully only within $g$ of one of the operator's own
 messages (\emph{foreground}, actively driven); otherwise, while alive, it is
 ``cooking'' in the background at weight $\beta$. Weighted concurrency and the two
 CODL summaries are
-\begin{equation}
+\begin{multline}
 C(t)=\sum_{s} e_s(t),\quad
-\overline{\mathrm{CODL}}=\frac{1}{|T|}\sum_{t\in T} C(t),\quad
+\overline{\mathrm{CODL}}=\frac{1}{|T|}\sum_{t\in T} C(t),\\
 \mathrm{CODL}^{\star}=\max_{t} C(t).
-\end{equation}
+\end{multline}
 We retain a raw headcount $H(t)=\sum_s \mathbf{1}[a_s\le t\le b_s]$ and its peak
 $\max_t H(t)$ as a descriptive ``sessions open at once,'' but the \emph{scored}
 quantities use the weighted form.
@@ -335,13 +335,13 @@ proxy, so the default install is unchanged until the user opts in.
 
 \subsection{Composite}
 Each axis is normalized to $[0,1]$ and blended with equal weights:
-\begin{equation}
-\mathrm{Composite} = \frac{100}{3}\!\left(
+\begin{multline}
+\mathrm{Composite} = \frac{100}{3}\bigg(
 \min\!\Big(1,\tfrac{\overline{\mathrm{CODL}}}{5}\Big) +
-\min\!\Big(1,\tfrac{I}{10}\Big) +
-\mathrm{clip}(\mathrm{ClosureDeficit},0,1)
-\right).
-\end{equation}
+\min\!\Big(1,\tfrac{I}{10}\Big) \\
++\ \mathrm{clip}(\mathrm{ClosureDeficit},0,1)
+\bigg).
+\end{multline}
 The CODL ceiling is set to $5$---one above Cowan's $\approx 4$ capacity limit---so a day operating \emph{at} the working-memory boundary scores $0.8$ (the warning band) rather than saturating the axis at $1.0$.
 Off-hours work then adds an \emph{additive} load to this base. Let $o$ be the
 day's off-hours \emph{engaged} minutes---one-minute instants outside $W$ during
@@ -394,6 +394,7 @@ detachment, not peaks, predicts harm~\cite{mcewen1998,sonnentag2007,sonnentag201
 \begin{figure}[t]
 \centering
 \scriptsize
+\resizebox{\columnwidth}{!}{%
 \begin{tikzpicture}[
   node distance=4mm,
   box/.style={draw, rounded corners, align=center, inner sep=2.5pt,
@@ -426,7 +427,8 @@ detachment, not peaks, predicts harm~\cite{mcewen1998,sonnentag2007,sonnentag201
 \path (correct) |- (merge);
 \node[left=6mm of impl, align=center, font=\scriptsize] {improved\\code $+$ paper};
 \path (merge.west) -- ++(-6mm,0) |- (artifact.west);
-\end{tikzpicture}
+\end{tikzpicture}%
+}
 \caption{The \texttt{reconcile-critique} loop (\S\ref{sec:reflexive}): the paper's
 self-critique drives revision of an \emph{executable} artifact. Two human gates
 (shaded) bracket every change---plan approval and merge review. Verification and
