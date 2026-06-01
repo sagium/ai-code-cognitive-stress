@@ -41,10 +41,14 @@ paper/*.pdf
 .DS_Store
 Thumbs.db
 
-# Generated reports (run locally, not for committing)
+# Generated reports + exports (run locally, not for committing; may contain
+# your own data even when anonymized)
 out/
 *.report.html
 stress-profile*.html
+stress-profile*.json
+stress-levels-research-*.json
+calibration-report*.json
 
 # Logs
 *.log
