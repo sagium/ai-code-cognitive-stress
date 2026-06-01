@@ -494,6 +494,20 @@ by design: session transcripts frequently contain proprietary code and
 secrets, so the generated artefacts are treated as similarly sensitive and
 never leave the machine.
 
+The implementation also provides two optional, local-only pathways toward the
+multi-developer calibration of \S\ref{sec:validation}. The first is an
+anonymized, consent-gated \emph{research export}: a per-user file of derived
+daily metrics (and their components) with the timezone dropped and calendar
+dates randomly shifted, which the operator may choose to upload manually---the
+tool itself transmits nothing, preserving the local-only invariant. The second
+is a population \emph{calibration} step that pools such exports and proposes
+normalization ceilings and composite weights that cover the observed range of
+work patterns. Both read and write only local files. The calibration is
+\emph{unsupervised}: it fits the axis \emph{scales} to the population
+distribution and suggests weights from the redundancy among axes, but it does
+not fit weights to felt load---that still requires a subjective criterion
+(\S\ref{sec:validation}).
+
 \section{Illustrative Example}\label{sec:example}
 To make the axes concrete we report one author's own data for a single month
 (19 active workdays). We stress that this is an \emph{illustration of the
@@ -541,7 +555,13 @@ from data is a validation target (\S\ref{sec:validation}).
 \paragraph{Equal composite weights are a placeholder.} We assert no axis
 dominates; this is almost certainly false in detail. Without calibration against
 a criterion, the composite's absolute scale is arbitrary and only its
-\emph{relative} movement within one person's history is meaningful.
+\emph{relative} movement within one person's history is meaningful. The weights
+are now a configuration parameter rather than a hard-coded constant, and the
+implementation includes a population step that suggests data-fitted weights from
+the redundancy among axes across pooled exports (\S\ref{sec:impl}). That step is
+\emph{unsupervised}, however: absent a felt-load criterion it cannot show the
+fitted weights track subjective load, so equal weights remain the default and
+the placeholder stands until the supervised calibration of \S\ref{sec:validation}.
 
 \paragraph{Closure Deficit relies on count-level attribution.} The axis now
 nets real \texttt{git} commits/merges against the loops opened each work
@@ -585,11 +605,13 @@ across tools without normalization risks systematic bias.
 \paragraph{Single subject and borrowed thresholds.} The capacity threshold
 ($\approx 4$~\cite{cowan2001}) and interruption ceiling ($10$/hour) are
 literature values, not fitted to the population of agent-coding developers, who
-may differ. All reported behaviour is $n{=}1$ and from an author. A
-multi-developer data collection---each participant running the local-only tool
-on their own machine, with only the derived metrics pooled for analysis---is
-planned to fit these thresholds to the agent-coding population and move beyond
-the single-subject example (\S\ref{sec:validation}).
+may differ. All reported behaviour is $n{=}1$ and from an author. The reference
+implementation now provides the machinery to move beyond this---an anonymized
+per-user export and a population-calibration step that refits the ceilings to
+the pooled distribution (\S\ref{sec:impl})---so what remains is collecting the
+multi-developer sample, each participant running the local-only tool on their
+own machine and only derived metrics pooled. Until that sample exists the
+thresholds stay borrowed and the data stays $n{=}1$ (\S\ref{sec:validation}).
 
 \paragraph{Modelling and boundary choices.} One-minute sampling, the
 over-approximation of a stream as alive across $[a_s,b_s]$, and timezone
@@ -644,7 +666,11 @@ predictions that would, if tested, confirm or refute the design.
   does not improve the correlation, $\beta$ and $g$ add complexity without value.
   \item \textbf{Weight calibration.} Regressing subjective load on the three
   normalized axes should yield weights that beat the equal-weight null
-  out-of-sample; the fitted weights become the next version's defaults.
+  out-of-sample; the fitted weights become the next version's defaults. The
+  implementation already derives \emph{unsupervised}, redundancy-based weight
+  suggestions from pooled exports (\S\ref{sec:impl}); this prediction concerns
+  the \emph{supervised} step the tool cannot perform---fitting and validating
+  weights against a felt-load criterion.
   \item \textbf{Predictive validity for recovery.} Days high in off-hours
   activity and composite should predict lower next-day vigor/detachment
   scores~\cite{sonnentag2010}; absence of this relationship weakens the recovery
@@ -670,12 +696,15 @@ predictions that would, if tested, confirm or refute the design.
   $\approx 4$ capacity ceiling~\cite{cowan2001} and $10$/hour interruption
   ceiling can be checked and, if warranted, refit to the agent-coding
   population; large divergence would mean the borrowed values mis-set the axis
-  scales.
+  scales. The calibration step computes exactly this from pooled exports
+  (\S\ref{sec:impl}); what remains is collecting the population.
 \end{enumerate}
 A modest multi-developer study with experience sampling---each participant
 running the local-only tool on their own machine, with only the derived per-day
 metrics and subjective ratings pooled for analysis, so no off-machine data path
-is added to the tool---is planned, and would address the majority of the threats
+is added to the tool---is now supported end-to-end by the released tooling (the
+anonymized export and the pooled-calibration step, \S\ref{sec:impl}) and is the
+primary outstanding work; running it would address the majority of the threats
 in \S\ref{sec:threats}, in particular the single-subject and borrowed-threshold
 limitations, converting this from a principled instrument into a validated one. Folding real closure events
 (commits/merges) into the Closure Deficit, previously listed here as future
