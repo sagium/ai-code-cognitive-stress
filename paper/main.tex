@@ -247,9 +247,12 @@ transmitted (\S\ref{sec:impl}).
 
 \subsection{Work window}
 Axes are computed inside a daily work window $W=[w_0,w_1]$ \emph{inferred per
-operator}: $w_0$ and $w_1$ are the $p_{10}$ and $p_{90}$ (rounded to the hour)
-of the local-time hours at which the operator sends messages, pooled over the
-baseline window and applied as one stable band to \emph{every} calendar day.
+operator}: $w_0=\lfloor p_{10}\rfloor$ and $w_1=\lceil p_{90}\rceil$ are the
+$p_{10}$ and $p_{90}$ of the local-time hours at which the operator sends
+messages, floored and ceiled \emph{outward} to whole hours so the band is never
+narrower than the percentile span, pooled over the baseline window and applied
+as one stable band to \emph{every} calendar day (a degenerate or empty band
+falls back to the cold-start default below).
 The window is therefore individual to the operator rather than a property of
 the experiment. We make no assumption about which days are working days---there
 is no privileged weekend; a person can work any day. ``Work'' is whatever falls
