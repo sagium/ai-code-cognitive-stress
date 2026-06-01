@@ -1,0 +1,205 @@
+"""Tests for the anonymized research-data export."""
+
+from __future__ import annotations
+
+import json
+import random
+from datetime import date, time
+
+from stress_levels.aggregate import AggregateStats
+from stress_levels.metrics import DayMetrics, StressProfile, WorkWindow
+from stress_levels.research_export import (
+    CONSENT_TEXT,
+    SCHEMA,
+    build_research_export,
+    consent_satisfied,
+)
+
+# A clearly-identifying timezone name that must never survive into the export.
+_TZ_NAME = "Europe/Brussels"
+_ACTIVE_DAY = date(2026, 5, 14)  # a Thursday
+
+
+def _stub_profile() -> StressProfile:
+    days = {
+        _ACTIVE_DAY: DayMetrics(
+            day=_ACTIVE_DAY, composite=64.0,
+            codl_avg=1.56, codl_peak=3, codl_peak_active=2.1,
+            interruption_rate=6.04, closure_deficit=0.40,
+            off_hours_minutes=12,
+            work_window_local=(time(9), time(18)),
+        ),
+        date(2026, 5, 15): DayMetrics(day=date(2026, 5, 15), composite=0.0),
+    }
+    windows = {
+        wd: WorkWindow(weekday=wd, start=time(9), end=time(18))
+        for wd in range(7)
+    }
+    return StressProfile(
+        days=days, work_windows=windows, local_tz_name=_TZ_NAME,
+        baseline_window_days=30, personal_optimum=1.5,
+        composite_p50=45.0, composite_p75=52.0, composite_p90=56.0,
+    )
+
+
+def _export(**overrides) -> dict:
+    defaults = dict(
+        since=date(2026, 1, 1), until=date(2026, 12, 31),
+        package_version="0.1.0", ingest_stats=None,
+        rng=random.Random(1234), participant_id="fixedpid",
+        generated_on=date(2026, 6, 1),
+    )
+    defaults.update(overrides)
+    return build_research_export(_stub_profile(), **defaults)
+
+
+# --- envelope --------------------------------------------------------------
+
+def test_schema_version_and_stamps():
+    out = _export()
+    assert out["schema"] == SCHEMA
+    assert out["package_version"] == "0.1.0"
+    assert out["participant"] == "fixedpid"
+    assert out["generated_on"] == "2026-06-01"
+    assert out["window_days"] == 365
+
+
+# --- anonymization ---------------------------------------------------------
+
+def test_timezone_name_never_leaks():
+    out = _export()
+    # No tz field at the profile level...
+    assert "local_tz" not in out["profile"]
+    assert "tz_name" not in out["profile"]
+    # ...and the name appears nowhere in the serialized payload.
+    assert _TZ_NAME not in json.dumps(out)
+
+
+def test_dates_shifted_by_whole_weeks_preserving_weekday():
+    day = _export()["profile"]["days"][0]
+    assert day["weekday"] == "Thu"
+    shifted = date.fromisoformat(day["date"])
+    # Shift is a whole number of weeks → same weekday, and not the real date.
+    assert shifted.weekday() == _ACTIVE_DAY.weekday()
+    assert (shifted - _ACTIVE_DAY).days % 7 == 0
+    assert shifted != _ACTIVE_DAY  # Random(1234) yields a non-zero offset
+
+
+def test_numeric_metrics_preserved_verbatim():
+    day = _export()["profile"]["days"][0]
+    assert day["composite"] == 64.0
+    assert day["codl_avg"] == 1.56
+    assert day["codl_peak"] == 3
+    assert day["codl_peak_active"] == 2.1
+    assert day["interruption_rate"] == 6.04
+    assert day["closure_deficit"] == 0.40
+    assert day["off_hours_minutes"] == 12
+
+
+def test_work_window_clock_times_kept():
+    day = _export()["profile"]["days"][0]
+    assert day["work_window"] == ["09:00", "18:00"]
+
+
+def test_only_active_days_included():
+    p = _export()["profile"]
+    assert p["active_day_count"] == 1
+    assert len(p["days"]) == 1  # the composite==0 day is dropped
+
+
+def test_profile_aggregates_and_work_windows_kept():
+    p = _export()["profile"]
+    assert p["personal_optimum"] == 1.5
+    assert p["composite_percentiles"] == {"p50": 45.0, "p75": 52.0, "p90": 56.0}
+    assert set(p["work_windows"].keys()) == {str(i) for i in range(7)}
+    assert p["work_windows"]["3"] == {
+        "weekday": "Thu", "start": "09:00", "end": "18:00", "is_default": False,
+    }
+
+
+def test_consent_record_embedded():
+    c = _export()["consent"]
+    assert c["acknowledged"] is True
+    assert c["version"] == "1"
+    assert c["statement"] == CONSENT_TEXT
+    assert c["acknowledged_on"] == "2026-06-01"
+
+
+def test_ingest_stats_optional_and_counts_only():
+    assert _export(ingest_stats=None)["ingest_stats"] is None
+    stats = AggregateStats()
+    stats.ingest.files_kept = 42
+    stats.ingest.events_emitted = 9001
+    stats.days_in_window = 365
+    stats.days_with_activity = 20
+    s = _export(ingest_stats=stats)["ingest_stats"]
+    assert s == {
+        "files_kept": 42, "events_emitted": 9001,
+        "days_in_window": 365, "days_with_activity": 20,
+    }
+
+
+def test_participant_id_is_random_per_export_by_default():
+    a = build_research_export(
+        _stub_profile(), since=date(2026, 1, 1), until=date(2026, 12, 31),
+        package_version="0.1.0", ingest_stats=None,
+    )
+    b = build_research_export(
+        _stub_profile(), since=date(2026, 1, 1), until=date(2026, 12, 31),
+        package_version="0.1.0", ingest_stats=None,
+    )
+    assert a["participant"] != b["participant"]
+
+
+# --- consent gate ----------------------------------------------------------
+
+def test_consent_flag_satisfies_non_interactively():
+    assert consent_satisfied(flag=True, isatty=False) is True
+
+
+def test_consent_refused_when_non_interactive_without_flag():
+    assert consent_satisfied(flag=False, isatty=False) is False
+
+
+def test_consent_prompt_accepts_yes():
+    assert consent_satisfied(
+        flag=False, isatty=True, prompt_fn=lambda _p: "  YES \n",
+    ) is True
+
+
+def test_consent_prompt_rejects_anything_else():
+    assert consent_satisfied(
+        flag=False, isatty=True, prompt_fn=lambda _p: "no",
+    ) is False
+
+
+# --- CLI integration -------------------------------------------------------
+
+def _empty_projects(monkeypatch, tmp_path):
+    import stress_levels.ingest as ingest_mod
+    monkeypatch.setattr(
+        ingest_mod, "CLAUDE_PROJECTS_DIR", tmp_path / "no-projects",
+    )
+
+
+def test_cli_refuses_export_without_consent(tmp_path, monkeypatch, capsys):
+    from stress_levels.__main__ import main
+    _empty_projects(monkeypatch, tmp_path)
+    out = tmp_path / "r.json"
+    # pytest runs non-interactively (isatty False); no --i-consent → refused.
+    rc = main(["--export-research", str(out), "--year", "2026"])
+    assert rc == 1
+    assert not out.exists()
+    assert "consent not given" in capsys.readouterr().err
+
+
+def test_cli_writes_anonymized_export_with_consent(tmp_path, monkeypatch):
+    from stress_levels.__main__ import main
+    _empty_projects(monkeypatch, tmp_path)
+    out = tmp_path / "r.json"
+    rc = main(["--export-research", str(out), "--i-consent", "--year", "2026"])
+    assert rc == 0
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    assert payload["schema"] == SCHEMA
+    assert payload["consent"]["acknowledged"] is True
+    assert "local_tz" not in payload["profile"]
