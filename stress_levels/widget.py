@@ -319,8 +319,7 @@ def _draw_sparkline(tk, parent, dv: DayView):  # pragma: no cover — tk renderi
 
 
 def _draw_tile(tk, parent, tile: AxisTile) -> None:  # pragma: no cover — tk rendering
-    """One axis tile: head (name + zone), description, range bar, value/unit,
-    and a collapsible methodology block (Technique / Basis / Caveat)."""
+    """One axis tile: head (name + zone), description, range bar, value/unit."""
     frame = tk.Frame(parent, bg=PALETTE["panel"], highlightthickness=1,
                      highlightbackground=PALETTE["rule"])
     frame.pack(fill="x", padx=14, pady=5)
@@ -347,36 +346,6 @@ def _draw_tile(tk, parent, tile: AxisTile) -> None:  # pragma: no cover — tk r
              font=("TkDefaultFont", 13, "bold")).pack(side="left")
     tk.Label(vrow, text=tile.unit_text, bg=PALETTE["panel"], fg=PALETTE["ink_soft"],
              font=("TkDefaultFont", 8), anchor="e").pack(side="right")
-
-    # Collapsible methodology — mirrors the report's <details> disclosure.
-    body = tk.Frame(frame, bg=PALETTE["panel"])
-    btn_text = tk.StringVar(value="▸ How this is computed & what it can't tell you")
-    shown = {"open": False}
-
-    def toggle() -> None:
-        shown["open"] = not shown["open"]
-        if shown["open"]:
-            body.pack(fill="x", **ipad, pady=(0, 8))
-            btn_text.set("▾ How this is computed & what it can't tell you")
-        else:
-            body.pack_forget()
-            btn_text.set("▸ How this is computed & what it can't tell you")
-
-    tk.Button(frame, textvariable=btn_text, command=toggle, relief="flat",
-              bg=PALETTE["panel"], fg=PALETTE["accent"], activebackground=PALETTE["panel"],
-              font=("TkDefaultFont", 8), anchor="w", borderwidth=0,
-              highlightthickness=0, cursor="hand2").pack(fill="x", padx=8, pady=(2, 6))
-
-    for head_txt, body_txt in (
-        ("Technique", tile.technique),
-        ("Research basis", tile.basis),
-        ("Caveat", tile.caveat),
-    ):
-        tk.Label(body, text=head_txt, bg=PALETTE["panel"], fg=PALETTE["ink"],
-                 font=("TkDefaultFont", 8, "bold"), anchor="w").pack(fill="x")
-        tk.Label(body, text=body_txt, bg=PALETTE["panel"], fg=PALETTE["ink_soft"],
-                 font=("TkDefaultFont", 8), wraplength=580, justify="left",
-                 anchor="w").pack(fill="x", pady=(0, 4))
 
 
 def _draw_range_bar(tk, parent, tile: AxisTile) -> None:  # pragma: no cover — tk rendering

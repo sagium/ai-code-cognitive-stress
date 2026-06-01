@@ -19,7 +19,6 @@
  */
 import QtQuick
 import QtQuick.Layouts
-import QtQuick.Controls as QQC2
 import org.kde.plasma.plasmoid
 import org.kde.plasma.core as PlasmaCore
 import org.kde.plasma.components as PlasmaComponents
@@ -391,50 +390,6 @@ PlasmoidItem {
                                 opacity: 0.75
                                 font: Kirigami.Theme.smallFont
                                 text: tile.modelData.unit_text
-                            }
-                        }
-
-                        // Collapsible methodology — mirrors the report's <details>.
-                        QQC2.AbstractButton {
-                            id: discloseBtn
-                            Layout.fillWidth: true
-                            implicitHeight: discloseLabel.implicitHeight + Kirigami.Units.smallSpacing
-                            property bool open: false
-                            onClicked: open = !open
-                            contentItem: PlasmaComponents.Label {
-                                id: discloseLabel
-                                color: Kirigami.Theme.highlightColor
-                                font: Kirigami.Theme.smallFont
-                                text: (discloseBtn.open ? "▾ " : "▸ ") + i18n("How this is computed & what it can't tell you")
-                            }
-                        }
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            visible: discloseBtn.open
-                            spacing: 2
-                            Repeater {
-                                model: [
-                                    { h: i18n("Technique"), b: tile.modelData.technique },
-                                    { h: i18n("Research basis"), b: tile.modelData.basis },
-                                    { h: i18n("Caveat"), b: tile.modelData.caveat },
-                                ]
-                                delegate: ColumnLayout {
-                                    required property var modelData
-                                    Layout.fillWidth: true
-                                    spacing: 0
-                                    PlasmaComponents.Label {
-                                        text: modelData.h
-                                        font.bold: true
-                                        font.pointSize: Kirigami.Theme.smallFont.pointSize
-                                    }
-                                    PlasmaComponents.Label {
-                                        Layout.fillWidth: true
-                                        wrapMode: Text.WordWrap
-                                        opacity: 0.7
-                                        font: Kirigami.Theme.smallFont
-                                        text: modelData.b
-                                    }
-                                }
                             }
                         }
                     }
