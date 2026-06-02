@@ -157,6 +157,14 @@ BACKGROUND_WEIGHT_DEFAULT: float = 0.25
 # to "some session that ran that day".
 CLOSURE_CORRELATION_GRACE_MINUTES: int = 30
 
+# Minimum loop duration (last_ts - first_ts) for an UNCLOSED loop to count toward
+# the Closure Deficit. A session shorter than this with no related commit/push is
+# a trivial check — a quick open, not a real loop you abandoned — so it is dropped
+# from the denominator entirely (it neither penalises nor flatters closure). A
+# short session that DID get a commit still counts as closed; this filter only
+# removes the sub-threshold *unclosed* noise. Applies to the Closure axis only.
+CLOSURE_MIN_LOOP_MINUTES: int = 5
+
 # v1 composite weights — equal (null hypothesis). The methodology footer of
 # the rendered report names this choice and links to the relevant citations.
 COMPOSITE_WEIGHTS: tuple[float, float, float] = (1 / 3, 1 / 3, 1 / 3)
@@ -671,6 +679,7 @@ def _closure_correlation(
     window_end_utc: datetime,
     repo_map: dict[str, str] | None = None,
     grace_seconds: int = CLOSURE_CORRELATION_GRACE_MINUTES * 60,
+    min_loop_seconds: int = CLOSURE_MIN_LOOP_MINUTES * 60,
 ) -> tuple[int, int]:
     """Correlate the day's commits to the loops they closed, per session.
 
@@ -687,6 +696,13 @@ def _closure_correlation(
     loop in a repo that WAS git-active that day but caught no time-correlated
     commit stays *unclosed* — the real deficit signal. Commits that correlate to
     no loop are ignored.
+
+    Trivial-session filter: a loop that stays *unclosed* AND lasted less than
+    ``min_loop_seconds`` (default 5 min) is a quick check, not a real loop you
+    abandoned, so it is dropped from the denominator too — it shouldn't penalise
+    closure. A short loop that DID catch a commit still counts as closed (a quick
+    commit-and-push is a genuine closure); only sub-threshold *unclosed* noise is
+    removed.
 
     Returns ``(closed, correlatable)``; the Closure Deficit is
     ``1 - closed/correlatable``. ``per_day_debug`` reports both so the exported
@@ -730,18 +746,29 @@ def _closure_correlation(
     # Greedy 1:1 matching by repo + time overlap. Earliest-ending loop first, so
     # a commit closes the loop it most tightly follows.
     grace = timedelta(seconds=grace_seconds)
+    min_loop = timedelta(seconds=min_loop_seconds)
     used: dict[str, list[bool]] = {
         key: [False] * len(times) for key, times in commits_by_repo.items()
     }
     closed = 0
+    correlatable_count = 0
     for key, first, last in sorted(correlatable, key=lambda lp: lp[2]):
         hi = last + grace
+        is_closed = False
         for i, cts in enumerate(commits_by_repo.get(key, ())):
             if not used[key][i] and first <= cts <= hi:
                 used[key][i] = True
-                closed += 1
+                is_closed = True
                 break
-    return closed, len(correlatable)
+        if is_closed:
+            closed += 1
+            correlatable_count += 1
+        elif (last - first) >= min_loop:
+            # A genuine unclosed loop — the real deficit signal.
+            correlatable_count += 1
+        # else: a sub-min-duration session that caught no commit is a trivial
+        # check; drop it from the denominator (don't let noise raise the deficit).
+    return closed, correlatable_count
 
 
 def _composite_score(

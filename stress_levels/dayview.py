@@ -122,6 +122,8 @@ AXES: tuple[AxisMeta, ...] = (
             "its repo within the loop's active span + grace. Loops we can't "
             "correlate to your git activity (no tracked repo, or a repo you "
             "didn't touch that day) are dropped; a day with none is not scored. "
+            "A session under 5 min that caught no commit is treated as a trivial "
+            "check and dropped too, so it can't raise the deficit. "
             "Per-session correlation — independent of the CODL shape."
         ),
         basis=(

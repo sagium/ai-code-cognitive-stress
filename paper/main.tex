@@ -392,7 +392,12 @@ when \texttt{git} can speak to it---when its repository saw at least one of the
 touched by the operator that day (or whose \texttt{cwd} resolves to no tracked
 repository) are \emph{excluded by design}, so the axis scores closure only over
 the loops it can actually observe, rather than penalising sessions---investigation,
-review, planning---that were never meant to produce a commit. History-\emph{rewriting}
+review, planning---that were never meant to produce a commit. A loop that stays
+\emph{unclosed} but lasted under five minutes is also dropped from the
+denominator: a sub-five-minute session that caught no commit is a quick check, not
+a loop deliberately left open, so it must not raise the deficit (a short session
+that \emph{did} catch a commit still counts, as closed---only the sub-threshold
+unclosed noise is removed). History-\emph{rewriting}
 operations (amend, rebase, reset,
 cherry-pick)---read from the \texttt{git} reflog, the only place they are
 recorded---make a repository git-visible but are \emph{not} themselves closures:
@@ -710,8 +715,10 @@ because session transcripts and commits carry none---so an own-authored commit m
 still be attributed to a \emph{different own} same-repository session active in the
 same window, and squashed or batched commits under- or over-count real closures
 (the squash itself, like other history rewrites, is separately counted as rework on
-the Interruption Index, \S\ref{sec:interruption}); the grace tail is a fixed
-constant, not calibrated. By \emph{design}, a loop is scored only when the
+the Interruption Index, \S\ref{sec:interruption}); the grace tail and the
+five-minute trivial-session floor (below which an unclosed loop is dropped as a
+quick check) are fixed constants, not calibrated. By \emph{design}, a loop is
+scored only when the
 operator's own \texttt{git} activity is visible in its repository that day: loops in
 repositories the operator did not touch are excluded rather than counted as
 unclosed, so the axis measures closure over observable loops and does not penalise

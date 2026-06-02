@@ -429,6 +429,42 @@ def test_closure_deficit_commit_outside_grace_leaves_loop_open():
     assert _closure_deficit(agg, _WIN_START, _WIN_END, {"/r": "/r"}) == 1.0
 
 
+def test_closure_deficit_drops_short_unclosed_loop():
+    """A <5min session with no related commit is a trivial check, dropped from
+    the denominator so it can't raise the deficit. Long closed loop + a 1-min
+    unclosed loop in the same active repo → deficit 0.0, not 0.5."""
+    streams = [
+        _stream("long", _utc(2026, 5, 15, 10), _utc(2026, 5, 15, 12), cwd="/r"),
+        _stream("blip", _utc(2026, 5, 15, 13), _utc(2026, 5, 15, 13, 1), cwd="/r"),
+    ]
+    closures = [_closure(_utc(2026, 5, 15, 12, 10), repo="/r")]  # closes 'long'
+    agg = _agg_with_closures(date(2026, 5, 15), streams, closures)
+    assert _closure_deficit(agg, _WIN_START, _WIN_END, {"/r": "/r"}) == 0.0
+
+
+def test_closure_deficit_only_short_unclosed_loops_is_none():
+    """If the day's only correlatable loops are sub-5min unclosed sessions,
+    there is nothing meaningful to score → None (omitted), not a deficit. The
+    repo is git-active via a rework, but the blip caught no commit."""
+    streams = [_stream("blip", _utc(2026, 5, 15, 13), _utc(2026, 5, 15, 13, 2), cwd="/r")]
+    closures = [_closure(_utc(2026, 5, 15, 9), kind="amend", repo="/r")]
+    agg = _agg_with_closures(date(2026, 5, 15), streams, closures)
+    assert _closure_deficit(agg, _WIN_START, _WIN_END, {"/r": "/r"}) is None
+
+
+def test_closure_deficit_keeps_short_closed_loop():
+    """A <5min session that DID catch a commit is a genuine quick closure and
+    still counts as closed — the filter removes only short UNCLOSED noise. Here
+    a 2-min closed blip + a 2h unclosed loop → 1 - 1/2 = 0.5."""
+    streams = [
+        _stream("blip", _utc(2026, 5, 15, 13), _utc(2026, 5, 15, 13, 2), cwd="/r"),
+        _stream("open", _utc(2026, 5, 15, 14), _utc(2026, 5, 15, 16), cwd="/r"),
+    ]
+    closures = [_closure(_utc(2026, 5, 15, 13, 1), repo="/r")]  # closes the blip
+    agg = _agg_with_closures(date(2026, 5, 15), streams, closures)
+    assert _closure_deficit(agg, _WIN_START, _WIN_END, {"/r": "/r"}) == pytest.approx(0.5)
+
+
 def test_closure_deficit_excludes_loops_opened_before_window():
     """A loop opened before the work window is not counted; only the in-window
     loop, closed by a correlated commit, remains → deficit 0."""
