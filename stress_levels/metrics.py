@@ -94,6 +94,26 @@ INTERRUPTION_NORMALISATION_CEILING: float = 10.0
 W_TOOL_ERROR: float = 1.5
 W_CROSS_STREAM: float = 3.0
 
+# Git rework events (amend / rebase / reset / cherry-pick, from the reflog) are
+# history rewrites: a loop you thought was closed got reopened or churned. They
+# pull attention the way Leroy's (2009) attention residue from an un-clean
+# switch does, so they add to the interruption count rather than the closure
+# axis. Weighted between a single tool error and a cross-stream context switch:
+# more disruptive than one failed tool call, less than juggling two live
+# sessions. A modeling prior, not a fitted value.
+W_GIT_REWORK: float = 2.0
+
+# ClosureEvent.kind routing. CLOSURE kinds net the day's opened loops (reduce
+# the Closure Deficit); REWORK kinds feed the Interruption axis instead. Kept
+# in sync with sources/git_closure.py and the ClosureEvent docstring in
+# sources/base.py.
+CLOSURE_KINDS: frozenset[str] = frozenset(
+    {"commit", "merge", "pr_merge", "mr_merge", "issue_close"}
+)
+REWORK_KINDS: frozenset[str] = frozenset(
+    {"amend", "squash", "rebase", "reset", "revert", "cherry_pick"}
+)
+
 # CODL engagement weighting. A session counts at full weight (1.0) only while
 # you're actively driving it — within FOREGROUND_GRACE of one of your messages.
 # Outside that, it is alive but "cooking" in the background and counts at
@@ -210,11 +230,16 @@ def build_profile(
     aggregates: dict[date, DayAggregate],
     baseline_days: int = 30,
     local_tz: tzinfo | None = None,
+    repo_map: dict[str, str] | None = None,
 ) -> StressProfile:
     """Reduce a window of DayAggregates into a StressProfile.
 
     `local_tz` is the timezone in which to interpret "work hours" and
     "weekday". Defaults to the system local timezone.
+
+    `repo_map` (cwd→repo-root) attributes each stream's opened loops to the
+    git repo it ran in, so the Closure Deficit nets closures per-repo. When
+    None/empty the deficit nets globally (the prior, repo-agnostic behaviour).
     """
     local_tz = local_tz or datetime.now().astimezone().tzinfo or timezone.utc
     work_windows = detect_work_windows(aggregates, local_tz=local_tz)
@@ -233,6 +258,7 @@ def build_profile(
             codl_ceiling=scoring.codl_ceiling,
             interruption_ceiling=scoring.interruption_ceiling,
             weights=scoring.weights,
+            repo_map=repo_map,
         )
 
     # Percentiles are computed across all active days.
@@ -350,6 +376,7 @@ def per_day_metrics(
     codl_ceiling: float = CODL_NORMALISATION_CEILING,
     interruption_ceiling: float = INTERRUPTION_NORMALISATION_CEILING,
     weights: tuple[float, float, float] = COMPOSITE_WEIGHTS,
+    repo_map: dict[str, str] | None = None,
 ) -> DayMetrics:
     """Compute the three axes + composite for one day.
 
@@ -393,7 +420,7 @@ def per_day_metrics(
     # concurrency-presence proxy. Independent of the C(t) shape (it nets
     # loop-open COUNTS against closure COUNTS).
     closure_deficit = _closure_deficit(
-        agg, window_start_utc, window_end_utc, weighted,
+        agg, window_start_utc, window_end_utc, weighted, repo_map,
     )
 
     cross_starts = _count_cross_stream_starts(
@@ -409,9 +436,13 @@ def per_day_metrics(
         agg.streams, "tool_error_count",
         window_start_utc, window_end_utc,
     )
+    # Git rework events (reflog amend/rebase/reset/cherry-pick) in the window
+    # are self-interruptions — history rewrites that reopen a closed loop.
+    rework_in_window = _count_rework(agg, window_start_utc, window_end_utc)
     interruption_count = (
         in_window_errors * W_TOOL_ERROR
         + cross_starts * W_CROSS_STREAM
+        + rework_in_window * W_GIT_REWORK
     )
     interruption_rate = interruption_count / work_hours
 
@@ -479,7 +510,12 @@ def per_day_debug(
     in_window_errors = _apportion_to_window(
         agg.streams, "tool_error_count", ws, we,
     )
+    rework = _count_rework(agg, ws, we)
     loops_opened = sum(1 for s in agg.streams if ws <= s.first_ts <= we)
+    closures = sum(
+        1 for c in (agg.closure_events or ())
+        if c.kind in CLOSURE_KINDS and ws <= c.ts <= we
+    )
 
     # Hourly activity shape: average engagement-weighted concurrency per local
     # hour. Samples are one-per-minute from ws, so sample i is ws + i minutes.
@@ -516,10 +552,13 @@ def per_day_debug(
         "in_window_tool_errors": in_window_errors,
         "total_tool_errors": sum(s.tool_error_count for s in agg.streams),
         "interruption_numerator": round(
-            in_window_errors * W_TOOL_ERROR + cross_starts * W_CROSS_STREAM, 3,
+            in_window_errors * W_TOOL_ERROR
+            + cross_starts * W_CROSS_STREAM
+            + rework * W_GIT_REWORK, 3,
         ),
         "loops_opened": loops_opened,
-        "closures": agg.closure_count,
+        "closures": closures,
+        "reworks": rework,
         "off_hours_minutes": _off_hours_engaged_minutes(
             agg.streams, ws, we, grace_seconds=grace,
         ),
@@ -528,31 +567,57 @@ def per_day_debug(
     }
 
 
+def _count_rework(
+    agg: DayAggregate,
+    window_start_utc: datetime,
+    window_end_utc: datetime,
+) -> int:
+    """Number of git rework events (reflog amend/rebase/reset/cherry-pick) in
+    the work window. 0 when no closure source is wired."""
+    if not agg.closure_events:
+        return 0
+    return sum(
+        1 for c in agg.closure_events
+        if c.kind in REWORK_KINDS
+        and window_start_utc <= c.ts <= window_end_utc
+    )
+
+
 def _closure_deficit(
     agg: DayAggregate,
     window_start_utc: datetime,
     window_end_utc: datetime,
     weighted_samples: list[float],
+    repo_map: dict[str, str] | None = None,
 ) -> float:
     """Share of the day's opened loops that were never closed, in [0, 1].
 
-    Real-signal path (a closure source was wired — `agg.closure_events` is
-    not None): let ``L`` be the number of streams whose first event falls in
-    the work window (loops opened today) and ``K`` the number of closure
-    events (commits/merges) in the window, each netting at most one loop
-    (``CLOSURE_MAX_NET_PER_EVENT``). The deficit is
+    Only CLOSURE-kind events (commits/merges) net loops here; REWORK-kind
+    events (amend/rebase/reset/…) are routed to the Interruption axis instead.
 
-        clip(1 - min(K, L) / L, 0, 1)   for L > 0,   else 0.
+    Real-signal path (`agg.closure_events` is not None): let ``L`` be the
+    number of streams whose first event falls in the work window (loops opened)
+    and ``K`` the number of closure events in the window. Each closure nets at
+    most one loop (``CLOSURE_MAX_NET_PER_EVENT``), so deficit =
+    ``clip(1 - netted / L, 0, 1)`` for ``L > 0`` else 0.
 
-    This is built from *counts*, so it carries information the concurrency
-    time-series C(t) does not: two days with identical concurrency shapes
-    score differently if one committed its work and the other didn't.
+    Attribution:
+      * With a ``repo_map`` (cwd→repo-root): loops are grouped by the repo
+        their stream ran in and closures by ``ClosureEvent.repo``; a repo's
+        closures only net that repo's loops. Closures with no matching opened
+        loop (spare) spill over to cover loops we couldn't attribute (e.g. a
+        session whose cwd wasn't inside any repo, or a source with no cwd).
+      * Without a ``repo_map``: nets globally — the prior, repo-agnostic
+        behaviour, preserved for explicit-repos-only and no-cwd sources.
 
-    Fallback path (`agg.closure_events is None`, the default when the user
-    hasn't opted in with repos): the legacy concurrency-presence proxy —
-    the fraction of work-hour samples with weighted concurrency C(t) > 1.
-    Behaviour is then byte-for-byte what it was before real closure was
-    folded in, so the default install is unchanged.
+    Built from *counts*, so it carries information the concurrency time-series
+    C(t) does not: two days with identical concurrency shapes score differently
+    if one committed its work and the other didn't.
+
+    Fallback path (`agg.closure_events is None`, the default when no closure
+    source is wired): the legacy concurrency-presence proxy — the fraction of
+    work-hour samples with weighted concurrency C(t) > 1. Byte-for-byte the
+    pre-closure behaviour.
     """
     # No closure source wired → legacy proxy (preserves prior behaviour).
     if agg.closure_events is None:
@@ -560,19 +625,40 @@ def _closure_deficit(
             return 0.0
         return sum(1 for w in weighted_samples if w > 1.0) / len(weighted_samples)
 
-    # Real-signal path. Loops opened = streams that *started* in the window.
-    loops_opened = sum(
-        1 for s in agg.streams
-        if window_start_utc <= s.first_ts <= window_end_utc
-    )
-    if loops_opened <= 0:
+    # Opened loops, grouped by the repo each stream ran in (None when its cwd
+    # didn't resolve to a repo, or no repo_map was supplied).
+    loops_by_repo: dict[str | None, int] = defaultdict(int)
+    for s in agg.streams:
+        if window_start_utc <= s.first_ts <= window_end_utc:
+            repo = (repo_map or {}).get(s.cwd) if s.cwd else None
+            loops_by_repo[repo] += 1
+    total_opened = sum(loops_by_repo.values())
+    if total_opened <= 0:
         return 0.0
-    closures = sum(
-        1 for c in agg.closure_events
-        if window_start_utc <= c.ts <= window_end_utc
-    )
-    netted = min(closures * CLOSURE_MAX_NET_PER_EVENT, loops_opened)
-    return max(0.0, min(1.0, 1.0 - netted / loops_opened))
+
+    # Closure-kind events in the window, grouped by repo key.
+    closures_by_repo: dict[str, int] = defaultdict(int)
+    for c in agg.closure_events:
+        if c.kind in CLOSURE_KINDS and window_start_utc <= c.ts <= window_end_utc:
+            closures_by_repo[c.repo] += 1
+
+    # No attribution info → net globally (back-compat + no-cwd sources).
+    if not repo_map:
+        closures = sum(closures_by_repo.values())
+        netted = min(closures * CLOSURE_MAX_NET_PER_EVENT, total_opened)
+        return max(0.0, min(1.0, 1.0 - netted / total_opened))
+
+    # Per-repo netting; closures beyond a repo's opened loops become "spare"
+    # and spill over to cover loops we couldn't attribute to any repo.
+    netted = 0
+    spare = 0
+    for repo, k in closures_by_repo.items():
+        matched = min(k, loops_by_repo.get(repo, 0))
+        netted += matched
+        spare += k - matched
+    netted += min(spare, loops_by_repo.get(None, 0))
+    netted = min(netted, total_opened)
+    return max(0.0, min(1.0, 1.0 - netted / total_opened))
 
 
 def _composite_score(

@@ -654,6 +654,27 @@ def test_roundtrip_serialization_preserves_aggregate(tmp_path):
     assert a1.peak_concurrent_streams == a2.peak_concurrent_streams
 
 
+def test_cwd_is_captured_on_stream_and_survives_cache_roundtrip(tmp_path):
+    """The session cwd is recorded on the StreamDayActivity and round-trips
+    through the on-disk cache (used by metrics for per-repo attribution)."""
+    proj = _project(tmp_path)
+    _write_session(proj / "s.jsonl", [
+        _session_record("user", "2026-05-15T09:00:00.000Z"),
+        _session_record("assistant", "2026-05-15T09:00:05.000Z"),
+    ])
+    common = dict(
+        projects_dir=tmp_path / "projects",
+        cache_dir=tmp_path / "cache",
+        now=_utc(2026, 5, 16),
+        local_tz=timezone.utc,
+    )
+    aggs1, _ = get_day_aggregates(date(2026, 5, 15), date(2026, 5, 15), **common)
+    aggs2, stats = get_day_aggregates(date(2026, 5, 15), date(2026, 5, 15), **common)
+    assert stats.cache_hits == 1
+    assert aggs1[date(2026, 5, 15)].streams[0].cwd == "/home/test/proj"
+    assert aggs2[date(2026, 5, 15)].streams[0].cwd == "/home/test/proj"
+
+
 # ---------------------------------------------------------------------------
 # Closure-event collection + cache round-trip through get_day_aggregates
 

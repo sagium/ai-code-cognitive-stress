@@ -48,12 +48,14 @@ def compute_today_dayview(
     cache_dir=None,
     now: datetime | None = None,
     closure_sources=None,
+    repo_map=None,
 ) -> DayView:
     """Recompute today's full daily view. Reads only today's session files live
     (past days come from the on-disk cache). `now` is injectable for tests.
 
     `closure_sources` (optional) feeds the Closure Deficit real commit/merge
-    events; when omitted the axis uses its legacy proxy."""
+    events and reflog rework events; when omitted the axis uses its legacy
+    proxy. `repo_map` (cwd→repo-root) drives per-repo closure attribution."""
     tz = _local_tz()
     today = (now or datetime.now(tz)).astimezone(tz).date()
     since = today - timedelta(days=baseline_days)
@@ -63,7 +65,9 @@ def compute_today_dayview(
         sources=sources, local_tz=tz, now=now,
         closure_sources=closure_sources,
     )
-    profile = build_profile(aggregates, baseline_days=baseline_days, local_tz=tz)
+    profile = build_profile(
+        aggregates, baseline_days=baseline_days, local_tz=tz, repo_map=repo_map,
+    )
     metrics = profile.days.get(today) or DayMetrics(day=today)
     return dayview.build_dayview(metrics, aggregates.get(today), profile, tz)
 
@@ -89,6 +93,7 @@ def run_widget(  # pragma: no cover — tkinter event loop; needs a display
     sources=None,
     refresh_seconds: int = 60,
     closure_sources=None,
+    repo_map=None,
 ) -> int:
     """Launch the always-on-top live widget. Blocks until the window closes.
     Returns 0 on clean exit, 1 if tkinter is unavailable."""
@@ -114,6 +119,7 @@ def run_widget(  # pragma: no cover — tkinter event loop; needs a display
             try:
                 q.put(compute_today_dayview(
                     baseline_days, sources, closure_sources=closure_sources,
+                    repo_map=repo_map,
                 ))
             except Exception as exc:  # surface, don't die
                 q.put(exc)

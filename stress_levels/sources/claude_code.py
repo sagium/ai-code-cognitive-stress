@@ -67,6 +67,34 @@ class ClaudeCodeSessionSource:
             if kept_any:
                 stats.files_kept += 1
 
+    def discover_cwds(self, since: datetime, until: datetime) -> set[str]:
+        """Distinct working directories recorded across sessions touched in the
+        window. Feeds repo auto-discovery (discovery.py). Lightweight: reads
+        only each record's `cwd` field, never the message content. All cwds a
+        session visited are collected, so a stream's recorded cwd is always a
+        key in the resulting repo map regardless of mid-session `cd`."""
+        cwds: set[str] = set()
+        if not self.projects_dir.is_dir():
+            return cwds
+        for path in self._discover_session_files(since):
+            try:
+                fh = path.open("r", encoding="utf-8")
+            except OSError:
+                continue
+            with fh:
+                for raw_line in fh:
+                    line = raw_line.strip()
+                    if not line:
+                        continue
+                    try:
+                        record = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    cwd = record.get("cwd")
+                    if cwd:
+                        cwds.add(cwd)
+        return cwds
+
     # ------------------------------------------------------------------
     # Discovery + parsing — kept as instance methods so a subclass could
     # point at a non-standard projects_dir or filter projects differently.
@@ -124,7 +152,8 @@ class ClaudeCodeSessionSource:
                 except ValueError:
                     stats.lines_skipped_no_timestamp += 1
                     continue
-                for ev in _events_from_record(record, ts, stream_id, project):
+                cwd = record.get("cwd") or None
+                for ev in _events_from_record(record, ts, stream_id, project, cwd):
                     stats.events_emitted += 1
                     yield ev
 
@@ -147,6 +176,7 @@ def _events_from_record(
     ts: datetime,
     stream_id: str,
     project: str,
+    cwd: str | None = None,
 ) -> Iterator[Event]:
     rec_type = record["type"]
     uuid = record.get("uuid")
@@ -155,7 +185,7 @@ def _events_from_record(
     if rec_type == "user":
         yield UserMessageEvent(
             ts=ts, stream_id=stream_id, project=project,
-            uuid=uuid, branch=branch,
+            uuid=uuid, branch=branch, cwd=cwd,
         )
         for block in _iter_content_blocks(record):
             if block.get("type") == "tool_result":
@@ -163,12 +193,12 @@ def _events_from_record(
                     ts=ts, stream_id=stream_id, project=project,
                     tool_use_id=block.get("tool_use_id"),
                     is_error=bool(block.get("is_error")),
-                    uuid=uuid, branch=branch,
+                    uuid=uuid, branch=branch, cwd=cwd,
                 )
     else:  # assistant
         yield AssistantMessageEvent(
             ts=ts, stream_id=stream_id, project=project,
-            uuid=uuid, branch=branch,
+            uuid=uuid, branch=branch, cwd=cwd,
         )
         for block in _iter_content_blocks(record):
             if block.get("type") == "tool_use":
@@ -176,7 +206,7 @@ def _events_from_record(
                     ts=ts, stream_id=stream_id, project=project,
                     tool_name=block.get("name"),
                     tool_use_id=block.get("id"),
-                    uuid=uuid, branch=branch,
+                    uuid=uuid, branch=branch, cwd=cwd,
                 )
 
 

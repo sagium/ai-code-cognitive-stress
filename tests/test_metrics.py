@@ -26,6 +26,7 @@ from stress_levels.metrics import (
     _codl_weighted_samples,
     _composite_score,
     _count_cross_stream_starts,
+    _count_rework,
     _default_window,
     _off_hours_engaged_minutes,
     _off_hours_load_points,
@@ -59,6 +60,7 @@ def _stream(stream_id, first_ts, last_ts, **counts):
     return StreamDayActivity(
         stream_id=stream_id,
         project="proj",
+        cwd=counts.get("cwd"),
         first_ts=first_ts,
         last_ts=last_ts,
         user_msg_count=counts.get("user_msg_count", 0),
@@ -454,6 +456,107 @@ def test_closure_deficit_is_independent_of_concurrency_shape():
     assert m_unclosed.closure_deficit == 1.0
     # And that difference propagates to the composite.
     assert m_unclosed.composite > m_closed.composite
+
+
+# ---------------------------------------------------------------------------
+# Closure Deficit — per-repo attribution (repo_map)
+
+def test_closure_deficit_per_repo_netting_does_not_cross_repos():
+    """A closure in repo B must NOT net an opened loop in repo A. Two loops in
+    A (no closures) + one loop in B (one closure) → only B's loop nets, so
+    deficit = 1 - 1/3."""
+    streams = [
+        _stream("a1", _utc(2026, 5, 15, 10), _utc(2026, 5, 15, 12), cwd="/repoA"),
+        _stream("a2", _utc(2026, 5, 15, 10), _utc(2026, 5, 15, 12), cwd="/repoA"),
+        _stream("b1", _utc(2026, 5, 15, 10), _utc(2026, 5, 15, 12), cwd="/repoB"),
+    ]
+    closures = [_closure(_utc(2026, 5, 15, 11), repo="/repoB")]
+    agg = _agg_with_closures(date(2026, 5, 15), streams, closures)
+    repo_map = {"/repoA": "/repoA", "/repoB": "/repoB"}
+    assert _closure_deficit(agg, _WIN_START, _WIN_END, [], repo_map) == pytest.approx(2 / 3)
+
+
+def test_closure_deficit_global_netting_when_no_repo_map():
+    """Without a repo_map the same setup nets globally — the B closure can
+    cover any opened loop → 1 - 1/3."""
+    streams = [
+        _stream("a1", _utc(2026, 5, 15, 10), _utc(2026, 5, 15, 12), cwd="/repoA"),
+        _stream("a2", _utc(2026, 5, 15, 10), _utc(2026, 5, 15, 12), cwd="/repoA"),
+        _stream("b1", _utc(2026, 5, 15, 10), _utc(2026, 5, 15, 12), cwd="/repoB"),
+    ]
+    closures = [_closure(_utc(2026, 5, 15, 11), repo="/repoB")]
+    agg = _agg_with_closures(date(2026, 5, 15), streams, closures)
+    # repo_map=None → global path (regression guard for prior behaviour).
+    assert _closure_deficit(agg, _WIN_START, _WIN_END, []) == pytest.approx(2 / 3)
+
+
+def test_closure_deficit_spare_closures_spill_to_unattributed_loops():
+    """A repo with more closures than its own opened loops lends the spare to
+    a loop we couldn't attribute (cwd not in the map). One loop in A (two
+    closures), one unattributable loop → both net → deficit 0."""
+    streams = [
+        _stream("a1", _utc(2026, 5, 15, 10), _utc(2026, 5, 15, 12), cwd="/repoA"),
+        _stream("x1", _utc(2026, 5, 15, 10), _utc(2026, 5, 15, 12), cwd="/not/a/repo"),
+    ]
+    closures = [
+        _closure(_utc(2026, 5, 15, 11), repo="/repoA"),
+        _closure(_utc(2026, 5, 15, 11, 30), repo="/repoA"),
+    ]
+    agg = _agg_with_closures(date(2026, 5, 15), streams, closures)
+    repo_map = {"/repoA": "/repoA"}  # /not/a/repo is unmapped → None bucket
+    assert _closure_deficit(agg, _WIN_START, _WIN_END, [], repo_map) == 0.0
+
+
+def test_closure_deficit_rework_kinds_do_not_close_loops():
+    """Rework events (amend/rebase/…) are NOT closures: a loop opened with only
+    a rebase event against it stays unclosed (deficit 1.0)."""
+    streams = [_stream("a", _utc(2026, 5, 15, 10), _utc(2026, 5, 15, 12), cwd="/r")]
+    closures = [_closure(_utc(2026, 5, 15, 11), kind="rebase", repo="/r")]
+    agg = _agg_with_closures(date(2026, 5, 15), streams, closures)
+    repo_map = {"/r": "/r"}
+    assert _closure_deficit(agg, _WIN_START, _WIN_END, [], repo_map) == 1.0
+
+
+# ---------------------------------------------------------------------------
+# Rework → Interruption axis
+
+def test_count_rework_only_counts_rework_kinds_in_window():
+    closures = [
+        _closure(_utc(2026, 5, 15, 10), kind="amend"),
+        _closure(_utc(2026, 5, 15, 11), kind="rebase"),
+        _closure(_utc(2026, 5, 15, 12), kind="commit"),   # closure, not rework
+        _closure(_utc(2026, 5, 15, 20), kind="reset"),     # out of window
+    ]
+    agg = _agg_with_closures(date(2026, 5, 15), [], closures)
+    assert _count_rework(agg, _WIN_START, _WIN_END) == 2
+
+
+def test_count_rework_zero_when_no_closure_source():
+    agg = _agg(date(2026, 5, 15), [])  # closure_events is None
+    assert _count_rework(agg, _WIN_START, _WIN_END) == 0
+
+
+def test_rework_events_raise_interruption_rate():
+    """Same streams, same closures-as-commits — but adding reflog rework events
+    raises the interruption rate (and never lowers the closure deficit)."""
+    window = WorkWindow(weekday=4, start=time(9), end=time(18))
+    streams = [_stream("a", _utc(2026, 5, 15, 10), _utc(2026, 5, 15, 12), cwd="/r")]
+    base = _agg_with_closures(
+        date(2026, 5, 15), streams,
+        [_closure(_utc(2026, 5, 15, 11), kind="commit", repo="/r")],
+    )
+    with_rework = _agg_with_closures(
+        date(2026, 5, 15), streams,
+        [_closure(_utc(2026, 5, 15, 11), kind="commit", repo="/r"),
+         _closure(_utc(2026, 5, 15, 11, 30), kind="amend", repo="/r"),
+         _closure(_utc(2026, 5, 15, 11, 45), kind="rebase", repo="/r")],
+    )
+    repo_map = {"/r": "/r"}
+    m_base = per_day_metrics(base, window, UTC, repo_map=repo_map)
+    m_rework = per_day_metrics(with_rework, window, UTC, repo_map=repo_map)
+    assert m_rework.interruption_rate > m_base.interruption_rate
+    # Rework doesn't touch the closure axis (the single commit still nets the loop).
+    assert m_rework.closure_deficit == m_base.closure_deficit == 0.0
 
 
 # ---------------------------------------------------------------------------

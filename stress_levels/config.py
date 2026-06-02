@@ -47,14 +47,19 @@ class CodlConfig:
 
 @dataclass(frozen=True, slots=True)
 class ClosureConfig:
-    """Real closure-event ingestion for the Closure Deficit axis.
+    """Real closure + rework event ingestion (git log + reflog).
 
-    ``repos`` is an explicit, opt-in list of local git repo paths to scan for
-    commit/merge closure events. Empty by default: the tool never auto-walks
-    the disk looking for repos (mirrors ``GitRepoClosureSource``'s "opt in
-    with explicit repos" contract). When empty, the Closure Deficit falls
-    back to the legacy concurrency-presence proxy."""
+    ``autodiscover`` (default True) finds repos from the working directories
+    the agent sessions recorded — walking each cwd up to its nearest ``.git``
+    root. This is bounded to cwds the sessions already touched; it never walks
+    the disk hunting for repos, and stays fully local/read-only.
+
+    ``repos`` is an explicit list of local git repo paths, always scanned and
+    unioned with any auto-discovered roots. When the union is empty (e.g.
+    ``autodiscover`` off and no explicit repos), the Closure Deficit falls back
+    to the legacy concurrency-presence proxy."""
     repos: tuple[str, ...] = ()
+    autodiscover: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -145,8 +150,8 @@ def _parse_scoring(raw: dict) -> ScoringConfig:
 
 def _parse_closure(raw: dict) -> ClosureConfig:
     """Parse the closure block. ``repos`` must be a list of strings (paths);
-    anything else is rejected. Missing/empty → no closure source (the
-    default, falls back to the legacy proxy)."""
+    ``autodiscover`` must be a bool (default True). Missing/empty repos with
+    autodiscover off → no closure source (falls back to the legacy proxy)."""
     repos = raw.get("repos", [])
     if repos in (None, ""):
         repos = []
@@ -154,7 +159,12 @@ def _parse_closure(raw: dict) -> ClosureConfig:
         raise ValueError(
             f"closure.repos must be a list of path strings, got {repos!r}"
         )
-    return ClosureConfig(repos=tuple(repos))
+    autodiscover = raw.get("autodiscover", True)
+    if not isinstance(autodiscover, bool):
+        raise ValueError(
+            f"closure.autodiscover must be a boolean, got {autodiscover!r}"
+        )
+    return ClosureConfig(repos=tuple(repos), autodiscover=autodiscover)
 
 
 def _parse_codl(raw: dict) -> CodlConfig:

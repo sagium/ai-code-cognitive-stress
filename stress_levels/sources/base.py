@@ -76,13 +76,22 @@ class SessionSource(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class ClosureEvent:
-    """A "loop closed" marker: a commit, an MR merge, a resolved PR
-    discussion. The metrics layer uses these to compute Closure Deficit
-    as a real signal rather than a load-presence proxy."""
+    """A git/VCS marker the metrics layer routes by ``kind``:
+
+    * Closure kinds — a loop was closed. ``commit``, ``merge``, ``pr_merge``,
+      ``mr_merge``, ``issue_close``. These net against the day's opened loops
+      to compute the Closure Deficit as a real signal, not a load proxy.
+    * Rework kinds — history was rewritten; the loop was reopened or churned.
+      ``amend``, ``squash``, ``rebase``, ``reset``, ``revert``, ``cherry_pick``.
+      These raise the Interruption axis (self-interruption / attention
+      residue), not the Closure axis.
+
+    Sourced locally: closure kinds from ``git log``, rework kinds from
+    ``git reflog`` (the only place history-rewrite operations are recorded)."""
 
     ts: datetime           # UTC
-    kind: str              # "commit" | "pr_merge" | "issue_close" | "mr_merge"
-    repo: str              # logical repo identifier
+    kind: str              # see class docstring for the closure/rework split
+    repo: str              # stable repo-root key (resolved abs path)
     branch: str | None = None
     title: str | None = None
 

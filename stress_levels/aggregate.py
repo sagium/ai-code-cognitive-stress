@@ -179,6 +179,10 @@ class StreamDayActivity:
     project: str
     first_ts: datetime          # UTC, tz-aware
     last_ts: datetime           # UTC, tz-aware
+    # Absolute working directory the session ran in (from the source, when it
+    # records one). metrics.py resolves this to a git-repo root for per-repo
+    # closure attribution. None when the source didn't record a cwd.
+    cwd: str | None = None
     user_msg_count: int = 0
     assistant_msg_count: int = 0
     tool_use_count: int = 0
@@ -445,6 +449,7 @@ def _aggregate_events(
     per_stream: dict[str, dict] = defaultdict(lambda: {
         "stream_id": "",
         "project": "",
+        "cwd": None,
         "first_ts": None,
         "last_ts": None,
         "user_msg_count": 0,
@@ -460,6 +465,9 @@ def _aggregate_events(
         s = per_stream[ev.stream_id]
         s["stream_id"] = ev.stream_id
         s["project"] = ev.project
+        ev_cwd = getattr(ev, "cwd", None)
+        if ev_cwd:
+            s["cwd"] = ev_cwd
         if s["first_ts"] is None or ev.ts < s["first_ts"]:
             s["first_ts"] = ev.ts
         if s["last_ts"] is None or ev.ts > s["last_ts"]:
@@ -482,6 +490,7 @@ def _aggregate_events(
         StreamDayActivity(
             stream_id=v["stream_id"],
             project=v["project"],
+            cwd=v["cwd"],
             first_ts=v["first_ts"],
             last_ts=v["last_ts"],
             user_msg_count=v["user_msg_count"],
@@ -655,6 +664,7 @@ def _aggregate_to_dict(a: DayAggregate) -> dict:
             {
                 "stream_id": s.stream_id,
                 "project": s.project,
+                "cwd": s.cwd,
                 "first_ts": s.first_ts.isoformat(),
                 "last_ts": s.last_ts.isoformat(),
                 "user_msg_count": s.user_msg_count,
@@ -689,6 +699,7 @@ def _aggregate_from_dict(d: dict) -> DayAggregate:
         StreamDayActivity(
             stream_id=s["stream_id"],
             project=s["project"],
+            cwd=s.get("cwd"),
             first_ts=datetime.fromisoformat(s["first_ts"]),
             last_ts=datetime.fromisoformat(s["last_ts"]),
             user_msg_count=int(s.get("user_msg_count", 0)),

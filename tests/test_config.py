@@ -104,11 +104,38 @@ def test_codl_rejects_negative_grace(tmp_path):
 
 # --- closure block ---------------------------------------------------------
 
-def test_shipped_config_has_empty_closure_repos():
-    """The shipped default never auto-scans repos — closure.repos is empty,
-    so the Closure Deficit uses its legacy proxy out of the box."""
+def test_shipped_config_has_empty_closure_repos_and_autodiscover_on():
+    """The shipped default carries no explicit repos but turns auto-discovery
+    on, so the Closure Deficit is sourced from the repos the sessions ran in."""
     cfg = load_config()  # the real config.json
     assert cfg.closure.repos == ()
+    assert cfg.closure.autodiscover is True
+
+
+def test_closure_autodiscover_defaults_true_when_missing(tmp_path):
+    cfg = tmp_path / "config.json"
+    cfg.write_text(json.dumps(_ww({"closure": {"repos": []}})), encoding="utf-8")
+    assert load_config(cfg).closure.autodiscover is True
+
+
+def test_closure_autodiscover_parsed(tmp_path):
+    cfg = tmp_path / "config.json"
+    cfg.write_text(json.dumps(_ww({
+        "closure": {"autodiscover": False, "repos": ["/home/me/proj"]},
+    })), encoding="utf-8")
+    loaded = load_config(cfg).closure
+    assert loaded.autodiscover is False
+    assert loaded.repos == ("/home/me/proj",)
+
+
+@pytest.mark.parametrize("bad", ["yes", 1, None])
+def test_closure_rejects_non_bool_autodiscover(tmp_path, bad):
+    cfg = tmp_path / "config.json"
+    cfg.write_text(
+        json.dumps(_ww({"closure": {"autodiscover": bad}})), encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="closure.autodiscover"):
+        load_config(cfg)
 
 
 def test_closure_block_missing_falls_back_to_empty(tmp_path):

@@ -92,6 +92,28 @@ def test_claude_code_source_yields_typed_events_with_keys(tmp_path):
         assert isinstance(version, float)
     assert isinstance(items[0][0], UserMessageEvent)
     assert isinstance(items[1][0], AssistantMessageEvent)
+    # The recorded cwd is threaded onto every event (for repo attribution).
+    assert all(ev.cwd == "/home/test" for ev, _k, _v in items)
+
+
+def test_claude_code_discover_cwds_collects_distinct_dirs(tmp_path):
+    projects = tmp_path / "claude-projects"
+    proj = projects / "-home-x"
+    proj.mkdir(parents=True)
+    r1 = _claude_record("user", "2026-05-15T10:00:00.000Z")
+    r2 = _claude_record("assistant", "2026-05-15T10:00:05.000Z")
+    r2["cwd"] = "/home/other"  # a session that cd'd mid-way
+    (proj / "s.jsonl").write_text(
+        "\n".join(json.dumps(r) for r in [r1, r2]), encoding="utf-8",
+    )
+    src = ClaudeCodeSessionSource(projects_dir=projects)
+    cwds = src.discover_cwds(_utc(2026, 5, 1), _utc(2026, 5, 31))
+    assert cwds == {"/home/test", "/home/other"}
+
+
+def test_claude_code_discover_cwds_empty_when_no_projects_dir(tmp_path):
+    src = ClaudeCodeSessionSource(projects_dir=tmp_path / "missing")
+    assert src.discover_cwds(_utc(2026, 1, 1), _utc(2026, 12, 31)) == set()
 
 
 # ---------------------------------------------------------------------------
@@ -255,6 +277,74 @@ def test_git_closure_source_emits_commit_events(tmp_path):
 def test_git_closure_source_is_unavailable_without_repos():
     src = GitRepoClosureSource()
     assert src.is_available() is False
+
+
+def _git_env():
+    return {
+        "GIT_AUTHOR_NAME": "T", "GIT_AUTHOR_EMAIL": "t@e.com",
+        "GIT_COMMITTER_NAME": "T", "GIT_COMMITTER_EMAIL": "t@e.com",
+        # Make an interactive rebase non-interactive (accept the todo as-is).
+        "GIT_SEQUENCE_EDITOR": "true", "GIT_EDITOR": "true",
+        "PATH": "/usr/bin:/bin",
+    }
+
+
+def test_git_closure_reflog_emits_rework_kinds_without_double_counting(tmp_path):
+    """A repo exercised with commit → amend → reset → rebase emits the rework
+    kinds from the reflog, while plain commits stay single-counted from the log
+    (never re-counted from their reflog 'commit:' entries)."""
+    import subprocess
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    env = _git_env()
+    run = lambda *a: subprocess.run(a, check=True, env=env,
+                                    capture_output=True, text=True)
+    subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+    g = lambda *a: run("git", "-C", str(repo), *a)
+    (repo / "f.txt").write_text("a\n", encoding="utf-8")
+    g("add", "."); g("commit", "-qm", "first")
+    (repo / "f.txt").write_text("a\nb\n", encoding="utf-8")
+    g("commit", "-qam", "second")
+    g("commit", "-q", "--amend", "-m", "second amended")
+    (repo / "f.txt").write_text("a\nb\nc\n", encoding="utf-8")
+    g("commit", "-qam", "third")
+    g("reset", "-q", "--soft", "HEAD~1")
+    g("commit", "-qam", "third redo")
+    # Interactive rebase (todo accepted verbatim via GIT_SEQUENCE_EDITOR=true)
+    # replays the last 2 commits → exactly one terminal "rebase (finish)" entry.
+    g("rebase", "-q", "-i", "HEAD~2")
+
+    src = GitRepoClosureSource(repos=[repo])
+    items = list(src.collect(_utc(2000, 1, 1), _utc(2100, 1, 1), IngestStats()))
+    kinds = sorted(e.kind for e in items)
+    # Commits/merges come from git log; rework from the reflog.
+    assert "amend" in kinds
+    assert "reset" in kinds
+    assert kinds.count("rebase") == 1            # one terminal (finish), not per-pick
+    assert kinds.count("amend") == 1             # amend not double-counted
+    # The repo key on every event is the resolved absolute path (collision-free).
+    assert all(e.repo == str(repo.resolve()) for e in items)
+    # Plain "commit:" reflog entries are not turned into events.
+    assert all(e.kind != "commit" or e.title for e in items)
+
+
+def test_git_closure_reflog_does_not_inflate_session_skip_counters(tmp_path):
+    """Reflog parse failures are git-internal and must not touch the session
+    ingest health counters (malformed / no-timestamp)."""
+    import subprocess
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    env = _git_env()
+    subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+    (repo / "f.txt").write_text("a\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(repo), "add", "."], check=True, env=env)
+    subprocess.run(["git", "-C", str(repo), "commit", "-qm", "x"],
+                   check=True, env=env)
+    stats = IngestStats()
+    list(GitRepoClosureSource(repos=[repo]).collect(
+        _utc(2000, 1, 1), _utc(2100, 1, 1), stats))
+    assert stats.lines_skipped_malformed == 0
+    assert stats.lines_skipped_no_timestamp == 0
 
 
 # ---------------------------------------------------------------------------

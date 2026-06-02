@@ -44,6 +44,10 @@ class UserMessageEvent:
     project: str
     uuid: str | None = None
     branch: str | None = None
+    # Absolute working directory the session ran in, when the source records
+    # it (Claude Code does). Used downstream to discover the git repo a stream
+    # belonged to and attribute closures per-repo. None when unknown.
+    cwd: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,6 +59,7 @@ class AssistantMessageEvent:
     project: str
     uuid: str | None = None
     branch: str | None = None
+    cwd: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,6 +73,7 @@ class ToolUseEvent:
     tool_use_id: str | None = None
     uuid: str | None = None
     branch: str | None = None
+    cwd: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,6 +87,7 @@ class ToolResultEvent:
     is_error: bool = False
     uuid: str | None = None
     branch: str | None = None
+    cwd: str | None = None
 
 
 Event = Union[
