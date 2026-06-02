@@ -355,49 +355,61 @@ An open loop---a task dispatched but not yet resolved---keeps consuming the
 cognitive resource until it is closed or concretely
 planned~\cite{masicampo2011}; closure removes the residue an unfinished switch
 leaves on the next task~\cite{leroy2009} and is itself a recovery
-resource~\cite{sonnentag2007}. We therefore measure the share of the day's
-\emph{opened} loops that were never \emph{closed}. A loop is opened when a
-stream starts inside the work window; it is closed by a real closure
-event---a local \texttt{git} commit or merge---inside the window. The
+resource~\cite{sonnentag2007}. We therefore measure the share of the day's git-visible \emph{opened} loops that
+were never \emph{closed}. A loop is opened when a stream starts inside the work
+window. It is \emph{closed} by a real closure event---a local \texttt{git}
+commit or merge---made in \emph{that session's own repository} and timestamped
+within the loop's active span plus a short grace tail, $[a_s,\,b_s+g]$; we use
+$g=30$\,min, since a commit typically lands shortly after the agent falls quiet.
+Each commit closes at most one loop, matched greedily to the earliest-ending
+open loop it covers, so a single commit cannot mask several abandoned loops. The
 repositories scanned are, by default, auto-discovered from the working
 directories the sessions themselves recorded: each session's \texttt{cwd} is
 walked up to its nearest \texttt{.git} root, so the closure signal is on out of
 the box without the operator hand-listing repositories. This stays inside the
 local-only invariant---it reads cwds the sessions already logged and runs
 read-only local \texttt{git}, walking no further than those directories.
-Closures are attributed \emph{per repository}: a commit in one project nets only
-loops opened by sessions that ran in that same repository, so cross-project
-activity cannot spuriously close a loop. History-\emph{rewriting} operations
-(amend, rebase, reset, cherry-pick)---read from the \texttt{git} reflog, the
-only place they are recorded---are deliberately \emph{not} treated as closures:
-a rewrite reopens or churns a loop thought closed, so it is routed to the
-Interruption Index as rework (\S\ref{sec:interruption}) rather than to this
-axis.
-With $L=|\{s : a_s\in W\}|$ the number of loops opened in the window and
-$K$ the number of in-window closure events, each netting at most one loop,
+
+Closures are attributed \emph{per repository}: a commit in one project can close
+only loops opened by sessions that ran in that same repository, so cross-project
+activity cannot spuriously close a loop. A loop counts toward the deficit only
+when \texttt{git} can speak to it---when its repository saw at least one event
+that day. Loops in a repository \texttt{git} never touched (or whose
+\texttt{cwd} resolves to no tracked repository) are \emph{excluded by design}, so
+the axis scores closure only over the loops it can actually observe, rather than
+penalising sessions---investigation, review, planning---that were never meant to
+produce a commit. History-\emph{rewriting} operations (amend, rebase, reset,
+cherry-pick)---read from the \texttt{git} reflog, the only place they are
+recorded---make a repository git-visible but are \emph{not} themselves closures:
+a rewrite reopens or churns a loop thought closed, so a rebased-but-uncommitted
+loop stays \emph{unclosed}, and the rewrite is routed to the Interruption Index
+as rework (\S\ref{sec:interruption}) rather than to this axis.
+With $\mathcal{O}=\{s : a_s\in W\}$ the loops opened in the window,
+$\mathcal{C}\subseteq\mathcal{O}$ the \emph{correlatable} loops---those whose
+repository was \texttt{git}-active that day---and $k$ the number of them closed
+by the greedy repository-and-time match,
 \begin{equation}
 \mathrm{ClosureDeficit} =
-\operatorname{clip}\!\Big(1 - \frac{\min(K,L)}{L},\, 0,\, 1\Big),
-\quad (L>0),
+\operatorname{clip}\!\Big(1 - \frac{k}{|\mathcal{C}|},\, 0,\, 1\Big),
+\quad (|\mathcal{C}|>0),
 \end{equation}
-and $0$ when no loops were opened. A day that opens many loops and closes few
+and $0$ when no loop is correlatable. A day that opens many loops and closes few
 is exactly the demands-without-recoverable-resources pattern the JD-R model
 identifies with burnout~\cite{demerouti2001}.
 
-Crucially, this axis is built from \emph{counts} of opened and closed loops,
-not from the concurrency time-series $C(t)$, so it is independent of the CODL
-shape by construction: two days with identical $C(t)$ (hence identical
-$\overline{\mathrm{CODL}}$) receive different deficits if one committed its
-work and the other did not---information $C(t)$ cannot carry. This removes the
-collinearity of earlier versions, in which the deficit was the fraction of
-samples with $C(t)>1$ and thus a re-expression of concurrency. The remaining
-proxy is \emph{intra-repository} attribution: per-repository matching ensures a
-commit only nets loops in the project it was made in, but within a repository
-commits are still matched to that day's loops by count, not linked to individual
-sessions, since session transcripts and commits share no identifier
-(\S\ref{sec:threats}). When auto-discovery is disabled and no repository is
-configured, the implementation falls back to the legacy $C(t)>1$ presence proxy;
-otherwise the real signal is active by default.
+Crucially, this axis is built from per-session \emph{correlation} of opened and
+closed loops, not from the concurrency time-series $C(t)$, so it is independent
+of the CODL shape by construction: two days with identical $C(t)$ (hence
+identical $\overline{\mathrm{CODL}}$) receive different deficits if one committed
+its loops and the other left them open---information $C(t)$ cannot carry. This
+removes the collinearity of earlier versions, in which the deficit was the
+fraction of samples with $C(t)>1$ and thus a re-expression of concurrency. The
+remaining proxy is the correlation itself: a commit is matched to a session by
+repository and time overlap, not by a shared identifier (session transcripts and
+commits carry none), so a commit may still be matched to a different same-repo
+session active in the same window (\S\ref{sec:threats}). When auto-discovery is
+disabled and no repository is configured, the implementation falls back to the
+legacy $C(t)>1$ presence proxy; otherwise the real signal is active by default.
 
 \subsection{Composite}
 Each axis is normalized to $[0,1]$ and blended with equal weights:
@@ -636,24 +648,31 @@ the redundancy among axes across pooled exports (\S\ref{sec:impl}). That step is
 fitted weights track subjective load, so equal weights remain the default and
 the placeholder stands until the supervised calibration of \S\ref{sec:validation}.
 
-\paragraph{Closure Deficit relies on intra-repository count attribution.} The
-axis nets real \texttt{git} commits/merges against the loops opened each work
+\paragraph{Closure Deficit correlation is heuristic, and scoped to git-visible loops.}
+The axis correlates real \texttt{git} commits/merges to the loops opened each work
 window (\S\ref{sec:closure}), so it is no longer a re-expression of concurrency
-and the name is honest about what it computes. Attribution is now scoped \emph{per
-repository}: the working directory each session recorded is resolved to its
-\texttt{.git} root, so a commit only nets loops opened in the same project---a
-commit in repository $A$ can no longer close a loop opened in repository $B$,
-which the earlier global count permitted. The residual weakness is \emph{within} a
-repository: closures there are still matched to the day's loops by \emph{count},
-not linked to specific sessions, because session transcripts and commits share no
-common identifier. Same-day commits may therefore close loops other than the
-sessions counted as opened, and squashed or batched commits under- or over-count
-real closures (the squash itself, like other history rewrites, is separately
-counted as rework on the Interruption Index, \S\ref{sec:interruption}). Session-id
-linkage is fragile (commits are not tagged with one), so within a repository we
-deliberately prefer the simpler, auditable count ratio and state the proxy
-plainly. Platform PR/MR events would sharpen the signal further but require a
-network call and are out of scope for a local-only tool.
+and the name is honest about what it computes. A commit closes only a loop in its
+\emph{own} repository whose active span it falls within (plus a 30\,min grace),
+and closes at most one loop---a commit in repository $A$ can no longer close a
+loop opened in repository $B$, which the earlier global count permitted. The
+correlation is nonetheless a \emph{heuristic}: a commit is matched to a session by
+repository and time overlap, not by a shared identifier, because session
+transcripts and commits carry none. A commit can therefore still be attributed to
+a different same-repository session active in the same window, and squashed or
+batched commits under- or over-count real closures (the squash itself, like other
+history rewrites, is separately counted as rework on the Interruption Index,
+\S\ref{sec:interruption}); the grace tail is a fixed constant, not calibrated. By
+\emph{design}, a loop is scored only when \texttt{git} can see its repository
+acting that day: loops in repositories \texttt{git} never touched are excluded
+rather than counted as unclosed, so the axis measures closure over observable
+loops and does not penalise investigation- or review-only sessions that were never
+meant to commit. The honest cost of that choice is that a day of genuine but
+\emph{uncommitted} coding---work opened and abandoned with no \texttt{git}
+trace---reads as no-signal rather than high deficit; the axis reports closure
+where it has evidence and abstains where it does not. A shared
+session$\leftrightarrow$commit identifier would replace the time-overlap
+heuristic, and platform PR/MR events would sharpen the signal further, but the
+latter requires a network call and is out of scope for a local-only tool.
 
 \paragraph{Engagement is interaction-anchored by design.} Foreground is proxied
 by proximity to the operator's own messages within a grace window $g$. Silent
@@ -786,11 +805,12 @@ in \S\ref{sec:threats}, in particular the single-subject and borrowed-threshold
 limitations, converting this from a principled instrument into a validated one. Folding real closure events
 (commits/merges) into the Closure Deficit, previously listed here as future
 work, is now done and active by default via repositories auto-discovered from
-session working directories, with closures attributed per repository and
-history-rewrite operations routed to the Interruption Index as rework
-(\S\ref{sec:closure}); the remaining closure-side work is
-session$\leftrightarrow$commit attribution beyond the in-window, in-repository
-count ratio.
+session working directories, with commits correlated to sessions by repository
+and time overlap and history-rewrite operations routed to the Interruption Index
+as rework (\S\ref{sec:closure}); the remaining closure-side work is a reliable
+session$\leftrightarrow$commit identifier to replace the time-overlap heuristic,
+and recovering closure on genuinely uncommitted loops that the git-visibility
+scope currently excludes.
 
 \section{Ethics and Privacy}
 The tool reads proprietary source and potentially secrets; we therefore treat
