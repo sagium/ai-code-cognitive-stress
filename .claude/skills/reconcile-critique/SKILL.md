@@ -167,9 +167,16 @@ Keep each commit logically distinct so the maintainer can read the diff as a sto
 
 1. Build the paper locally: `cd paper && make pdf` (fallback: the manual `pdflatex →
    bibtex → pdflatex ×2` from `paper/README.md`). Confirm it compiles clean and that
-   the reconciled paragraph + roadmap render as intended. The PDF
-   (`ai-code-cognitive-stress-paper.pdf`) is gitignored build output — do not commit
-   it.
+   the reconciled paragraph + roadmap render as intended. `make pdf` deletes its
+   `.aux/.bbl/.log/.out` on success, so read the build's stdout for
+   `Output written ... (N pages)` rather than grepping the (now-removed) log; verify
+   refs/citations only via the full `make pdf` (which runs bibtex), not a standalone
+   `pdflatex` jobname (that skips bibtex and reports spurious "undefined citation"
+   warnings). The PDF (`ai-code-cognitive-stress-paper.pdf`) is **tracked on
+   purpose** — `.gitignore` ignores `paper/*.pdf` but force-includes this one with a
+   `!` negation, so the canonical rendered paper ships in the repo. **Rebuild it and
+   commit it** alongside the `main.tex` changes so the committed PDF stays in sync
+   with source.
 2. Final report to the maintainer:
    - Branch name and the commit list.
    - Per-claim outcome: fixed-in-code / corrected-in-paper / retained-as-caveat.
