@@ -1315,7 +1315,10 @@ _STYLES = """
   .stat-card.status-caution { border-top-color: var(--warn); }
   .stat-card.status-high { border-top-color: var(--bad); }
   .stat-card .label { font-size: 11px; text-transform: uppercase;
-    color: var(--ink-faint); letter-spacing: 0.05em; margin-bottom: 4px; }
+    color: var(--ink-faint); letter-spacing: 0.05em; margin-bottom: 4px;
+    /* Reserve room for the absolutely-positioned status badge so a long
+       label (e.g. "AVG COMPOSITE (WORK HOURS)") wraps clear of it. */
+    padding-right: 76px; }
   .stat-card .value { font-size: 22px; font-weight: 600; line-height: 1.1; }
   .stat-card .unit { font-size: 12px; color: var(--ink-soft); margin-left: 4px;
     font-weight: 400; }
@@ -1324,7 +1327,7 @@ _STYLES = """
   .stat-card .status-label { position: absolute; top: 12px; right: 14px;
     font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em;
     padding: 2px 6px; border-radius: 8px; background: rgba(0,0,0,0.04);
-    color: var(--ink-soft); }
+    color: var(--ink-soft); white-space: nowrap; }
   .stat-card.status-good .status-label { background: rgba(108,154,139,0.15);
     color: var(--good); }
   .stat-card.status-caution .status-label { background: rgba(217,144,88,0.18);
