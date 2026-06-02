@@ -373,7 +373,8 @@ def test_closure_deficit_none_empty_samples_is_zero():
 
 
 def test_closure_deficit_all_loops_closed_is_zero():
-    """Two loops opened in-window, two closures in-window → deficit 0."""
+    """Two loops opened in-window, each closed by a same-day commit that lands
+    within its active span → deficit 0."""
     streams = [
         _stream("a", _utc(2026, 5, 15, 10), _utc(2026, 5, 15, 12)),
         _stream("b", _utc(2026, 5, 15, 11), _utc(2026, 5, 15, 13)),
@@ -383,16 +384,17 @@ def test_closure_deficit_all_loops_closed_is_zero():
     assert _closure_deficit(agg, _WIN_START, _WIN_END, [99.0]) == 0.0
 
 
-def test_closure_deficit_no_closures_is_one():
-    """Loops opened but the closure source emitted nothing in-window → 1.0,
-    independent of the weighted-sample series passed in."""
+def test_closure_deficit_no_git_activity_drops_loops():
+    """Loops opened but NO git event anywhere that day → we can't correlate them
+    to git, so they're dropped (not penalised) → deficit 0, not 1."""
     streams = [_stream("a", _utc(2026, 5, 15, 10), _utc(2026, 5, 15, 12))]
     agg = _agg_with_closures(date(2026, 5, 15), streams, [])  # () = wired, empty
-    assert _closure_deficit(agg, _WIN_START, _WIN_END, [0.0, 0.0]) == 1.0
+    assert _closure_deficit(agg, _WIN_START, _WIN_END, [0.0, 0.0]) == 0.0
 
 
 def test_closure_deficit_partial_close():
-    """Four loops opened, one closure → 1 - 1/4 = 0.75."""
+    """Four loops opened (repo git-active via the commit), one commit correlates
+    to one of them → 1 - 1/4 = 0.75."""
     streams = [_stream(f"s{i}", _utc(2026, 5, 15, 10 + i),
                        _utc(2026, 5, 15, 14)) for i in range(4)]
     closures = [_closure(_utc(2026, 5, 15, 13))]
@@ -400,8 +402,9 @@ def test_closure_deficit_partial_close():
     assert _closure_deficit(agg, _WIN_START, _WIN_END, []) == pytest.approx(0.75)
 
 
-def test_closure_deficit_excess_closures_clamp_at_zero():
-    """More closures than opened loops cannot push the deficit negative."""
+def test_closure_deficit_one_commit_closes_one_loop():
+    """A commit closes at most one loop: one loop, three commits → still just
+    that one loop closed, deficit 0 (cannot go negative)."""
     streams = [_stream("a", _utc(2026, 5, 15, 10), _utc(2026, 5, 15, 12))]
     closures = [_closure(_utc(2026, 5, 15, 11)), _closure(_utc(2026, 5, 15, 12)),
                 _closure(_utc(2026, 5, 15, 13))]
@@ -409,16 +412,34 @@ def test_closure_deficit_excess_closures_clamp_at_zero():
     assert _closure_deficit(agg, _WIN_START, _WIN_END, []) == 0.0
 
 
-def test_closure_deficit_ignores_out_of_window_loops_and_closures():
-    """A loop opened before the window and a closure after it don't count."""
-    streams = [
-        _stream("early", _utc(2026, 5, 15, 7), _utc(2026, 5, 15, 12)),   # opened pre-window
-        _stream("inwin", _utc(2026, 5, 15, 10), _utc(2026, 5, 15, 16)),  # opened in-window
-    ]
-    closures = [_closure(_utc(2026, 5, 15, 20))]  # after window → ignored
+def test_closure_deficit_commit_within_grace_closes_loop():
+    """A commit shortly AFTER the session's last event (within the grace tail)
+    correlates and closes the loop."""
+    streams = [_stream("a", _utc(2026, 5, 15, 10), _utc(2026, 5, 15, 12), cwd="/r")]
+    closures = [_closure(_utc(2026, 5, 15, 12, 20), repo="/r")]  # 20 min after
     agg = _agg_with_closures(date(2026, 5, 15), streams, closures)
-    # Only one loop counts as opened in-window, zero in-window closures → 1.0.
-    assert _closure_deficit(agg, _WIN_START, _WIN_END, []) == 1.0
+    assert _closure_deficit(agg, _WIN_START, _WIN_END, [], {"/r": "/r"}) == 0.0
+
+
+def test_closure_deficit_commit_outside_grace_leaves_loop_open():
+    """A commit far after the session (beyond grace) does not correlate. The
+    repo WAS git-active that day, so the loop is correlatable but unclosed → 1."""
+    streams = [_stream("a", _utc(2026, 5, 15, 10), _utc(2026, 5, 15, 12), cwd="/r")]
+    closures = [_closure(_utc(2026, 5, 15, 17), repo="/r")]  # ~5h after last_ts
+    agg = _agg_with_closures(date(2026, 5, 15), streams, closures)
+    assert _closure_deficit(agg, _WIN_START, _WIN_END, [], {"/r": "/r"}) == 1.0
+
+
+def test_closure_deficit_excludes_loops_opened_before_window():
+    """A loop opened before the work window is not counted; only the in-window
+    loop, closed by a correlated commit, remains → deficit 0."""
+    streams = [
+        _stream("early", _utc(2026, 5, 15, 7), _utc(2026, 5, 15, 12), cwd="/r"),
+        _stream("inwin", _utc(2026, 5, 15, 10), _utc(2026, 5, 15, 16), cwd="/r"),
+    ]
+    closures = [_closure(_utc(2026, 5, 15, 16, 10), repo="/r")]  # closes inwin
+    agg = _agg_with_closures(date(2026, 5, 15), streams, closures)
+    assert _closure_deficit(agg, _WIN_START, _WIN_END, [], {"/r": "/r"}) == 0.0
 
 
 def test_closure_deficit_no_opened_loops_is_zero():
@@ -432,21 +453,27 @@ def test_closure_deficit_no_opened_loops_is_zero():
 def test_closure_deficit_is_independent_of_concurrency_shape():
     """The keystone property: two days with the IDENTICAL engagement-weighted
     concurrency series C(t) (hence identical codl_avg) get DIFFERENT closure
-    deficits purely from their closure events. Under the old definition both
-    were a pure function of C(t) and would have been equal."""
+    deficits purely from their git correlation. Both days are git-active in the
+    same repo, so both loops are correlatable; they differ only in whether the
+    commits land within the loops' spans."""
     window = WorkWindow(weekday=4, start=time(9), end=time(18))
+    repo_map = {"/r": "/r"}
     streams = [
-        _stream("a", _utc(2026, 5, 15, 10), _utc(2026, 5, 15, 14),
+        _stream("a", _utc(2026, 5, 15, 10), _utc(2026, 5, 15, 14), cwd="/r",
                 user_msg_timestamps=tuple(_utc(2026, 5, 15, h) for h in (10, 11, 12, 13))),
-        _stream("b", _utc(2026, 5, 15, 11), _utc(2026, 5, 15, 13),
+        _stream("b", _utc(2026, 5, 15, 11), _utc(2026, 5, 15, 13), cwd="/r",
                 user_msg_timestamps=(_utc(2026, 5, 15, 11), _utc(2026, 5, 15, 12))),
     ]
+    # closed: a commit lands within each loop's span → both correlate.
     closed = _agg_with_closures(date(2026, 5, 15), streams,
-                                [_closure(_utc(2026, 5, 15, 13, 30)),
-                                 _closure(_utc(2026, 5, 15, 13, 45))])
-    unclosed = _agg_with_closures(date(2026, 5, 15), streams, [])
-    m_closed = per_day_metrics(closed, window, UTC)
-    m_unclosed = per_day_metrics(unclosed, window, UTC)
+                                [_closure(_utc(2026, 5, 15, 13, 15), repo="/r"),
+                                 _closure(_utc(2026, 5, 15, 14, 10), repo="/r")])
+    # unclosed: the repo IS git-active today, but the only commit lands far from
+    # either loop → both correlatable, neither closed.
+    unclosed = _agg_with_closures(date(2026, 5, 15), streams,
+                                  [_closure(_utc(2026, 5, 15, 17, 30), repo="/r")])
+    m_closed = per_day_metrics(closed, window, UTC, repo_map=repo_map)
+    m_unclosed = per_day_metrics(unclosed, window, UTC, repo_map=repo_map)
     # Same concurrency shape → same CODL.
     assert m_closed.codl_avg == m_unclosed.codl_avg
     assert m_closed.codl_peak == m_unclosed.codl_peak
@@ -459,12 +486,12 @@ def test_closure_deficit_is_independent_of_concurrency_shape():
 
 
 # ---------------------------------------------------------------------------
-# Closure Deficit — per-repo attribution (repo_map)
+# Closure Deficit — per-session git correlation (repo_map)
 
-def test_closure_deficit_per_repo_netting_does_not_cross_repos():
-    """A closure in repo B must NOT net an opened loop in repo A. Two loops in
-    A (no closures) + one loop in B (one closure) → only B's loop nets, so
-    deficit = 1 - 1/3."""
+def test_closure_deficit_drops_loops_in_repos_with_no_commits():
+    """Loops in a repo git never touched that day are dropped — we can't
+    correlate them to git. Two loops in A (A has no git events) + one loop in B
+    closed by B's commit → A's loops drop out, only B remains and is closed → 0."""
     streams = [
         _stream("a1", _utc(2026, 5, 15, 10), _utc(2026, 5, 15, 12), cwd="/repoA"),
         _stream("a2", _utc(2026, 5, 15, 10), _utc(2026, 5, 15, 12), cwd="/repoA"),
@@ -473,12 +500,30 @@ def test_closure_deficit_per_repo_netting_does_not_cross_repos():
     closures = [_closure(_utc(2026, 5, 15, 11), repo="/repoB")]
     agg = _agg_with_closures(date(2026, 5, 15), streams, closures)
     repo_map = {"/repoA": "/repoA", "/repoB": "/repoB"}
-    assert _closure_deficit(agg, _WIN_START, _WIN_END, [], repo_map) == pytest.approx(2 / 3)
+    assert _closure_deficit(agg, _WIN_START, _WIN_END, [], repo_map) == 0.0
 
 
-def test_closure_deficit_global_netting_when_no_repo_map():
-    """Without a repo_map the same setup nets globally — the B closure can
-    cover any opened loop → 1 - 1/3."""
+def test_closure_deficit_commit_does_not_cross_to_other_repo():
+    """A commit only closes loops in its OWN repo. repoA loop (unclosed) +
+    repoB loop closed by B's commit, both repos git-active → A unclosed,
+    B closed → deficit 1 - 1/2."""
+    streams = [
+        _stream("a1", _utc(2026, 5, 15, 10), _utc(2026, 5, 15, 12), cwd="/repoA"),
+        _stream("b1", _utc(2026, 5, 15, 10), _utc(2026, 5, 15, 12), cwd="/repoB"),
+    ]
+    # repoA is git-active (a rework) but not committed; repoB has a commit.
+    closures = [
+        _closure(_utc(2026, 5, 15, 11), kind="amend", repo="/repoA"),
+        _closure(_utc(2026, 5, 15, 11), repo="/repoB"),
+    ]
+    agg = _agg_with_closures(date(2026, 5, 15), streams, closures)
+    repo_map = {"/repoA": "/repoA", "/repoB": "/repoB"}
+    assert _closure_deficit(agg, _WIN_START, _WIN_END, [], repo_map) == pytest.approx(0.5)
+
+
+def test_closure_deficit_global_correlation_when_no_repo_map():
+    """Without a repo_map every loop/commit shares one bucket and correlates by
+    time alone. Three loops, one commit correlating to one → 1 - 1/3."""
     streams = [
         _stream("a1", _utc(2026, 5, 15, 10), _utc(2026, 5, 15, 12), cwd="/repoA"),
         _stream("a2", _utc(2026, 5, 15, 10), _utc(2026, 5, 15, 12), cwd="/repoA"),
@@ -486,30 +531,28 @@ def test_closure_deficit_global_netting_when_no_repo_map():
     ]
     closures = [_closure(_utc(2026, 5, 15, 11), repo="/repoB")]
     agg = _agg_with_closures(date(2026, 5, 15), streams, closures)
-    # repo_map=None → global path (regression guard for prior behaviour).
+    # repo_map=None → single global bucket, time-only correlation.
     assert _closure_deficit(agg, _WIN_START, _WIN_END, []) == pytest.approx(2 / 3)
 
 
-def test_closure_deficit_spare_closures_spill_to_unattributed_loops():
-    """A repo with more closures than its own opened loops lends the spare to
-    a loop we couldn't attribute (cwd not in the map). One loop in A (two
-    closures), one unattributable loop → both net → deficit 0."""
+def test_closure_deficit_drops_loops_with_unresolvable_repo():
+    """A loop whose cwd doesn't resolve to a tracked repo is dropped — we can't
+    correlate it to git. One loop in A (closed by A's commit) + one loop in an
+    untracked cwd → only A counts → deficit 0."""
     streams = [
         _stream("a1", _utc(2026, 5, 15, 10), _utc(2026, 5, 15, 12), cwd="/repoA"),
         _stream("x1", _utc(2026, 5, 15, 10), _utc(2026, 5, 15, 12), cwd="/not/a/repo"),
     ]
-    closures = [
-        _closure(_utc(2026, 5, 15, 11), repo="/repoA"),
-        _closure(_utc(2026, 5, 15, 11, 30), repo="/repoA"),
-    ]
+    closures = [_closure(_utc(2026, 5, 15, 11), repo="/repoA")]
     agg = _agg_with_closures(date(2026, 5, 15), streams, closures)
-    repo_map = {"/repoA": "/repoA"}  # /not/a/repo is unmapped → None bucket
+    repo_map = {"/repoA": "/repoA"}  # /not/a/repo is unmapped → dropped
     assert _closure_deficit(agg, _WIN_START, _WIN_END, [], repo_map) == 0.0
 
 
-def test_closure_deficit_rework_kinds_do_not_close_loops():
-    """Rework events (amend/rebase/…) are NOT closures: a loop opened with only
-    a rebase event against it stays unclosed (deficit 1.0)."""
+def test_closure_deficit_rework_only_repo_leaves_loop_open():
+    """Rework events (amend/rebase/…) make a repo git-visible but do NOT close a
+    loop: a loop in a repo with only a rebase against it is correlatable and
+    stays unclosed (deficit 1.0)."""
     streams = [_stream("a", _utc(2026, 5, 15, 10), _utc(2026, 5, 15, 12), cwd="/r")]
     closures = [_closure(_utc(2026, 5, 15, 11), kind="rebase", repo="/r")]
     agg = _agg_with_closures(date(2026, 5, 15), streams, closures)

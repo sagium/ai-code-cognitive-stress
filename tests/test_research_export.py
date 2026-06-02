@@ -233,7 +233,8 @@ def test_debug_block_present_with_components():
     assert dbg["loops_opened"] == 2            # both start inside the window
     assert dbg["total_tool_errors"] == 2
     assert dbg["closures"] == 0
-    assert dbg["closures_netted"] == 0
+    assert dbg["correlatable_loops"] == 0      # no commits that day → dropped
+    assert dbg["closed_loops"] == 0
     assert dbg["reworks"] == 0
     for key in ("peak_weighted", "work_hours", "in_window_tool_errors",
                 "interruption_numerator", "off_hours_minutes",
@@ -251,10 +252,11 @@ def test_consent_text_discloses_git_activity_counts():
     assert "repository or branch names" in CONSENT_TEXT
 
 
-def test_debug_closures_netted_reproduces_deficit_and_leaks_no_path():
-    """With a repo_map, the debug block carries per-repo netted closures so the
-    day's closure_deficit is reproducible from (loops_opened, closures_netted),
-    and the repo path itself never appears in the export."""
+def test_debug_closure_correlation_reproduces_deficit_and_leaks_no_path():
+    """With a repo_map, the debug block carries the per-session correlation
+    counts so the day's closure_deficit is reproducible from
+    (correlatable_loops, closed_loops), and the repo path never appears in the
+    export."""
     from stress_levels.sources.base import ClosureEvent
     from stress_levels.metrics import build_profile
 
@@ -289,9 +291,10 @@ def test_debug_closures_netted_reproduces_deficit_and_leaks_no_path():
     dbg = day["debug"]
     assert dbg["loops_opened"] == 2
     assert dbg["closures"] == 1
-    assert dbg["closures_netted"] == 1   # 1 commit nets 1 of 2 loops in-repo
+    assert dbg["correlatable_loops"] == 2  # both loops' repo had a commit today
+    assert dbg["closed_loops"] == 1        # the commit time-correlates to one
     # Deficit reconstructs from the debug counts.
-    assert day["closure_deficit"] == round(1 - dbg["closures_netted"] / dbg["loops_opened"], 3)
+    assert day["closure_deficit"] == round(1 - dbg["closed_loops"] / dbg["correlatable_loops"], 3)
     # The repo path (which contains a username) never leaks.
     assert "someone" not in json.dumps(out)
     assert "secret-repo" not in json.dumps(out)

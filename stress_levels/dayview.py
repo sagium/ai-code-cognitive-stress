@@ -108,17 +108,19 @@ AXES: tuple[AxisMeta, ...] = (
         key="closure",
         name="Closure Deficit",
         description=(
-            "Share of the day's opened loops you never closed. 0 = every "
-            "session you started got committed, 1 = nothing landed. Lower "
-            "is better."
+            "Of the loops git can see you open, the share you never closed. "
+            "0 = every such loop got a commit, 1 = none landed. Sessions with "
+            "no correlatable git activity don't count. Lower is better."
         ),
         range_max=CLOSURE_RANGE_MAX,
         zones=CLOSURE_ZONES,
         has_optimum=False,
         technique=(
-            "1 − closures / loops_opened, where loops_opened = streams started "
-            "in the work window and closures = git commits/merges in the "
-            "window. Counts, not concurrency — independent of the CODL shape."
+            "1 − closed / correlatable, where a loop = a stream started in the "
+            "work window and it is closed by a git commit/merge in its repo "
+            "within the loop's active span + grace. Loops we can't correlate to "
+            "git (no tracked repo, or a repo with no commit that day) are "
+            "dropped. Per-session correlation — independent of the CODL shape."
         ),
         basis=(
             "Demerouti et al. (2001) Job Demands-Resources; Masicampo & "
@@ -126,10 +128,11 @@ AXES: tuple[AxisMeta, ...] = (
             "Sonnentag & Fritz (2007) closure as recovery."
         ),
         caveat=(
-            "Closures are attributed by count within the work window, not "
-            "linked to specific sessions. Without configured git repos this "
-            "falls back to a concurrency-presence proxy (work-hour share "
-            "with CODL > 1)."
+            "A commit is matched to a session by repo + time overlap, not a "
+            "guaranteed link. Sessions with no correlatable git activity are "
+            "excluded, so this measures closure only over loops git can see. "
+            "Without configured git repos it falls back to a concurrency-"
+            "presence proxy (work-hour share with CODL > 1)."
         ),
     ),
 )

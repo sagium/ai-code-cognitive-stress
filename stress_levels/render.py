@@ -1034,10 +1034,12 @@ def _render_methodology(profile: StressProfile, stats: AggregateStats | None) ->
         (2) All axes are <em>taskload</em> (objective demand), not <em>workload</em>
         (subjective experience); correlation with felt overload is only moderate,
         and objective and subjective workload are known to dissociate.
-        (3) The Closure Deficit nets real git commits/merges against the loops
-        opened each work window, but closures are attributed by count, not
-        linked to specific sessions; with no git repos configured it falls
-        back to a concurrency-presence proxy.
+        (3) The Closure Deficit correlates real git commits/merges to the loops
+        opened each work window by repo + time overlap, but that correlation is
+        heuristic, not a guaranteed link; loops with no correlatable git
+        activity are excluded, so it measures closure only over loops git can
+        see, and with no git repos configured it falls back to a concurrency-
+        presence proxy.
         (4) Personal optimum and percentiles require &ge; 14 days of activity;
         fewer days renders as "calibrating".
       </p>

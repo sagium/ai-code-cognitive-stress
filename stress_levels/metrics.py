@@ -10,11 +10,13 @@ Three axes (per day, computed during work hours only):
     Interruption Idx  weighted attention-pulling events per work hour.
                       Weights from Mark, Gudith & Klocke (2008) and
                       Mark, Gonzalez & Harris (2005).
-    Closure Deficit   share of the day's opened loops that were never closed:
-                      clip(1 - closures / loops_opened, 0, 1), where
-                      loops_opened = streams started in the work window and
-                      closures = real closure events (git commits/merges) in
-                      the window. An unclosed loop keeps consuming the
+    Closure Deficit   share of the day's git-correlatable opened loops left
+                      unclosed: clip(1 - closed / correlatable, 0, 1). A loop
+                      (stream started in the work window) is closed by a commit
+                      in its repo within the loop's active span + grace; loops
+                      we can't correlate to git (no tracked repo, or a repo with
+                      no commit that day) are dropped. An unclosed loop keeps
+                      consuming the
                       cognitive resource (Masicampo & Baumeister 2011;
                       Leroy 2009); closure is itself a recovery resource
                       (Sonnentag & Fritz 2007) and demands without recoverable
@@ -126,10 +128,12 @@ REWORK_KINDS: frozenset[str] = frozenset(
 FOREGROUND_GRACE_MINUTES_DEFAULT: int = 5
 BACKGROUND_WEIGHT_DEFAULT: float = 0.25
 
-# Closure Deficit — fraction of the day's *opened* loops left *unclosed*.
-# An opened loop is a stream that started inside the work window; a closure
-# is a real git commit/merge (ClosureEvent) inside the window. The deficit is
-# clip(1 - closures / loops_opened, 0, 1). Grounding:
+# Closure Deficit — fraction of the day's git-correlatable *opened* loops left
+# *unclosed*. An opened loop is a stream that started inside the work window; it
+# is *closed* by a git commit/merge (ClosureEvent) in the SAME repo whose
+# timestamp lands within the loop's active span plus a grace tail. A loop we
+# can't correlate to git at all (no resolvable repo, or a repo with no commit
+# that day) is dropped — we don't penalise what git can't speak to. Grounding:
 #   - Masicampo & Baumeister (2011): an unfulfilled/open goal keeps consuming
 #     working memory until it is closed or planned — so unclosed loops, not
 #     mere presence of parallelism, are the load.
@@ -138,11 +142,15 @@ BACKGROUND_WEIGHT_DEFAULT: float = 0.25
 #   - Sonnentag & Fritz (2007): closure is a recovery resource.
 #   - Demerouti et al. (2001), JD-R: burnout = demands without recoverable
 #     resources; a day that opens many loops and closes few is exactly that.
-# Each closure can net at most one opened loop, so the count is clamped before
-# the ratio (CLOSURE_MAX_NET_PER_EVENT) — a commit closes one logical loop, not
-# an unbounded number. This axis uses *counts*, not the concurrency time-series
-# C(t), so it is independent of the CODL shape by construction.
-CLOSURE_MAX_NET_PER_EVENT: int = 1
+# Each commit closes at most one loop (it correlates to one logical session, not
+# an unbounded number). This axis uses per-session *correlation*, not the
+# concurrency time-series C(t), so it is independent of the CODL shape.
+#
+# A commit closes a session only when it lands within the session's active span
+# plus this grace tail — you typically commit shortly AFTER the agent finishes a
+# loop. Kept tight so a commit correlates to that specific session rather than
+# to "some session that ran that day".
+CLOSURE_CORRELATION_GRACE_MINUTES: int = 30
 
 # v1 composite weights — equal (null hypothesis). The methodology footer of
 # the rendered report names this choice and links to the relevant citations.
@@ -513,13 +521,15 @@ def per_day_debug(
     )
     rework = _count_rework(agg, ws, we)
     loops_opened = sum(1 for s in agg.streams if ws <= s.first_ts <= we)
+    # All CLOSURE-kind commits on the day (descriptive); correlation decides
+    # which actually close a loop.
     closures = sum(
-        1 for c in (agg.closure_events or ())
-        if c.kind in CLOSURE_KINDS and ws <= c.ts <= we
+        1 for c in (agg.closure_events or ()) if c.kind in CLOSURE_KINDS
     )
-    # Per-repo netted closures, so the exported Closure Deficit
-    # (1 - closures_netted/loops_opened) is reproducible from the debug counts.
-    closures_netted, _ = _closure_netting(agg, ws, we, repo_map)
+    # Per-session git correlation: closed_loops of correlatable_loops. The
+    # exported Closure Deficit (1 - closed_loops/correlatable_loops) is
+    # reproducible from these debug counts.
+    closed_loops, correlatable_loops = _closure_correlation(agg, ws, we, repo_map)
 
     # Hourly activity shape: average engagement-weighted concurrency per local
     # hour. Samples are one-per-minute from ws, so sample i is ws + i minutes.
@@ -561,8 +571,9 @@ def per_day_debug(
             + rework * W_GIT_REWORK, 3,
         ),
         "loops_opened": loops_opened,
+        "correlatable_loops": correlatable_loops,
         "closures": closures,
-        "closures_netted": closures_netted,
+        "closed_loops": closed_loops,
         "reworks": rework,
         "off_hours_minutes": _off_hours_engaged_minutes(
             agg.streams, ws, we, grace_seconds=grace,
@@ -594,30 +605,26 @@ def _closure_deficit(
     window_end_utc: datetime,
     weighted_samples: list[float],
     repo_map: dict[str, str] | None = None,
+    grace_seconds: int = CLOSURE_CORRELATION_GRACE_MINUTES * 60,
 ) -> float:
-    """Share of the day's opened loops that were never closed, in [0, 1].
+    """Share of the day's git-correlatable opened loops left unclosed, in [0, 1].
 
-    Only CLOSURE-kind events (commits/merges) net loops here; REWORK-kind
+    Only CLOSURE-kind events (commits/merges) close loops here; REWORK-kind
     events (amend/rebase/reset/…) are routed to the Interruption axis instead.
 
-    Real-signal path (`agg.closure_events` is not None): let ``L`` be the
-    number of streams whose first event falls in the work window (loops opened)
-    and ``K`` the number of closure events in the window. Each closure nets at
-    most one loop (``CLOSURE_MAX_NET_PER_EVENT``), so deficit =
-    ``clip(1 - netted / L, 0, 1)`` for ``L > 0`` else 0.
+    Real-signal path (`agg.closure_events` is not None): each opened loop (a
+    stream started in the work window) is correlated to a commit in the SAME
+    repo whose timestamp falls within the loop's active span plus a grace tail
+    (see ``_closure_correlation``). Loops we cannot correlate to git activity
+    (no resolvable repo, or a repo with no commit that day) are dropped from
+    both numerator and denominator; commits that correlate to no loop are
+    ignored. deficit = ``clip(1 - closed / correlatable, 0, 1)`` for
+    ``correlatable > 0`` else 0.
 
-    Attribution:
-      * With a ``repo_map`` (cwd→repo-root): loops are grouped by the repo
-        their stream ran in and closures by ``ClosureEvent.repo``; a repo's
-        closures only net that repo's loops. Closures with no matching opened
-        loop (spare) spill over to cover loops we couldn't attribute (e.g. a
-        session whose cwd wasn't inside any repo, or a source with no cwd).
-      * Without a ``repo_map``: nets globally — the prior, repo-agnostic
-        behaviour, preserved for explicit-repos-only and no-cwd sources.
-
-    Built from *counts*, so it carries information the concurrency time-series
-    C(t) does not: two days with identical concurrency shapes score differently
-    if one committed its work and the other didn't.
+    Built from per-session *correlation*, so it carries information the
+    concurrency time-series C(t) does not: two days with identical concurrency
+    shapes score differently if one committed its loops and the other left them
+    open.
 
     Fallback path (`agg.closure_events is None`, the default when no closure
     source is wired): the legacy concurrency-presence proxy — the fraction of
@@ -630,62 +637,97 @@ def _closure_deficit(
             return 0.0
         return sum(1 for w in weighted_samples if w > 1.0) / len(weighted_samples)
 
-    netted, total_opened = _closure_netting(
-        agg, window_start_utc, window_end_utc, repo_map,
+    closed, correlatable = _closure_correlation(
+        agg, window_start_utc, window_end_utc, repo_map, grace_seconds,
     )
-    if total_opened <= 0:
+    if correlatable <= 0:
         return 0.0
-    return max(0.0, min(1.0, 1.0 - netted / total_opened))
+    return max(0.0, min(1.0, 1.0 - closed / correlatable))
 
 
-def _closure_netting(
+# Single repo bucket used when no repo_map is available (no-cwd sources): we
+# can't attribute by repo, so all commits/loops share one bucket and correlate
+# by time alone. Never collides with a real repo path.
+_GLOBAL_REPO_KEY = "*"
+
+
+def _closure_correlation(
     agg: DayAggregate,
     window_start_utc: datetime,
     window_end_utc: datetime,
     repo_map: dict[str, str] | None = None,
+    grace_seconds: int = CLOSURE_CORRELATION_GRACE_MINUTES * 60,
 ) -> tuple[int, int]:
-    """Net the window's closure-kind events against its opened loops.
+    """Correlate the day's commits to the loops they closed, per session.
 
-    Returns ``(netted, total_opened)`` — the number of opened loops a closure
-    accounted for, and the number opened. The Closure Deficit is
-    ``1 - netted/total_opened``; ``per_day_debug`` also reports ``netted`` so
-    the exported deficit is reproducible from the debug counts.
+    A *loop* is a stream that started inside the work window. A commit *closes*
+    a loop when it is in the loop's repo and its timestamp falls within the
+    loop's active span plus a grace tail: ``[first_ts, last_ts + grace]``. Each
+    commit closes at most one loop (greedy, earliest-ending loop first), so a
+    commit correlates to one logical session rather than masking several.
 
-    Attribution (mirrors ``_closure_deficit``):
-      * With a ``repo_map`` (cwd→repo-root): a repo's closures net only that
-        repo's opened loops; closures beyond a repo's loops become "spare" and
-        spill over to cover loops with no resolvable repo (the ``None`` bucket).
-      * Without a ``repo_map``: nets globally (back-compat + no-cwd sources).
-    Each closure nets at most one loop (``CLOSURE_MAX_NET_PER_EVENT``)."""
-    loops_by_repo: dict[str | None, int] = defaultdict(int)
+    Only loops we can correlate to git activity count. A loop whose repo git
+    never touched that day (no commit, merge, or rework) — or whose cwd doesn't
+    resolve to a tracked repo — is *dropped* (excluded from both closed and
+    correlatable): git can't speak to its closure, so we don't penalise it. A
+    loop in a repo that WAS git-active that day but caught no time-correlated
+    commit stays *unclosed* — the real deficit signal. Commits that correlate to
+    no loop are ignored.
+
+    Returns ``(closed, correlatable)``; the Closure Deficit is
+    ``1 - closed/correlatable``. ``per_day_debug`` reports both so the exported
+    deficit is reproducible from the debug counts.
+
+    With no ``repo_map`` (no-cwd sources) every loop and commit shares one
+    global bucket and correlation is by time alone — best-effort back-compat.
+    """
+    keyed = bool(repo_map)
+
+    # Walk the day's git events once (already day-bucketed upstream). A repo is
+    # "git-visible" today if it saw ANY event — commit, merge, OR rework — so a
+    # loop in a repo that was rebased/amended but not committed is correlatable
+    # (and stays unclosed), while a loop in a repo git never touched is dropped.
+    # Only CLOSURE-kind events can actually close a loop.
+    active_repos: set[str] = set()
+    commits_by_repo: dict[str, list[datetime]] = defaultdict(list)
+    for c in (agg.closure_events or ()):
+        key = c.repo if keyed else _GLOBAL_REPO_KEY
+        active_repos.add(key)
+        if c.kind in CLOSURE_KINDS:
+            commits_by_repo[key].append(c.ts)
+
+    # Loops opened in the work window, resolved to a repo bucket, with their span.
+    loops: list[tuple[str | None, datetime, datetime]] = []
     for s in agg.streams:
         if window_start_utc <= s.first_ts <= window_end_utc:
-            repo = (repo_map or {}).get(s.cwd) if s.cwd else None
-            loops_by_repo[repo] += 1
-    total_opened = sum(loops_by_repo.values())
-    if total_opened <= 0:
+            key = ((repo_map or {}).get(s.cwd) if s.cwd else None) if keyed \
+                else _GLOBAL_REPO_KEY
+            loops.append((key, s.first_ts, s.last_ts))
+
+    # Drop loops we can't correlate to git activity: no repo bucket, or a repo
+    # git never touched today.
+    correlatable = [
+        (key, first, last) for (key, first, last) in loops
+        if key is not None and key in active_repos
+    ]
+    if not correlatable:
         return 0, 0
 
-    closures_by_repo: dict[str, int] = defaultdict(int)
-    for c in (agg.closure_events or ()):
-        if c.kind in CLOSURE_KINDS and window_start_utc <= c.ts <= window_end_utc:
-            closures_by_repo[c.repo] += 1
-
-    # No attribution info → net globally (back-compat + no-cwd sources).
-    if not repo_map:
-        closures = sum(closures_by_repo.values())
-        return min(closures * CLOSURE_MAX_NET_PER_EVENT, total_opened), total_opened
-
-    # Per-repo netting; closures beyond a repo's opened loops become "spare"
-    # and spill over to cover loops we couldn't attribute to any repo.
-    netted = 0
-    spare = 0
-    for repo, k in closures_by_repo.items():
-        matched = min(k, loops_by_repo.get(repo, 0))
-        netted += matched
-        spare += k - matched
-    netted += min(spare, loops_by_repo.get(None, 0))
-    return min(netted, total_opened), total_opened
+    # Greedy 1:1 matching by repo + time overlap. Earliest-ending loop first, so
+    # a commit closes the loop it most tightly follows.
+    grace = timedelta(seconds=grace_seconds)
+    used: dict[str, list[bool]] = {
+        key: [False] * len(times) for key, times in commits_by_repo.items()
+    }
+    closed = 0
+    for key, first, last in sorted(correlatable, key=lambda lp: lp[2]):
+        hi = last + grace
+        for i, cts in enumerate(commits_by_repo.get(key, ())):
+            if not used[key][i] and first <= cts <= hi:
+                used[key][i] = True
+                closed += 1
+                break
+    return closed, len(correlatable)
 
 
 def _composite_score(

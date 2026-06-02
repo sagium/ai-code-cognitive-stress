@@ -108,8 +108,9 @@ def build_research_export(
     still free of names, paths, and absolute timestamps. ``local_tz`` /
     ``codl_cfg`` default to the same system timezone and config the profile was
     built with. ``repo_map`` (cwd→repo-root, no paths emitted) lets the debug
-    block report per-repo netted closures so the exported Closure Deficit is
-    reproducible from its counts.
+    block report the per-session closure correlation (closed_loops of
+    correlatable_loops) so the exported Closure Deficit is reproducible from
+    its counts.
 
     ``rng`` / ``participant_id`` / ``generated_on`` are injectable so the output
     is deterministic under test; in production they default to system entropy,
