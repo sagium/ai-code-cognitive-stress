@@ -400,7 +400,7 @@ def main(argv: list[str] | None = None) -> int:
         payload = build_research_export(
             rs_profile, since=rs_since, until=rs_until,
             package_version=__version__, ingest_stats=rs_stats,
-            aggregates=rs_aggs,
+            aggregates=rs_aggs, repo_map=rs_repo_map,
         )
         rs_path = Path(
             args.export_research

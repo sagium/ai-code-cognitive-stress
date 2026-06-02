@@ -1,6 +1,6 @@
 """Population calibration from pooled research exports.
 
-Reads many anonymized exports (``research_export.py``, schema v1/v2) that the
+Reads many anonymized exports (``research_export.py``, schema v1/v2/v3) that the
 maintainer has collected, pools them, and crunches the population to recalibrate
 the index so it covers the real range of work patterns. Produces a report plus a
 suggested ``scoring`` config block; it changes nothing on its own — the operator

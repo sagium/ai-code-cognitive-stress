@@ -233,10 +233,68 @@ def test_debug_block_present_with_components():
     assert dbg["loops_opened"] == 2            # both start inside the window
     assert dbg["total_tool_errors"] == 2
     assert dbg["closures"] == 0
+    assert dbg["closures_netted"] == 0
+    assert dbg["reworks"] == 0
     for key in ("peak_weighted", "work_hours", "in_window_tool_errors",
                 "interruption_numerator", "off_hours_minutes",
                 "hourly_concurrency", "sessions"):
         assert key in dbg
+
+
+def test_consent_text_discloses_git_activity_counts():
+    """The export now ships per-day git commit/rework counts by default
+    (autodiscover), so the consent statement must disclose them."""
+    assert "git" in CONSENT_TEXT
+    assert "commit" in CONSENT_TEXT
+    # Still promises no identifying git detail.
+    assert "no source code" in CONSENT_TEXT or "no source" in CONSENT_TEXT
+    assert "repository or branch names" in CONSENT_TEXT
+
+
+def test_debug_closures_netted_reproduces_deficit_and_leaks_no_path():
+    """With a repo_map, the debug block carries per-repo netted closures so the
+    day's closure_deficit is reproducible from (loops_opened, closures_netted),
+    and the repo path itself never appears in the export."""
+    from stress_levels.sources.base import ClosureEvent
+    from stress_levels.metrics import build_profile
+
+    def _ts(h):
+        return datetime(2026, 5, 14, h, tzinfo=timezone.utc)
+    repo = "/home/someone/secret-repo"
+    streams = (
+        StreamDayActivity(stream_id="s1", project="p", cwd=repo,
+                          first_ts=_ts(10), last_ts=_ts(12)),
+        StreamDayActivity(stream_id="s2", project="p", cwd=repo,
+                          first_ts=_ts(11), last_ts=_ts(13)),
+    )
+    closures = (ClosureEvent(ts=_ts(12), kind="commit", repo=repo),)
+    aggs = {_ACTIVE_DAY: DayAggregate(day=_ACTIVE_DAY, streams=streams,
+                                      peak_concurrent_streams=2,
+                                      closure_events=closures)}
+    repo_map = {repo: repo}
+    windows = {wd: WorkWindow(weekday=wd, start=time(9), end=time(18))
+               for wd in range(7)}
+    profile = build_profile(aggs, repo_map=repo_map)
+    profile = StressProfile(days=profile.days, work_windows=windows)
+
+    out = build_research_export(
+        profile, since=date(2026, 1, 1), until=date(2026, 12, 31),
+        package_version="t", ingest_stats=None, aggregates=aggs,
+        local_tz=timezone.utc,
+        codl_cfg=SimpleNamespace(foreground_grace_minutes=5, background_weight=0.25),
+        repo_map=repo_map,
+        rng=random.Random(1), participant_id="pid", generated_on=date(2026, 6, 1),
+    )
+    day = out["profile"]["days"][0]
+    dbg = day["debug"]
+    assert dbg["loops_opened"] == 2
+    assert dbg["closures"] == 1
+    assert dbg["closures_netted"] == 1   # 1 commit nets 1 of 2 loops in-repo
+    # Deficit reconstructs from the debug counts.
+    assert day["closure_deficit"] == round(1 - dbg["closures_netted"] / dbg["loops_opened"], 3)
+    # The repo path (which contains a username) never leaks.
+    assert "someone" not in json.dumps(out)
+    assert "secret-repo" not in json.dumps(out)
 
 
 def test_debug_sessions_are_anonymized():

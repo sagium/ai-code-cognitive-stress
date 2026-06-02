@@ -485,6 +485,7 @@ def per_day_debug(
     local_tz: tzinfo,
     foreground_grace_minutes: int = FOREGROUND_GRACE_MINUTES_DEFAULT,
     background_weight: float = BACKGROUND_WEIGHT_DEFAULT,
+    repo_map: dict[str, str] | None = None,
 ) -> dict:
     """Per-day component breakdown behind the scores, for the research export's
     debug detail. Mirrors the inputs `per_day_metrics` reduces, so the two stay
@@ -516,6 +517,9 @@ def per_day_debug(
         1 for c in (agg.closure_events or ())
         if c.kind in CLOSURE_KINDS and ws <= c.ts <= we
     )
+    # Per-repo netted closures, so the exported Closure Deficit
+    # (1 - closures_netted/loops_opened) is reproducible from the debug counts.
+    closures_netted, _ = _closure_netting(agg, ws, we, repo_map)
 
     # Hourly activity shape: average engagement-weighted concurrency per local
     # hour. Samples are one-per-minute from ws, so sample i is ws + i minutes.
@@ -558,6 +562,7 @@ def per_day_debug(
         ),
         "loops_opened": loops_opened,
         "closures": closures,
+        "closures_netted": closures_netted,
         "reworks": rework,
         "off_hours_minutes": _off_hours_engaged_minutes(
             agg.streams, ws, we, grace_seconds=grace,
@@ -625,8 +630,33 @@ def _closure_deficit(
             return 0.0
         return sum(1 for w in weighted_samples if w > 1.0) / len(weighted_samples)
 
-    # Opened loops, grouped by the repo each stream ran in (None when its cwd
-    # didn't resolve to a repo, or no repo_map was supplied).
+    netted, total_opened = _closure_netting(
+        agg, window_start_utc, window_end_utc, repo_map,
+    )
+    if total_opened <= 0:
+        return 0.0
+    return max(0.0, min(1.0, 1.0 - netted / total_opened))
+
+
+def _closure_netting(
+    agg: DayAggregate,
+    window_start_utc: datetime,
+    window_end_utc: datetime,
+    repo_map: dict[str, str] | None = None,
+) -> tuple[int, int]:
+    """Net the window's closure-kind events against its opened loops.
+
+    Returns ``(netted, total_opened)`` — the number of opened loops a closure
+    accounted for, and the number opened. The Closure Deficit is
+    ``1 - netted/total_opened``; ``per_day_debug`` also reports ``netted`` so
+    the exported deficit is reproducible from the debug counts.
+
+    Attribution (mirrors ``_closure_deficit``):
+      * With a ``repo_map`` (cwd→repo-root): a repo's closures net only that
+        repo's opened loops; closures beyond a repo's loops become "spare" and
+        spill over to cover loops with no resolvable repo (the ``None`` bucket).
+      * Without a ``repo_map``: nets globally (back-compat + no-cwd sources).
+    Each closure nets at most one loop (``CLOSURE_MAX_NET_PER_EVENT``)."""
     loops_by_repo: dict[str | None, int] = defaultdict(int)
     for s in agg.streams:
         if window_start_utc <= s.first_ts <= window_end_utc:
@@ -634,19 +664,17 @@ def _closure_deficit(
             loops_by_repo[repo] += 1
     total_opened = sum(loops_by_repo.values())
     if total_opened <= 0:
-        return 0.0
+        return 0, 0
 
-    # Closure-kind events in the window, grouped by repo key.
     closures_by_repo: dict[str, int] = defaultdict(int)
-    for c in agg.closure_events:
+    for c in (agg.closure_events or ()):
         if c.kind in CLOSURE_KINDS and window_start_utc <= c.ts <= window_end_utc:
             closures_by_repo[c.repo] += 1
 
     # No attribution info → net globally (back-compat + no-cwd sources).
     if not repo_map:
         closures = sum(closures_by_repo.values())
-        netted = min(closures * CLOSURE_MAX_NET_PER_EVENT, total_opened)
-        return max(0.0, min(1.0, 1.0 - netted / total_opened))
+        return min(closures * CLOSURE_MAX_NET_PER_EVENT, total_opened), total_opened
 
     # Per-repo netting; closures beyond a repo's opened loops become "spare"
     # and spill over to cover loops we couldn't attribute to any repo.
@@ -657,8 +685,7 @@ def _closure_deficit(
         netted += matched
         spare += k - matched
     netted += min(spare, loops_by_repo.get(None, 0))
-    netted = min(netted, total_opened)
-    return max(0.0, min(1.0, 1.0 - netted / total_opened))
+    return min(netted, total_opened), total_opened
 
 
 def _composite_score(

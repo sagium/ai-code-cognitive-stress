@@ -34,9 +34,9 @@ from typing import Any
 from .aggregate import AggregateStats, DayAggregate
 from .metrics import DayMetrics, StressProfile, WorkWindow, per_day_debug
 
-SCHEMA = "ai-code-cognitive-stress.research-export.v2"
+SCHEMA = "ai-code-cognitive-stress.research-export.v3"
 
-CONSENT_VERSION = "2"
+CONSENT_VERSION = "3"
 
 # Affirmed by the operator before an export is written, and embedded verbatim in
 # the file so the acknowledgment travels with the data. Kept in sync with the
@@ -46,13 +46,15 @@ CONSENT_TEXT = (
     "the cognitive-stress index. I understand that it contains only derived, "
     "non-identifying data computed on my own machine: daily metrics and the "
     "components behind them, per-session activity counts (message and "
-    "tool-call tallies and durations) and an hourly activity-load shape, plus "
-    "my typical working-hour ranges. It contains no source code, file paths, "
-    "repository or branch names, commit messages, session text, usernames, or "
-    "timezone; calendar dates are randomly shifted and a random per-export id "
-    "is used, so the data is not personally identifying. Sharing is entirely "
-    "optional, and because the submission is anonymous it cannot be traced "
-    "back and withdrawn once uploaded."
+    "tool-call tallies and durations), per-day counts of local git activity "
+    "(commits/merges and history-rewrite operations such as amend/rebase/reset, "
+    "as counts only), and an hourly activity-load shape, plus my typical "
+    "working-hour ranges. It contains no source code, file paths, repository "
+    "or branch names, commit messages, session text, usernames, or timezone; "
+    "calendar dates are randomly shifted and a random per-export id is used, so "
+    "the data is not personally identifying. Sharing is entirely optional, and "
+    "because the submission is anonymous it cannot be traced back and withdrawn "
+    "once uploaded."
 )
 
 _WEEKDAY_NAMES = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
@@ -93,6 +95,7 @@ def build_research_export(
     aggregates: dict[date, DayAggregate] | None = None,
     local_tz=None,
     codl_cfg=None,
+    repo_map: dict[str, str] | None = None,
     rng: random.Random | None = None,
     participant_id: str | None = None,
     generated_on: date | None = None,
@@ -104,7 +107,9 @@ def build_research_export(
     per-session counts) for calibrating data collection and the metrics —
     still free of names, paths, and absolute timestamps. ``local_tz`` /
     ``codl_cfg`` default to the same system timezone and config the profile was
-    built with.
+    built with. ``repo_map`` (cwd→repo-root, no paths emitted) lets the debug
+    block report per-repo netted closures so the exported Closure Deficit is
+    reproducible from its counts.
 
     ``rng`` / ``participant_id`` / ``generated_on`` are injectable so the output
     is deterministic under test; in production they default to system entropy,
@@ -135,6 +140,7 @@ def build_research_export(
                     agg, window, local_tz,
                     foreground_grace_minutes=codl_cfg.foreground_grace_minutes,
                     background_weight=codl_cfg.background_weight,
+                    repo_map=repo_map,
                 )
         days_out.append(entry)
 
