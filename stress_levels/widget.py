@@ -231,6 +231,18 @@ def _paint_dayview(tk, inner, dv: DayView) -> None:  # pragma: no cover — tk r
     if len(dv.score_progression) >= 2:
         _draw_sparkline(tk, header, dv).pack(side="left", expand=True)
 
+    # Off-hours nag — shown in amber when off-hours engagement is driving the
+    # score up, so the user immediately understands why the number just jumped.
+    if dv.off_hours_nag:
+        tk.Label(
+            inner, text=dv.off_hours_nag,
+            bg=_blend(PALETTE["warn"], 0.15, PALETTE["bg"]),
+            fg=PALETTE["warn"],
+            font=("TkDefaultFont", 9, "bold"),
+            anchor="w", padx=12, pady=4,
+            wraplength=620, justify="left",
+        ).pack(fill="x", padx=14, pady=(0, 6))
+
     _draw_chart(tk, inner, dv)
 
     for tile in dv.axes:

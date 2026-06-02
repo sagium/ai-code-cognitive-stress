@@ -196,6 +196,33 @@ PlasmoidItem {
                 }
             }
 
+            // Off-hours nag banner — visible when off-hours work is materially
+            // driving the composite up. Tells the user WHY the score just jumped.
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.leftMargin: Kirigami.Units.smallSpacing
+                Layout.rightMargin: Kirigami.Units.smallSpacing
+                visible: root.ready && root.dv.off_hours_nag && root.dv.off_hours_nag.length > 0
+                height: nagLabel.implicitHeight + Kirigami.Units.smallSpacing * 2
+                radius: Kirigami.Units.smallSpacing * 0.5
+                color: Qt.rgba(0.85, 0.56, 0.22, 0.15)  // amber tint
+
+                PlasmaComponents.Label {
+                    id: nagLabel
+                    anchors {
+                        left: parent.left; right: parent.right
+                        verticalCenter: parent.verticalCenter
+                        leftMargin: Kirigami.Units.smallSpacing * 2
+                        rightMargin: Kirigami.Units.smallSpacing * 2
+                    }
+                    text: root.ready ? (root.dv.off_hours_nag || "") : ""
+                    wrapMode: Text.WordWrap
+                    color: "#b36800"
+                    font.bold: true
+                    font.pointSize: Kirigami.Theme.smallFont.pointSize
+                }
+            }
+
             // Hourly concurrency chart
             Canvas {
                 id: chart

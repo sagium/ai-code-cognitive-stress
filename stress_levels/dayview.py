@@ -15,6 +15,8 @@ from datetime import date, datetime, time, timezone, tzinfo
 from .aggregate import DayAggregate
 from .metrics import (
     CODL_NORMALISATION_CEILING,
+    OFF_HOURS_LOAD_CEILING_MIN,
+    OFF_HOURS_LOAD_MAX_POINTS,
     DayMetrics,
     StressProfile,
     WorkWindow as _MetricsWorkWindow,
@@ -234,6 +236,11 @@ class DayView:
     # point equals `composite`.
     score_progression: list["ScorePoint"]
     axes: list[AxisTile]
+    off_hours_minutes: int      # engaged minutes outside the work window
+    # Non-empty when off-hours work is contributing meaningfully to the composite
+    # (≥ 15 min, ≥ ~5 pts). Rendered as an amber nag banner by both widgets so
+    # the user understands why the score just jumped. Empty → no banner.
+    off_hours_nag: str
 
 
 # ---------------------------------------------------------------------------
@@ -397,6 +404,20 @@ def build_dayview(
         ww_label = f"work window: {ws.strftime('%H:%M')} – {we.strftime('%H:%M')}"
     has_activity = metrics.composite > 0
     status = composite_status(metrics.composite, profile.composite_p75, profile.composite_p90)
+
+    # Off-hours nag: shown when off-hours engagement is meaningfully driving the
+    # composite (≥ 15 min → ≥ ~5 pts). States the contribution explicitly so the
+    # user understands why the live score just jumped.
+    off_min = metrics.off_hours_minutes
+    off_pts = round(OFF_HOURS_LOAD_MAX_POINTS * min(1.0, off_min / OFF_HOURS_LOAD_CEILING_MIN))
+    if off_min >= 15:
+        off_hours_nag = (
+            f"↑ +{off_pts} pts from {off_min} min of off-hours work"
+            + (f" · work window: {ww.start}–{ww.end}" if ww else "")
+        )
+    else:
+        off_hours_nag = ""
+
     return DayView(
         day=metrics.day,
         day_label=metrics.day.strftime("%A %d %B %Y"),
@@ -410,6 +431,8 @@ def build_dayview(
         hours=counts, peak_concurrent=max(counts) if counts else 0,
         score_progression=score_progression(metrics, agg, profile, local_tz),
         axes=[build_axis_tile(meta, metrics, profile) for meta in AXES],
+        off_hours_minutes=off_min,
+        off_hours_nag=off_hours_nag,
     )
 
 
@@ -466,4 +489,6 @@ def dayview_to_dict(dv: DayView) -> dict:
             }
             for a in dv.axes
         ],
+        "off_hours_minutes": dv.off_hours_minutes,
+        "off_hours_nag": dv.off_hours_nag,
     }
