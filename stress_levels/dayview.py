@@ -156,7 +156,7 @@ def _axis_unit(key: str, m: DayMetrics) -> str:
     if key == "interruption":
         return "weighted events per work hour"
     if m.closure_deficit is None:
-        return "no git activity to correlate — not scored"
+        return "disabled — no active git repo this day"
     return f"{m.closure_deficit * 100:.0f}% of opened loops left unclosed"
 
 

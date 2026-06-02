@@ -100,7 +100,8 @@ def test_closure_tile_no_git_activity_is_not_scored():
     assert t.value_label == "—"
     assert t.fraction == 0.0 and t.off_scale is False
     assert t.baseline is None and t.optimum is None
-    assert "no git activity" in t.unit_text
+    # The reason is stated explicitly and ties the disabled state to the cause.
+    assert "disabled" in t.unit_text and "git repo" in t.unit_text
     assert t.segments  # the empty scale is still drawn for context
 
 
