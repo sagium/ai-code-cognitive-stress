@@ -356,40 +356,39 @@ _WIN_START = _utc(2026, 5, 15, 9)
 _WIN_END = _utc(2026, 5, 15, 18)
 
 
-def test_closure_deficit_none_falls_back_to_legacy_proxy():
-    """closure_events is None → fraction of weighted samples with C(t) > 1
-    (the legacy proxy), unchanged from the pre-closure behaviour."""
+def test_closure_deficit_no_source_wired_is_none():
+    """No git closure source wired (closure_events is None) → the axis has no
+    basis to exist, so it returns None (omitted as data). The former C(t)>1
+    concurrency proxy was removed — closure has meaning only on git repos."""
     agg = _agg(date(2026, 5, 15), [_stream("a", _utc(2026, 5, 15, 10),
                                             _utc(2026, 5, 15, 11))])
-    # Hand it a weighted series with some samples > 1.
-    weighted = [0.5, 1.5, 2.0, 0.0, 1.2]
-    d = _closure_deficit(agg, _WIN_START, _WIN_END, weighted)
-    assert d == pytest.approx(3 / 5)  # 3 of 5 samples exceed 1
+    assert _closure_deficit(agg, _WIN_START, _WIN_END) is None
 
 
-def test_closure_deficit_none_empty_samples_is_zero():
+def test_closure_deficit_no_source_wired_empty_day_is_none():
     agg = _agg(date(2026, 5, 15), [])
-    assert _closure_deficit(agg, _WIN_START, _WIN_END, []) == 0.0
+    assert _closure_deficit(agg, _WIN_START, _WIN_END) is None
 
 
 def test_closure_deficit_all_loops_closed_is_zero():
     """Two loops opened in-window, each closed by a same-day commit that lands
-    within its active span → deficit 0."""
+    within its active span → deficit 0 (genuine perfect closure, NOT no-data)."""
     streams = [
         _stream("a", _utc(2026, 5, 15, 10), _utc(2026, 5, 15, 12)),
         _stream("b", _utc(2026, 5, 15, 11), _utc(2026, 5, 15, 13)),
     ]
     closures = [_closure(_utc(2026, 5, 15, 12)), _closure(_utc(2026, 5, 15, 13))]
     agg = _agg_with_closures(date(2026, 5, 15), streams, closures)
-    assert _closure_deficit(agg, _WIN_START, _WIN_END, [99.0]) == 0.0
+    assert _closure_deficit(agg, _WIN_START, _WIN_END) == 0.0
 
 
-def test_closure_deficit_no_git_activity_drops_loops():
+def test_closure_deficit_no_git_activity_is_none():
     """Loops opened but NO git event anywhere that day → we can't correlate them
-    to git, so they're dropped (not penalised) → deficit 0, not 1."""
+    to git, so they're omitted AS DATA → None, not 0.0 (which would read as
+    perfect closure) and not 1.0 (which would penalise)."""
     streams = [_stream("a", _utc(2026, 5, 15, 10), _utc(2026, 5, 15, 12))]
     agg = _agg_with_closures(date(2026, 5, 15), streams, [])  # () = wired, empty
-    assert _closure_deficit(agg, _WIN_START, _WIN_END, [0.0, 0.0]) == 0.0
+    assert _closure_deficit(agg, _WIN_START, _WIN_END) is None
 
 
 def test_closure_deficit_partial_close():
@@ -399,7 +398,7 @@ def test_closure_deficit_partial_close():
                        _utc(2026, 5, 15, 14)) for i in range(4)]
     closures = [_closure(_utc(2026, 5, 15, 13))]
     agg = _agg_with_closures(date(2026, 5, 15), streams, closures)
-    assert _closure_deficit(agg, _WIN_START, _WIN_END, []) == pytest.approx(0.75)
+    assert _closure_deficit(agg, _WIN_START, _WIN_END) == pytest.approx(0.75)
 
 
 def test_closure_deficit_one_commit_closes_one_loop():
@@ -409,7 +408,7 @@ def test_closure_deficit_one_commit_closes_one_loop():
     closures = [_closure(_utc(2026, 5, 15, 11)), _closure(_utc(2026, 5, 15, 12)),
                 _closure(_utc(2026, 5, 15, 13))]
     agg = _agg_with_closures(date(2026, 5, 15), streams, closures)
-    assert _closure_deficit(agg, _WIN_START, _WIN_END, []) == 0.0
+    assert _closure_deficit(agg, _WIN_START, _WIN_END) == 0.0
 
 
 def test_closure_deficit_commit_within_grace_closes_loop():
@@ -418,7 +417,7 @@ def test_closure_deficit_commit_within_grace_closes_loop():
     streams = [_stream("a", _utc(2026, 5, 15, 10), _utc(2026, 5, 15, 12), cwd="/r")]
     closures = [_closure(_utc(2026, 5, 15, 12, 20), repo="/r")]  # 20 min after
     agg = _agg_with_closures(date(2026, 5, 15), streams, closures)
-    assert _closure_deficit(agg, _WIN_START, _WIN_END, [], {"/r": "/r"}) == 0.0
+    assert _closure_deficit(agg, _WIN_START, _WIN_END, {"/r": "/r"}) == 0.0
 
 
 def test_closure_deficit_commit_outside_grace_leaves_loop_open():
@@ -427,7 +426,7 @@ def test_closure_deficit_commit_outside_grace_leaves_loop_open():
     streams = [_stream("a", _utc(2026, 5, 15, 10), _utc(2026, 5, 15, 12), cwd="/r")]
     closures = [_closure(_utc(2026, 5, 15, 17), repo="/r")]  # ~5h after last_ts
     agg = _agg_with_closures(date(2026, 5, 15), streams, closures)
-    assert _closure_deficit(agg, _WIN_START, _WIN_END, [], {"/r": "/r"}) == 1.0
+    assert _closure_deficit(agg, _WIN_START, _WIN_END, {"/r": "/r"}) == 1.0
 
 
 def test_closure_deficit_excludes_loops_opened_before_window():
@@ -439,15 +438,15 @@ def test_closure_deficit_excludes_loops_opened_before_window():
     ]
     closures = [_closure(_utc(2026, 5, 15, 16, 10), repo="/r")]  # closes inwin
     agg = _agg_with_closures(date(2026, 5, 15), streams, closures)
-    assert _closure_deficit(agg, _WIN_START, _WIN_END, [], {"/r": "/r"}) == 0.0
+    assert _closure_deficit(agg, _WIN_START, _WIN_END, {"/r": "/r"}) == 0.0
 
 
-def test_closure_deficit_no_opened_loops_is_zero():
+def test_closure_deficit_no_opened_loops_is_none():
     """A stream alive in-window but opened earlier means zero loops *opened*
-    today → no deficit (nothing to close)."""
+    today → nothing git-correlatable → omitted as data (None)."""
     streams = [_stream("a", _utc(2026, 5, 15, 7), _utc(2026, 5, 15, 16))]
     agg = _agg_with_closures(date(2026, 5, 15), streams, [])
-    assert _closure_deficit(agg, _WIN_START, _WIN_END, []) == 0.0
+    assert _closure_deficit(agg, _WIN_START, _WIN_END) is None
 
 
 def test_closure_deficit_is_independent_of_concurrency_shape():
@@ -500,7 +499,7 @@ def test_closure_deficit_drops_loops_in_repos_with_no_commits():
     closures = [_closure(_utc(2026, 5, 15, 11), repo="/repoB")]
     agg = _agg_with_closures(date(2026, 5, 15), streams, closures)
     repo_map = {"/repoA": "/repoA", "/repoB": "/repoB"}
-    assert _closure_deficit(agg, _WIN_START, _WIN_END, [], repo_map) == 0.0
+    assert _closure_deficit(agg, _WIN_START, _WIN_END, repo_map) == 0.0
 
 
 def test_closure_deficit_commit_does_not_cross_to_other_repo():
@@ -518,7 +517,7 @@ def test_closure_deficit_commit_does_not_cross_to_other_repo():
     ]
     agg = _agg_with_closures(date(2026, 5, 15), streams, closures)
     repo_map = {"/repoA": "/repoA", "/repoB": "/repoB"}
-    assert _closure_deficit(agg, _WIN_START, _WIN_END, [], repo_map) == pytest.approx(0.5)
+    assert _closure_deficit(agg, _WIN_START, _WIN_END, repo_map) == pytest.approx(0.5)
 
 
 def test_closure_deficit_global_correlation_when_no_repo_map():
@@ -532,7 +531,7 @@ def test_closure_deficit_global_correlation_when_no_repo_map():
     closures = [_closure(_utc(2026, 5, 15, 11), repo="/repoB")]
     agg = _agg_with_closures(date(2026, 5, 15), streams, closures)
     # repo_map=None → single global bucket, time-only correlation.
-    assert _closure_deficit(agg, _WIN_START, _WIN_END, []) == pytest.approx(2 / 3)
+    assert _closure_deficit(agg, _WIN_START, _WIN_END) == pytest.approx(2 / 3)
 
 
 def test_closure_deficit_drops_loops_with_unresolvable_repo():
@@ -546,7 +545,7 @@ def test_closure_deficit_drops_loops_with_unresolvable_repo():
     closures = [_closure(_utc(2026, 5, 15, 11), repo="/repoA")]
     agg = _agg_with_closures(date(2026, 5, 15), streams, closures)
     repo_map = {"/repoA": "/repoA"}  # /not/a/repo is unmapped → dropped
-    assert _closure_deficit(agg, _WIN_START, _WIN_END, [], repo_map) == 0.0
+    assert _closure_deficit(agg, _WIN_START, _WIN_END, repo_map) == 0.0
 
 
 def test_closure_deficit_rework_only_repo_leaves_loop_open():
@@ -557,7 +556,7 @@ def test_closure_deficit_rework_only_repo_leaves_loop_open():
     closures = [_closure(_utc(2026, 5, 15, 11), kind="rebase", repo="/r")]
     agg = _agg_with_closures(date(2026, 5, 15), streams, closures)
     repo_map = {"/r": "/r"}
-    assert _closure_deficit(agg, _WIN_START, _WIN_END, [], repo_map) == 1.0
+    assert _closure_deficit(agg, _WIN_START, _WIN_END, repo_map) == 1.0
 
 
 # ---------------------------------------------------------------------------
@@ -629,6 +628,29 @@ def test_composite_weights_sum_to_one():
     assert abs(sum(COMPOSITE_WEIGHTS) - 1.0) < 1e-9
 
 
+def test_composite_score_none_closure_renormalises_over_two_axes():
+    """When closure is None (no git data), the blend drops the Closure axis and
+    renormalises over CODL + Interruption — its weight is redistributed, NOT
+    imputed as a perfect-closure 0."""
+    codl_n, int_n = 0.6, 0.3
+    codl = codl_n * CODL_NORMALISATION_CEILING
+    interr = int_n * INTERRUPTION_NORMALISATION_CEILING
+    with_none = _composite_score(codl, interr, None)
+    # Equal weights → 2-axis mean.
+    assert with_none == pytest.approx(100.0 * (codl_n + int_n) / 2)
+    # And it is strictly higher than imputing closure=0 (the old behaviour),
+    # because the 0 no longer drags the blend down.
+    as_zero = _composite_score(codl, interr, 0.0)
+    assert with_none > as_zero
+
+
+def test_composite_score_none_closure_matches_present_zero_when_axes_equal():
+    """Sanity: a None closure and a present-but-0 closure differ ONLY by the
+    renormalisation, never by treating None as a non-zero penalty."""
+    s_none = _composite_score(0.0, 0.0, None)
+    assert s_none == 0.0  # no load on any present axis → 0, no crash
+
+
 # ---------------------------------------------------------------------------
 # Work-window detection
 
@@ -683,7 +705,7 @@ def test_per_day_metrics_empty_day_returns_zeros():
     assert m.codl_avg == 0.0
     assert m.codl_peak == 0
     assert m.interruption_rate == 0.0
-    assert m.closure_deficit == 0.0
+    assert m.closure_deficit is None   # no git activity → omitted as data, not 0
     assert m.off_hours_minutes == 0
     assert m.composite == 0.0
 
@@ -700,18 +722,21 @@ def test_per_day_metrics_single_stream_low_load():
     # CODL == 1 for the in-window minute samples that overlap the stream
     assert m.codl_peak == 1
     assert 0 < m.codl_avg <= 1.0
-    # No closure source wired (closure_events is None) → legacy proxy, which
-    # measures samples with C(t) > 1; a single stream never exceeds 1 → 0.
-    assert m.closure_deficit == 0.0
+    # No git closure source wired (closure_events is None) → the Closure axis has
+    # no basis to exist → None (omitted as data), and the composite renormalises
+    # over CODL + Interruption.
+    assert m.closure_deficit is None
     # off_hours_minutes should be 0 (stream entirely inside window)
     assert m.off_hours_minutes == 0
     # composite low but non-zero
     assert 0.0 < m.composite < 30.0
 
 
-def test_per_day_metrics_two_parallel_streams_raises_deficit():
-    # Both streams are ACTIVELY driven during the overlap (user messages in
-    # window), so they're foreground and the weighted load exceeds 1 → deficit.
+def test_per_day_metrics_two_parallel_streams_raise_codl_not_closure():
+    # Two streams actively driven during an overlap → parallel load shows up on
+    # CODL (peak == 2). Closure is a SEPARATE signal: with no git source wired it
+    # is None (omitted), NOT inflated by concurrency. (The old C(t)>1 proxy that
+    # made parallelism raise the "deficit" was removed — closure is git-only.)
     streams = [
         _stream("a", _utc(2026, 5, 15, 10), _utc(2026, 5, 15, 14),
                 user_msg_timestamps=(_utc(2026, 5, 15, 11, 30),
@@ -723,12 +748,9 @@ def test_per_day_metrics_two_parallel_streams_raises_deficit():
     agg = _agg(date(2026, 5, 15), streams)
     window = WorkWindow(weekday=4, start=time(9), end=time(18))
     m = per_day_metrics(agg, window, UTC)
-    # codl_avg is time-weighted across the full work window; with only 2hr
-    # of two-stream overlap out of 9hr, it sits well below 1 — peak and
-    # deficit are the right signals here.
     assert m.codl_peak == 2
     assert m.codl_avg > 0
-    assert m.closure_deficit > 0
+    assert m.closure_deficit is None
 
 
 def test_per_day_metrics_evening_session_adds_off_hours():
@@ -796,6 +818,26 @@ def test_personal_optimum_returns_bucket_with_best_score():
     optimum = derive_personal_optimum(days, min_days=14)
     assert optimum is not None
     assert 0.5 < optimum < 2.5
+
+
+def test_personal_optimum_skips_none_closure_days():
+    """Days with no git-correlatable closure (closure_deficit is None) must not
+    crash the optimum and must be omitted from the bucket's closure average —
+    not treated as 0. A bucket of all-None closure days is judged on off-hours
+    alone (neutral closure factor)."""
+    days = {}
+    workdays = _weekdays_from(date(2026, 5, 4), 16)
+    # Low-load bucket: closure present and good.
+    for d in workdays[:8]:
+        days[d] = DayMetrics(day=d, codl_avg=1.2,
+                             closure_deficit=0.1, off_hours_minutes=5)
+    # High-load bucket: NO git data (closure None) + heavy off-hours.
+    for d in workdays[8:]:
+        days[d] = DayMetrics(day=d, codl_avg=3.5,
+                             closure_deficit=None, off_hours_minutes=120)
+    optimum = derive_personal_optimum(days, min_days=14)
+    assert optimum is not None              # did not crash on None
+    assert 0.5 < optimum < 2.5              # low-load bucket still wins on off-hours
 
 
 def test_personal_optimum_requires_two_days_per_bucket():
@@ -1159,10 +1201,13 @@ def test_per_day_metrics_no_off_hours_composite_unchanged():
     ]
     m = per_day_metrics(_agg(date(2026, 5, 4), streams), window, UTC)
     assert m.off_hours_minutes == 0
-    # Composite equals pure 3-axis score (off-hours load = 0 points).
+    # Composite equals the axis blend with no off-hours load added. Closure is
+    # None here (no git source), so the blend is over CODL + Interruption only.
+    # Tolerance absorbs the rounding of the stored codl_avg vs the unrounded
+    # value the composite was computed from.
     from stress_levels.metrics import _composite_score
     expected = _composite_score(m.codl_avg, m.interruption_rate, m.closure_deficit)
-    assert m.composite == round(expected, 1)
+    assert m.composite == pytest.approx(expected, abs=0.1)
 
 
 def test_per_day_metrics_off_hours_load_clamps_at_100():

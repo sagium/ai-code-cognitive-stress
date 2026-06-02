@@ -822,6 +822,7 @@ def _render_axis_tile(
         baseline_label=t.baseline_label,
         optimum=t.optimum,
         optimum_label=t.optimum_label,
+        show_value=t.has_data,
     )
     return f"""
 <div class="tile">
@@ -863,6 +864,7 @@ def _render_range_bar(
     baseline_label: str,
     optimum: float | None,
     optimum_label: str,
+    show_value: bool = True,
 ) -> str:
     """Horizontal SVG range bar.
 
@@ -948,19 +950,29 @@ def _render_range_bar(
             f'text-anchor="{_anchor(ox)}" fill="#355070">{optimum_label}</text>'
         )
 
-    # User marker — the dominant element. Draw last so it sits on top.
-    user_x = _x(value)
-    off_scale = value > range_max
-    user_label = f"you {value:.2f}"
-    if off_scale:
-        user_label = f"you {value:.2f} ▶"
-    user_marker = (
-        f'<line x1="{user_x:.1f}" y1="{bar_y - 8}" x2="{user_x:.1f}" '
-        f'y2="{bar_y + bar_h + 8}" stroke="#1f2024" stroke-width="2.5"/>'
-        f'<text x="{user_x:.1f}" y="68" font-size="10" '
-        f'text-anchor="{_anchor(user_x)}" fill="#1f2024" '
-        f'font-weight="600">{user_label}</text>'
-    )
+    # User marker — the dominant element. Draw last so it sits on top. When the
+    # axis has no data for the day (show_value=False, e.g. no git activity), the
+    # scale is drawn for context but no marker is placed: a 0-position marker
+    # would read as a perfect score rather than "not measured".
+    if show_value:
+        user_x = _x(value)
+        off_scale = value > range_max
+        user_label = f"you {value:.2f}"
+        if off_scale:
+            user_label = f"you {value:.2f} ▶"
+        user_marker = (
+            f'<line x1="{user_x:.1f}" y1="{bar_y - 8}" x2="{user_x:.1f}" '
+            f'y2="{bar_y + bar_h + 8}" stroke="#1f2024" stroke-width="2.5"/>'
+            f'<text x="{user_x:.1f}" y="68" font-size="10" '
+            f'text-anchor="{_anchor(user_x)}" fill="#1f2024" '
+            f'font-weight="600">{user_label}</text>'
+        )
+    else:
+        user_marker = (
+            f'<text x="{width / 2:.1f}" y="68" font-size="10" '
+            f'text-anchor="middle" fill="#8a8d96" font-style="italic">'
+            f'not measured this day</text>'
+        )
 
     return f"""
 <svg class="range-bar" viewBox="0 0 {width} 76" preserveAspectRatio="xMidYMid meet">
@@ -1034,12 +1046,13 @@ def _render_methodology(profile: StressProfile, stats: AggregateStats | None) ->
         (2) All axes are <em>taskload</em> (objective demand), not <em>workload</em>
         (subjective experience); correlation with felt overload is only moderate,
         and objective and subjective workload are known to dissociate.
-        (3) The Closure Deficit correlates real git commits/merges to the loops
-        opened each work window by repo + time overlap, but that correlation is
-        heuristic, not a guaranteed link; loops with no correlatable git
-        activity are excluded, so it measures closure only over loops git can
-        see, and with no git repos configured it falls back to a concurrency-
-        presence proxy.
+        (3) The Closure Deficit correlates the operator's own git
+        pushes/commits/merges to the loops opened each work window by repo +
+        author + time overlap, but that correlation is heuristic, not a
+        guaranteed link; days with no git activity of the operator's own are
+        omitted as data (not scored 0) and the composite renormalises over the
+        remaining axes. The axis has meaning only on git repositories — with
+        none configured it is omitted entirely.
         (4) Personal optimum and percentiles require &ge; 14 days of activity;
         fewer days renders as "calibrating".
       </p>

@@ -408,9 +408,18 @@ by the greedy repository-and-time match,
 \operatorname{clip}\!\Big(1 - \frac{k}{|\mathcal{C}|},\, 0,\, 1\Big),
 \quad (|\mathcal{C}|>0),
 \end{equation}
-and $0$ when no loop is correlatable. A day that opens many loops and closes few
-is exactly the demands-without-recoverable-resources pattern the JD-R model
-identifies with burnout~\cite{demerouti2001}.
+and \emph{undefined} when no loop is correlatable ($|\mathcal{C}|=0$). The
+Closure Deficit has meaning only on git repositories, so a day git cannot speak
+to---debugging, generic chat, or work in a repository the operator did not
+touch---is \emph{omitted as data}, not scored. The distinction is load-bearing:
+$0$ means ``you opened loops and closed them all'' (genuine perfect closure),
+whereas an omitted day means ``there was no git work to assess.'' Collapsing the
+second into a $0$ would credit a pure-debugging day with perfect closure and
+dilute its composite, so the two are kept distinct: the omitted day contributes
+to neither the axis nor any rollup average, and the composite renormalises over
+the axes that remain (\S\ref{sec:composite}). A day that opens many loops and
+closes few is exactly the demands-without-recoverable-resources pattern the JD-R
+model identifies with burnout~\cite{demerouti2001}.
 
 Crucially, this axis is built from per-session \emph{correlation} of opened and
 closed loops, not from the concurrency time-series $C(t)$, so it is independent
@@ -425,12 +434,15 @@ transcripts and commits carry none), so an own-authored commit may still be
 matched to a different \emph{own} same-repo session active in the same window
 (\S\ref{sec:threats}). The earlier all-author version had a far larger confound---a
 \emph{teammate's} commit closing the operator's loop in a shared repository---which
-author-scoping removes. When auto-discovery is disabled and no repository is
-configured, the implementation falls back to the legacy $C(t)>1$ presence proxy;
-otherwise the real signal is active by default.
+author-scoping removes. With no git repository configured at all the axis has no
+basis to exist, so it is omitted entirely (an earlier version fell back to a
+$C(t)>1$ concurrency-presence proxy here; that proxy was \emph{removed}---it was
+not a git signal and re-expressed concurrency the axis is meant to be orthogonal
+to).
 
-\subsection{Composite}
-Each axis is normalized to $[0,1]$ and blended with equal weights:
+\subsection{Composite}\label{sec:composite}
+Each available axis is normalized to $[0,1]$ and blended with equal weights. When
+the Closure Deficit is defined for the day, all three contribute:
 \begin{multline}
 \mathrm{Composite} = \frac{100}{3}\bigg(
 \min\!\Big(1,\tfrac{\overline{\mathrm{CODL}}}{5}\Big) +
@@ -438,6 +450,13 @@ Each axis is normalized to $[0,1]$ and blended with equal weights:
 +\ \mathrm{clip}(\mathrm{ClosureDeficit},0,1)
 \bigg).
 \end{multline}
+On a day with no git-correlatable activity the Closure Deficit is undefined
+(\S\ref{sec:closure}); the blend then \emph{drops} that axis and renormalises
+over the remaining two---its weight is redistributed to CODL and Interruption,
+not imputed as a perfect-closure $0$. So a heavy debugging or chat day is scored
+on the load and interruption it actually carried rather than discounted for
+closing loops it never opened. In general the composite is the weight-normalised
+mean over whichever axes are defined for the day.
 The CODL ceiling is set to $5$---one above Cowan's $\approx 4$ capacity limit---so a day operating \emph{at} the working-memory boundary scores $0.8$ (the warning band) rather than saturating the axis at $1.0$.
 Off-hours work then adds an \emph{additive} load to this base. Let $o$ be the
 day's off-hours \emph{engaged} minutes---one-minute instants outside $W$ during
@@ -696,7 +715,12 @@ constant, not calibrated. By \emph{design}, a loop is scored only when the
 operator's own \texttt{git} activity is visible in its repository that day: loops in
 repositories the operator did not touch are excluded rather than counted as
 unclosed, so the axis measures closure over observable loops and does not penalise
-investigation- or review-only sessions that were never meant to commit. This is
+investigation- or review-only sessions that were never meant to commit. Such a
+day is \emph{omitted as data}---the axis returns no value, not a $0$---so it
+enters neither the rollup averages nor the personal optimum, and the composite
+renormalises over the axes that remain rather than crediting the day with a
+perfect-closure $0$ (\S\ref{sec:composite}); an earlier version that scored these
+days as $0$ silently flattered closure and diluted their stress score. This is
 deliberately low-power: on our data $\approx 82\%$ of opened loops are dropped this
 way and the axis is silent on most days, the cost of refusing to speak without
 evidence. A day of genuine but \emph{uncommitted, unpushed} coding---work opened and

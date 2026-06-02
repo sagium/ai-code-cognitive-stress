@@ -180,7 +180,7 @@ def _build_closure_sources(sources, since: date, until: date) -> tuple[list, dic
 
     Returns ``([], {})`` when the union is empty (autodiscover off and no
     explicit repos, or no session ran inside a git repo) → the Closure Deficit
-    falls back to its legacy concurrency proxy. The cwd→root map (str→str) lets
+    is omitted entirely (every day yields None). The cwd→root map (str→str) lets
     the metrics layer attribute each stream's opened loops to its repo."""
     from datetime import datetime as _dt, time as _time, timezone as _tz
     from pathlib import Path as _Path
@@ -308,7 +308,7 @@ def main(argv: list[str] | None = None) -> int:
     # Resolve git closure/rework sources. By default `closure.autodiscover`
     # finds the repos the sessions ran in (from their recorded cwds) and unions
     # them with any explicit `closure.repos`; set autodiscover false with no
-    # explicit repos to fall back to the legacy proxy. Local git only.
+    # explicit repos to omit the Closure Deficit entirely. Local git only.
     # `repo_map` (cwd→repo-root) drives per-repo closure attribution in metrics.
     closure_sources, repo_map = _build_closure_sources(sources, since, until)
 

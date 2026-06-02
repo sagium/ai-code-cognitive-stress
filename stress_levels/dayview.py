@@ -109,18 +109,20 @@ AXES: tuple[AxisMeta, ...] = (
         name="Closure Deficit",
         description=(
             "Of the loops git can see you open, the share you never closed. "
-            "0 = every such loop got a commit, 1 = none landed. Sessions with "
-            "no correlatable git activity don't count. Lower is better."
+            "0 = every such loop got your push/commit, 1 = none landed. A day "
+            "with no git activity of your own is not scored at all (shown as —), "
+            "not counted as zero. Lower is better."
         ),
         range_max=CLOSURE_RANGE_MAX,
         zones=CLOSURE_ZONES,
         has_optimum=False,
         technique=(
             "1 − closed / correlatable, where a loop = a stream started in the "
-            "work window and it is closed by a git commit/merge in its repo "
-            "within the loop's active span + grace. Loops we can't correlate to "
-            "git (no tracked repo, or a repo with no commit that day) are "
-            "dropped. Per-session correlation — independent of the CODL shape."
+            "work window and it is closed by YOUR OWN git push/commit/merge in "
+            "its repo within the loop's active span + grace. Loops we can't "
+            "correlate to your git activity (no tracked repo, or a repo you "
+            "didn't touch that day) are dropped; a day with none is not scored. "
+            "Per-session correlation — independent of the CODL shape."
         ),
         basis=(
             "Demerouti et al. (2001) Job Demands-Resources; Masicampo & "
@@ -128,11 +130,12 @@ AXES: tuple[AxisMeta, ...] = (
             "Sonnentag & Fritz (2007) closure as recovery."
         ),
         caveat=(
-            "A commit is matched to a session by repo + time overlap, not a "
-            "guaranteed link. Sessions with no correlatable git activity are "
-            "excluded, so this measures closure only over loops git can see. "
-            "Without configured git repos it falls back to a concurrency-"
-            "presence proxy (work-hour share with CODL > 1)."
+            "A closure is matched to a session by repo + author + time overlap, "
+            "not a guaranteed link. Closures count only when you authored them "
+            "(or pushed them), so a shared repo's teammate/bot commits are "
+            "ignored. Days with no git activity of your own are omitted as data "
+            "(not scored 0), and the composite renormalises over the remaining "
+            "axes. The axis has meaning only on git repositories."
         ),
     ),
 )
@@ -152,6 +155,8 @@ def _axis_unit(key: str, m: DayMetrics) -> str:
         return f"avg · peak {m.codl_peak} streams"
     if key == "interruption":
         return "weighted events per work hour"
+    if m.closure_deficit is None:
+        return "no git activity to correlate — not scored"
     return f"{m.closure_deficit * 100:.0f}% of opened loops left unclosed"
 
 
@@ -181,6 +186,7 @@ class AxisTile:
     value_label: str
     unit_text: str
     range_max: float
+    has_data: bool      # False → axis had no data this day (e.g. no git activity)
     status: str
     zone_label: str
     color: str
@@ -240,7 +246,8 @@ def personal_baseline(profile: StressProfile, attr: str) -> float | None:
     Lifted verbatim from render.py so both UIs show the same 'typical day'."""
     values = sorted(
         getattr(m, attr) for m in profile.days.values()
-        if m.composite > 0 and getattr(m, attr, 0) > 0
+        if m.composite > 0
+        and getattr(m, attr, None) is not None and getattr(m, attr) > 0
     )
     if len(values) < 3:
         return None
@@ -263,16 +270,15 @@ def hour_counts(day: date, agg: DayAggregate | None, local_tz: tzinfo) -> list[i
     return counts
 
 
-def build_axis_tile(meta: AxisMeta, m: DayMetrics, profile: StressProfile) -> AxisTile:
-    value = _axis_value(meta.key, m)
-    status, zone_label = zone_for(value, meta.zones)
-    rmax = meta.range_max
-
-    # Zone segments + inner boundary ticks (same walk as the HTML range bar).
+def _zone_segments_and_ticks(
+    zones: list[tuple[float, str, str]], rmax: float,
+) -> tuple[list[Segment], list[Tick]]:
+    """Zone fill segments + inner boundary ticks for the range bar (same walk as
+    the HTML range bar). Shared by the scored and no-data tile paths."""
     segments: list[Segment] = []
     ticks: list[Tick] = []
     prev_upper = 0.0
-    for upper, status_class, _ in meta.zones:
+    for upper, status_class, _ in zones:
         capped = min(upper, rmax)
         if capped <= prev_upper:
             prev_upper = capped
@@ -286,6 +292,32 @@ def build_axis_tile(meta: AxisMeta, m: DayMetrics, profile: StressProfile) -> Ax
         prev_upper = capped
         if prev_upper >= rmax:
             break
+    return segments, ticks
+
+
+def build_axis_tile(meta: AxisMeta, m: DayMetrics, profile: StressProfile) -> AxisTile:
+    raw = _axis_value(meta.key, m)
+    rmax = meta.range_max
+    segments, ticks = _zone_segments_and_ticks(meta.zones, rmax)
+
+    # No-data axis (currently only Closure, when the day had no git-correlatable
+    # activity): render the empty scale with a neutral "not scored" state rather
+    # than a 0 that reads as a perfect score. The value is omitted as data.
+    if raw is None:
+        return AxisTile(
+            key=meta.key, name=meta.name, description=meta.description,
+            value=0.0, value_label="—", unit_text=_axis_unit(meta.key, m),
+            range_max=rmax, has_data=False, status="", zone_label="not scored",
+            color=zone_color(""), fraction=0.0, off_scale=False,
+            baseline=None, baseline_fraction=None, baseline_label="typical day",
+            optimum=None, optimum_fraction=None,
+            optimum_label="optimum" if meta.has_optimum else "",
+            segments=segments, boundary_ticks=ticks,
+            technique=meta.technique, basis=meta.basis, caveat=meta.caveat,
+        )
+
+    value = raw
+    status, zone_label = zone_for(value, meta.zones)
 
     baseline = personal_baseline(profile, {
         "codl": "codl_avg", "interruption": "interruption_rate",
@@ -304,7 +336,7 @@ def build_axis_tile(meta: AxisMeta, m: DayMetrics, profile: StressProfile) -> Ax
     return AxisTile(
         key=meta.key, name=meta.name, description=meta.description,
         value=value, value_label=f"{value:.2f}", unit_text=_axis_unit(meta.key, m),
-        range_max=rmax, status=status, zone_label=zone_label,
+        range_max=rmax, has_data=True, status=status, zone_label=zone_label,
         color=zone_color(status), fraction=_clamp01(value / rmax) if rmax else 0.0,
         off_scale=value > rmax,
         baseline=baseline, baseline_fraction=baseline_frac, baseline_label="typical day",
@@ -414,6 +446,7 @@ def dayview_to_dict(dv: DayView) -> dict:
                 "key": a.key, "name": a.name, "description": a.description,
                 "value": a.value, "value_label": a.value_label,
                 "unit_text": a.unit_text, "range_max": a.range_max,
+                "has_data": a.has_data,
                 "status": a.status, "zone_label": a.zone_label, "color": a.color,
                 "fraction": a.fraction, "off_scale": a.off_scale,
                 "baseline": a.baseline, "baseline_fraction": a.baseline_fraction,

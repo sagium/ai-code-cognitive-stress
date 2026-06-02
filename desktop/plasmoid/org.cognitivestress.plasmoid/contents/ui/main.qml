@@ -369,12 +369,22 @@ PlasmoidItem {
                                 }
                                 ctx.setLineDash([]);
 
-                                var ux = xAt(Math.min(1, m.fraction));
-                                ctx.strokeStyle = text; ctx.lineWidth = 2;
-                                ctx.beginPath(); ctx.moveTo(ux, barY - 7); ctx.lineTo(ux, barY + barH + 7); ctx.stroke();
-                                ctx.fillStyle = text; ctx.font = "bold 9px sans-serif";
-                                ctx.textBaseline = "top"; ctx.textAlign = anch(ux);
-                                ctx.fillText(i18n("you %1", m.value.toFixed(2)) + (m.off_scale ? " ▶" : ""), ux, youY);
+                                // No-data axis (e.g. Closure with no git activity that day):
+                                // draw the scale for context but no "you" marker — a 0-position
+                                // marker would read as a perfect score, not "not measured".
+                                if (m.has_data === false) {
+                                    ctx.fillStyle = Kirigami.Theme.disabledTextColor;
+                                    ctx.font = "italic 9px sans-serif";
+                                    ctx.textBaseline = "top"; ctx.textAlign = "center";
+                                    ctx.fillText(i18n("not measured this day"), width / 2, youY);
+                                } else {
+                                    var ux = xAt(Math.min(1, m.fraction));
+                                    ctx.strokeStyle = text; ctx.lineWidth = 2;
+                                    ctx.beginPath(); ctx.moveTo(ux, barY - 7); ctx.lineTo(ux, barY + barH + 7); ctx.stroke();
+                                    ctx.fillStyle = text; ctx.font = "bold 9px sans-serif";
+                                    ctx.textBaseline = "top"; ctx.textAlign = anch(ux);
+                                    ctx.fillText(i18n("you %1", m.value.toFixed(2)) + (m.off_scale ? " ▶" : ""), ux, youY);
+                                }
                             }
                         }
 

@@ -56,8 +56,8 @@ class ClosureConfig:
 
     ``repos`` is an explicit list of local git repo paths, always scanned and
     unioned with any auto-discovered roots. When the union is empty (e.g.
-    ``autodiscover`` off and no explicit repos), the Closure Deficit falls back
-    to the legacy concurrency-presence proxy.
+    ``autodiscover`` off and no explicit repos), the Closure Deficit is omitted
+    entirely (every day yields None) — the axis has meaning only on git repos.
 
     ``identities`` is the operator's own commit-author identities (emails and/or
     names) used to scope closures: only commits/merges by these authors count as
@@ -161,7 +161,7 @@ def _parse_scoring(raw: dict) -> ScoringConfig:
 def _parse_closure(raw: dict) -> ClosureConfig:
     """Parse the closure block. ``repos`` must be a list of strings (paths);
     ``autodiscover`` must be a bool (default True). Missing/empty repos with
-    autodiscover off → no closure source (falls back to the legacy proxy)."""
+    autodiscover off → no closure source (the Closure Deficit is omitted)."""
     repos = raw.get("repos", [])
     if repos in (None, ""):
         repos = []

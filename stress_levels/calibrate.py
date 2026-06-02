@@ -40,7 +40,7 @@ class DayRecord:
     weekday: str
     codl_avg: float
     interruption_rate: float
-    closure_deficit: float
+    closure_deficit: float | None  # None → day had no git-correlatable activity
     composite: float
     off_hours_minutes: float
     work_start: int | None = None
@@ -106,7 +106,10 @@ def pool_day_records(exports: list[dict]) -> list[DayRecord]:
                 weekday=d.get("weekday", ""),
                 codl_avg=float(d.get("codl_avg", 0.0)),
                 interruption_rate=float(d.get("interruption_rate", 0.0)),
-                closure_deficit=float(d.get("closure_deficit", 0.0)),
+                closure_deficit=(
+                    float(d["closure_deficit"])
+                    if d.get("closure_deficit") is not None else None
+                ),
                 composite=float(d.get("composite", 0.0)),
                 off_hours_minutes=float(d.get("off_hours_minutes", 0.0)),
                 work_start=_hour(ww[0]),
@@ -173,7 +176,9 @@ def calibrate(
     """Crunch pooled day records into calibration suggestions + descriptives."""
     codl = [r.codl_avg for r in records]
     interr = [r.interruption_rate for r in records]
-    closure = [r.closure_deficit for r in records]
+    # Closure is None on days with no git-correlatable activity (omitted as
+    # data). Closure-specific stats run over only the days that HAVE closure.
+    closure = [r.closure_deficit for r in records if r.closure_deficit is not None]
     composite = [r.composite for r in records]
     off_hours = [r.off_hours_minutes for r in records]
 
@@ -191,10 +196,22 @@ def calibrate(
     codl_n = [min(1.0, v / sugg_codl_ceiling) for v in codl]
     int_n = [min(1.0, v / sugg_int_ceiling) for v in interr]
     clo_n = [max(0.0, min(1.0, v)) for v in closure]
+    # Correlations with closure need axis values PAIRED on the same day, so they
+    # use only the days that have closure data (clo_n's length differs from the
+    # full codl_n/int_n otherwise).
+    paired = [
+        (min(1.0, r.codl_avg / sugg_codl_ceiling),
+         min(1.0, r.interruption_rate / sugg_int_ceiling),
+         max(0.0, min(1.0, r.closure_deficit)))
+        for r in records if r.closure_deficit is not None
+    ]
+    codl_cp = [p[0] for p in paired]
+    int_cp = [p[1] for p in paired]
+    clo_cp = [p[2] for p in paired]
     stdevs = {
         "codl": round(_stdev(codl_n), 4),
         "interruption": round(_stdev(int_n), 4),
-        "closure": round(_stdev(clo_n), 4),
+        "closure": round(_stdev(clo_n), 4) if clo_n else 0.0,
     }
     inv = [1.0 / s if s > 0 else 0.0 for s in (stdevs["codl"], stdevs["interruption"], stdevs["closure"])]
     total_inv = sum(inv)
@@ -204,8 +221,8 @@ def calibrate(
         sugg_weights = [round(1 / 3, 4)] * 3
     correlations = {
         "codl_interruption": _corr(codl_n, int_n),
-        "codl_closure": _corr(codl_n, clo_n),
-        "interruption_closure": _corr(int_n, clo_n),
+        "codl_closure": _corr(codl_cp, clo_cp),
+        "interruption_closure": _corr(int_cp, clo_cp),
     }
 
     # 3. Work-pattern coverage.

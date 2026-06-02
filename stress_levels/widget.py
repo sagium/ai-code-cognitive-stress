@@ -411,10 +411,17 @@ def _draw_range_bar(tk, parent, tile: AxisTile) -> None:  # pragma: no cover —
             c.create_text(ox, optimum_label_y, text=tile.optimum_label, anchor=anchor_at(ox),
                           fill=PALETTE["accent"], font=("TkDefaultFont", 7))
 
-        ux = x_at(min(1.0, tile.fraction))
-        label = f"you {tile.value:.2f}" + (" ▶" if tile.off_scale else "")
-        c.create_line(ux, bar_y - 8, ux, bar_y + bar_h + 8, fill=PALETTE["ink"], width=2)
-        c.create_text(ux, you_y, text=label, anchor=anchor_at(ux),
-                      fill=PALETTE["ink"], font=("TkDefaultFont", 8, "bold"))
+        # No-data axis (e.g. Closure on a day with no git activity): draw the
+        # scale for context but no "you" marker — a 0-position marker would read
+        # as a perfect score rather than "not measured".
+        if tile.has_data:
+            ux = x_at(min(1.0, tile.fraction))
+            label = f"you {tile.value:.2f}" + (" ▶" if tile.off_scale else "")
+            c.create_line(ux, bar_y - 8, ux, bar_y + bar_h + 8, fill=PALETTE["ink"], width=2)
+            c.create_text(ux, you_y, text=label, anchor=anchor_at(ux),
+                          fill=PALETTE["ink"], font=("TkDefaultFont", 8, "bold"))
+        else:
+            c.create_text(W / 2, you_y, text="not measured this day",
+                          fill=PALETTE["ink_faint"], font=("TkDefaultFont", 8, "italic"))
 
     c.bind("<Configure>", lambda e: redraw(e.width))

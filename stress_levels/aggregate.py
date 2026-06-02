@@ -211,11 +211,12 @@ class DayAggregate:
     from a sequence of DayAggregates without re-parsing source events.
 
     `closure_events` holds the day's real "loop closed" markers (git
-    commits/merges) from any configured ClosureEventSource. Its tri-state is
+    push/commit/merge) from any configured ClosureEventSource. Its tri-state is
     load-bearing for the Closure Deficit:
       * ``None``  — no closure source was wired this run (the default; the
-                    user hasn't opted in with repos). The metrics layer falls
-                    back to the legacy concurrency-presence proxy.
+                    user hasn't opted in with repos). The Closure Deficit is
+                    omitted (the metrics layer returns None) — the axis has
+                    meaning only on git repos.
       * ``()``    — a closure source ran but emitted nothing on this day.
       * non-empty — real closures to net against the day's opened loops.
     """
@@ -295,11 +296,11 @@ def get_day_aggregates(
 
     `closure_sources` is an optional list of ClosureEventSource plugins
     (e.g. GitRepoClosureSource). When supplied, each day's real closure
-    events (commits/merges) are folded into its DayAggregate so the metrics
-    layer can compute the Closure Deficit as opened-vs-closed loops rather
-    than the legacy concurrency-presence proxy. When omitted (the default),
-    `DayAggregate.closure_events` stays ``None`` and the metric falls back
-    to the proxy — preserving prior behaviour for callers that don't opt in.
+    events (push/commit/merge) are folded into its DayAggregate so the metrics
+    layer can compute the Closure Deficit as opened-vs-closed loops. When
+    omitted (the default), `DayAggregate.closure_events` stays ``None`` and the
+    Closure Deficit is omitted entirely (None) — the axis has meaning only on
+    git repos.
 
     Caching note: closure data participates in the per-day cache. Its
     fingerprint (the set of configured closure-source identities) is folded
@@ -440,11 +441,11 @@ def _aggregate_events(
 ) -> DayAggregate:
     """Reduce a day's events into a DayAggregate. Pure — no I/O.
 
-    `closures` is the day's real closure events (commits/merges). ``None``
+    `closures` is the day's real closure events (push/commit/merge). ``None``
     means no closure source was wired this run (distinct from an empty list,
     which means a source ran but emitted nothing on `day`); the distinction
     is preserved into `DayAggregate.closure_events` and drives whether the
-    metrics layer uses the real signal or the legacy proxy.
+    metrics layer computes the real signal or omits the Closure Deficit (None).
     """
     closure_tuple = (
         tuple(sorted(closures, key=lambda c: c.ts))

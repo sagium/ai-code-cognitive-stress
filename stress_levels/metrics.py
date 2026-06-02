@@ -12,21 +12,21 @@ Three axes (per day, computed during work hours only):
                       Mark, Gonzalez & Harris (2005).
     Closure Deficit   share of the day's git-correlatable opened loops left
                       unclosed: clip(1 - closed / correlatable, 0, 1). A loop
-                      (stream started in the work window) is closed by a commit
-                      in its repo within the loop's active span + grace; loops
-                      we can't correlate to git (no tracked repo, or a repo with
-                      no commit that day) are dropped. An unclosed loop keeps
+                      (stream started in the work window) is closed by the
+                      operator's OWN push/commit/merge in its repo within the
+                      loop's active span + grace; loops we can't correlate to the
+                      operator's git activity (no tracked repo, or a repo they
+                      didn't touch that day) are dropped. An unclosed loop keeps
                       consuming the
                       cognitive resource (Masicampo & Baumeister 2011;
                       Leroy 2009); closure is itself a recovery resource
                       (Sonnentag & Fritz 2007) and demands without recoverable
                       resources are the JD-R burnout mechanism (Demerouti et
                       al. 2001). Independent of the concurrency shape C(t) by
-                      construction. When no closure source is wired (the
-                      default), it falls back to the legacy concurrency-
-                      presence proxy (fraction of work-hour samples with
-                      C(t) > 1) so behaviour is unchanged until the user opts
-                      in with repos.
+                      construction. The axis has meaning ONLY on git repos: a day
+                      with no git-correlatable activity (and the no-closure-source
+                      case) yields None — omitted as data, not scored 0 — and the
+                      composite renormalises over the remaining axes.
 
 Composite stress = equal-weighted blend of the three axes mapped to 0..100.
 Equal weights are the null hypothesis for v1; we don't have evidence to favor
@@ -214,8 +214,9 @@ class DayMetrics:
     codl_peak: int = 0               # peak headcount of sessions alive at once
     codl_peak_active: float = 0.0    # peak engagement-weighted load (drives fan-out rec)
     interruption_rate: float = 0.0   # per work hour
-    closure_deficit: float = 0.0     # 0..1 (unclosed share of opened loops;
-                                     # legacy C(t)>1 proxy when no closure src)
+    closure_deficit: float | None = None  # 0..1 unclosed share of opened loops,
+                                     # or None when the day has no git-correlatable
+                                     # activity (omitted as data, NOT scored as 0)
     off_hours_minutes: int = 0       # engaged minutes outside the work window
                                      # (interaction-anchored, not stream liveness)
     composite: float = 0.0           # 0..100
@@ -428,12 +429,12 @@ def per_day_metrics(
         codl_peak = 0
         codl_peak_active = 0.0
 
-    # Closure Deficit: share of opened loops left unclosed, using real
-    # closure events when a closure source is wired; else the legacy
-    # concurrency-presence proxy. Independent of the C(t) shape (it nets
-    # loop-open COUNTS against closure COUNTS).
+    # Closure Deficit: share of the operator's git-correlatable opened loops
+    # left unclosed, or None when the day has no git-correlatable activity
+    # (omitted as data — the axis has meaning only on git repos). Independent of
+    # the C(t) shape (it nets loop-open COUNTS against closure COUNTS).
     closure_deficit = _closure_deficit(
-        agg, window_start_utc, window_end_utc, weighted, repo_map,
+        agg, window_start_utc, window_end_utc, repo_map,
     )
 
     cross_starts = _count_cross_stream_starts(
@@ -485,7 +486,9 @@ def per_day_metrics(
         codl_peak=codl_peak,
         codl_peak_active=round(codl_peak_active, 3),
         interruption_rate=round(interruption_rate, 3),
-        closure_deficit=round(closure_deficit, 3),
+        closure_deficit=(
+            round(closure_deficit, 3) if closure_deficit is not None else None
+        ),
         off_hours_minutes=off_hours_minutes,
         composite=round(composite, 1),
         work_window_local=(work_window.start, work_window.end),
@@ -608,45 +611,51 @@ def _closure_deficit(
     agg: DayAggregate,
     window_start_utc: datetime,
     window_end_utc: datetime,
-    weighted_samples: list[float],
     repo_map: dict[str, str] | None = None,
     grace_seconds: int = CLOSURE_CORRELATION_GRACE_MINUTES * 60,
-) -> float:
-    """Share of the day's git-correlatable opened loops left unclosed, in [0, 1].
+) -> float | None:
+    """Share of the day's git-correlatable opened loops left unclosed, in [0, 1],
+    or ``None`` when the day has no git-correlatable activity at all.
 
-    Only CLOSURE-kind events (commits/merges) close loops here; REWORK-kind
+    The Closure Deficit has meaning ONLY on git repositories, so a day git can't
+    speak to yields ``None`` — *omitted as data*, never scored as ``0.0``. The
+    distinction is load-bearing: ``0.0`` means "you opened loops and closed them
+    all" (genuine perfect closure), whereas ``None`` means "there was no git work
+    to assess". Collapsing the second into the first would credit a pure
+    debugging or generic-chat day with perfect closure and dilute its composite.
+    Callers must treat ``None`` as no-data (the composite renormalises over the
+    remaining axes; rollups and the personal optimum skip it).
+
+    Only CLOSURE-kind events (push/commit/merge) close loops here; REWORK-kind
     events (amend/rebase/reset/…) are routed to the Interruption axis instead.
 
-    Real-signal path (`agg.closure_events` is not None): each opened loop (a
-    stream started in the work window) is correlated to a commit in the SAME
-    repo whose timestamp falls within the loop's active span plus a grace tail
-    (see ``_closure_correlation``). Loops we cannot correlate to git activity
-    (no resolvable repo, or a repo with no commit that day) are dropped from
-    both numerator and denominator; commits that correlate to no loop are
-    ignored. deficit = ``clip(1 - closed / correlatable, 0, 1)`` for
-    ``correlatable > 0`` else 0.
+    Each opened loop (a stream started in the work window) is correlated to one
+    of the operator's own closures in the SAME repo whose timestamp falls within
+    the loop's active span plus a grace tail (see ``_closure_correlation``).
+    Loops we cannot correlate to the operator's git activity (no resolvable repo,
+    or a repo the operator didn't touch that day) are dropped from both numerator
+    and denominator; closures that correlate to no loop are ignored.
+
+      * ``correlatable > 0`` → ``clip(1 - closed / correlatable, 0, 1)``.
+      * ``correlatable == 0`` (no git loops to speak of) → ``None``.
+      * no closure source wired at all (``agg.closure_events is None``) → ``None``;
+        the Closure Deficit simply does not exist without git (the former
+        ``C(t)>1`` concurrency proxy was removed — it was not a git signal).
 
     Built from per-session *correlation*, so it carries information the
     concurrency time-series C(t) does not: two days with identical concurrency
-    shapes score differently if one committed its loops and the other left them
+    shapes score differently if one closed its loops and the other left them
     open.
-
-    Fallback path (`agg.closure_events is None`, the default when no closure
-    source is wired): the legacy concurrency-presence proxy — the fraction of
-    work-hour samples with weighted concurrency C(t) > 1. Byte-for-byte the
-    pre-closure behaviour.
     """
-    # No closure source wired → legacy proxy (preserves prior behaviour).
+    # No git closure source wired → the axis has no basis to exist. Omit as data.
     if agg.closure_events is None:
-        if not weighted_samples:
-            return 0.0
-        return sum(1 for w in weighted_samples if w > 1.0) / len(weighted_samples)
+        return None
 
     closed, correlatable = _closure_correlation(
         agg, window_start_utc, window_end_utc, repo_map, grace_seconds,
     )
     if correlatable <= 0:
-        return 0.0
+        return None
     return max(0.0, min(1.0, 1.0 - closed / correlatable))
 
 
@@ -738,21 +747,31 @@ def _closure_correlation(
 def _composite_score(
     codl_avg: float,
     interruption_rate: float,
-    closure_deficit: float,
+    closure_deficit: float | None,
     codl_ceiling: float = CODL_NORMALISATION_CEILING,
     interruption_ceiling: float = INTERRUPTION_NORMALISATION_CEILING,
     weights: tuple[float, float, float] = COMPOSITE_WEIGHTS,
 ) -> float:
-    """Weighted blend of the three axes, mapped to 0..100. Each axis is
+    """Weighted blend of the available axes, mapped to 0..100. Each axis is
     clamped to [0, 1] before weighting; weights are normalized by their sum, so
-    a calibrated weight vector that doesn't sum to 1 still yields a 0..100
-    score."""
+    a calibrated weight vector that doesn't sum to 1 still yields a 0..100 score.
+
+    When ``closure_deficit is None`` the Closure axis has no data for the day
+    (no git-correlatable activity), so it is dropped and the blend renormalises
+    over the remaining axes — i.e. its weight is redistributed to CODL and
+    Interruption rather than imputed as a perfect-closure 0. A heavy
+    debugging/chat day is then scored on the load and interruption it actually
+    carried, not discounted for closing loops it never opened."""
     codl_norm = min(1.0, codl_avg / codl_ceiling)
     int_norm = min(1.0, interruption_rate / interruption_ceiling)
-    closure_norm = max(0.0, min(1.0, closure_deficit))
     w_codl, w_int, w_clo = weights
-    w_total = w_codl + w_int + w_clo
-    blend = (w_codl * codl_norm + w_int * int_norm + w_clo * closure_norm) / w_total
+    terms = [(w_codl, codl_norm), (w_int, int_norm)]
+    if closure_deficit is not None:
+        terms.append((w_clo, max(0.0, min(1.0, closure_deficit))))
+    w_total = sum(w for w, _ in terms)
+    if w_total <= 0:
+        return 0.0
+    blend = sum(w * v for w, v in terms) / w_total
     return 100.0 * blend
 
 
@@ -976,10 +995,16 @@ def derive_personal_optimum(
         # Need at least 2 days in a bucket to trust the average.
         if len(metrics) < 2:
             continue
-        avg_closure = sum(m.closure_deficit for m in metrics) / len(metrics)
+        # Average closure over only the days that HAVE closure data — None
+        # (no git-correlatable activity) is omitted, not treated as 0. A bucket
+        # with no closure evidence at all contributes a neutral closure factor
+        # so the band is judged on off-hours alone rather than rewarded for the
+        # absence of git work.
+        clo_vals = [m.closure_deficit for m in metrics if m.closure_deficit is not None]
+        closure_factor = (1.0 - sum(clo_vals) / len(clo_vals)) if clo_vals else 1.0
         avg_off = sum(m.off_hours_minutes for m in metrics) / len(metrics)
         # Higher is better — low closure-deficit AND low off-hours interaction.
-        score = (1.0 - avg_closure) / (1.0 + avg_off / 60.0)
+        score = closure_factor / (1.0 + avg_off / 60.0)
         if score > best_score:
             best_score = score
             best_midpoint = (idx + 0.5) * bucket_width

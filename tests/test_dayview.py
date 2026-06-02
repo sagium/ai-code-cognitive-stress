@@ -89,6 +89,21 @@ def test_off_scale_value_clamps_and_flags():
     assert t.fraction == 1.0
 
 
+def test_closure_tile_no_git_activity_is_not_scored():
+    """A day with no git-correlatable closure (closure_deficit is None) renders
+    the Closure tile as 'not scored' (—) with no value marker — never as a 0
+    that would read as perfect closure. The zone scale is still drawn."""
+    m = DayMetrics(day=date(2026, 5, 29), codl_avg=2.0,
+                   closure_deficit=None, composite=20.0)
+    t = build_axis_tile(AXES[2], m, _profile())  # AXES[2] = Closure
+    assert t.has_data is False
+    assert t.value_label == "—"
+    assert t.fraction == 0.0 and t.off_scale is False
+    assert t.baseline is None and t.optimum is None
+    assert "no git activity" in t.unit_text
+    assert t.segments  # the empty scale is still drawn for context
+
+
 # --- personal baseline ------------------------------------------------------
 
 def test_personal_baseline_needs_three_samples():

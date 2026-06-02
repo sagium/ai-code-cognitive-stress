@@ -47,10 +47,10 @@ INTERRUPTION_ZONES = [
     (999.0, "high", "Heavily fragmented"),
 ]
 CLOSURE_ZONES = [
-    (0.20, "good", "Most of the day single-stream"),
-    (0.45, "moderate", "Mixed solo / parallel"),
-    (0.70, "caution", "Mostly juggling multiple streams"),
-    (1.01, "high", "Almost always in parallel"),
+    (0.20, "good", "Most opened loops closed"),
+    (0.45, "moderate", "Some loops left open"),
+    (0.70, "caution", "Many loops left unclosed"),
+    (1.01, "high", "Most loops left unclosed"),
 ]
 
 # Range-bar maxima per axis. CODL's ceiling is the metric's normalisation
