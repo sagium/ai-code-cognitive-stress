@@ -78,22 +78,32 @@ class SessionSource(Protocol):
 class ClosureEvent:
     """A git/VCS marker the metrics layer routes by ``kind``:
 
-    * Closure kinds — a loop was closed. ``commit``, ``merge``, ``pr_merge``,
-      ``mr_merge``, ``issue_close``. These net against the day's opened loops
-      to compute the Closure Deficit as a real signal, not a load proxy.
+    * Closure kinds — a loop was closed. ``push``, ``commit``, ``merge``,
+      ``pr_merge``, ``mr_merge``, ``issue_close``. These net against the day's
+      opened loops to compute the Closure Deficit as a real signal, not a load
+      proxy. ``push`` is the strongest: it means the work left the machine, and
+      it is *inherently the operator's own* — only the local user's pushes write
+      ``update by push`` to this clone's remote-tracking reflog, so a server-side
+      bot merge never forges one.
     * Rework kinds — history was rewritten; the loop was reopened or churned.
       ``amend``, ``squash``, ``rebase``, ``reset``, ``revert``, ``cherry_pick``.
       These raise the Interruption axis (self-interruption / attention
       residue), not the Closure axis.
 
-    Sourced locally: closure kinds from ``git log``, rework kinds from
-    ``git reflog`` (the only place history-rewrite operations are recorded)."""
+    Sourced locally: ``commit``/``merge`` from ``git log`` (scoped to the
+    operator's own identities so a shared monorepo's teammate/bot commits don't
+    spuriously close the operator's loops), ``push`` and the rework kinds from
+    ``git reflog`` (the only place pushes and history-rewrite operations are
+    recorded). ``author`` carries the commit author email for commit/merge
+    events; it is None for push/rework, which are self-scoped by where the
+    reflog physically lives (this clone)."""
 
     ts: datetime           # UTC
     kind: str              # see class docstring for the closure/rework split
     repo: str              # stable repo-root key (resolved abs path)
     branch: str | None = None
     title: str | None = None
+    author: str | None = None  # commit author email (commit/merge); None otherwise
 
 
 @runtime_checkable

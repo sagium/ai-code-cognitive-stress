@@ -65,17 +65,31 @@ def _parse_git_iso(ts_raw: str) -> datetime | None:
 
 
 class GitRepoClosureSource:
-    """Closure-event source backed by `git log`.
+    """Closure-event source backed by local `git log` + `git reflog`.
 
     `repos`: list of git repo paths to scan. If None, no events are
     emitted (the user has to opt in explicitly — we don't walk the disk
     looking for repos automatically).
+
+    `identities`: the operator's own author identities (emails and/or names).
+    Commit/merge events are emitted only when the commit's author matches one of
+    them, so a shared-monorepo's teammate and merge-bot commits do NOT count as
+    the operator's closures. When None/empty, identity scoping is off and every
+    author's commits are emitted (legacy behaviour — only sane on solo repos).
+    Pushes and rework are unaffected: they are read from this clone's own reflog
+    and are self-scoped by construction regardless of `identities`.
     """
 
     name = "git"
 
-    def __init__(self, repos: Iterable[Path] | None = None) -> None:
+    def __init__(
+        self,
+        repos: Iterable[Path] | None = None,
+        identities: Iterable[str] | None = None,
+    ) -> None:
         self.repos = [Path(r) for r in repos] if repos else []
+        # Lower-cased for case-insensitive author matching.
+        self.identities = {i.lower() for i in identities if i} if identities else set()
 
     def is_available(self) -> bool:
         if not self.repos:
@@ -115,9 +129,10 @@ class GitRepoClosureSource:
             repo_key = str(repo.resolve())
         except OSError:
             repo_key = str(repo)
-        # The log pass bumps files_scanned/kept; the reflog pass shares the same
-        # repo and only emits events, so file-level stats aren't double-counted.
+        # The log pass bumps files_scanned/kept; the reflog passes share the same
+        # repo and only emit events, so file-level stats aren't double-counted.
         yield from self._collect_log(repo, repo_key, since, until, stats)
+        yield from self._collect_pushes(repo, repo_key, since, until, stats)
         yield from self._collect_reflog(repo, repo_key, since, until, stats)
 
     def _collect_log(
@@ -128,9 +143,13 @@ class GitRepoClosureSource:
         until: datetime,
         stats: IngestStats,
     ) -> Iterator[ClosureEvent]:
-        # Format: ISO timestamp \x1f branch-or-empty \x1f subject
-        # %cI = committer-date ISO 8601 strict, %D = ref names, %s = subject
-        fmt = "%cI%x1f%D%x1f%s"
+        # Format: ISO timestamp \x1f branch-or-empty \x1f author-email \x1f
+        #         author-name \x1f subject
+        # %cI = committer-date ISO 8601 strict, %D = ref names, %ae/%an =
+        # author email/name, %s = subject. Author is captured so we can scope
+        # closures to the operator's own identities (see __init__): in a shared
+        # monorepo, teammate and merge-bot commits must not close our loops.
+        fmt = "%cI%x1f%D%x1f%ae%x1f%an%x1f%s"
         since_arg = since.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S+00:00")
         until_arg = until.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S+00:00")
         cmd = [
@@ -152,10 +171,10 @@ class GitRepoClosureSource:
         for line in result.stdout.splitlines():
             stats.lines_total += 1
             parts = line.split("\x1f")
-            if len(parts) < 3:
+            if len(parts) < 5:
                 stats.lines_skipped_malformed += 1
                 continue
-            ts_raw, refs, subject = parts[0], parts[1], parts[2]
+            ts_raw, refs, email, name, subject = parts[:5]
             ts = _parse_git_iso(ts_raw)
             if ts is None:
                 stats.lines_skipped_no_timestamp += 1
@@ -163,16 +182,95 @@ class GitRepoClosureSource:
             stats.lines_decoded += 1
             if not (since <= ts <= until):
                 continue
+            # Identity scoping: drop commits not authored by the operator. A
+            # teammate's or merge-bot's commit in a shared repo is real git
+            # activity but is NOT the operator closing their own loop. Match on
+            # either author email or author name (case-insensitive), since the
+            # operator may commit under multiple accounts.
+            if self.identities and not (
+                email.lower() in self.identities
+                or name.lower() in self.identities
+            ):
+                continue
             stats.events_emitted += 1
             kept_any = True
             branch = _branch_from_refs(refs)
             kind = "merge" if subject.lower().startswith("merge ") else "commit"
             yield ClosureEvent(
                 ts=ts, kind=kind, repo=repo_key,
-                branch=branch, title=subject,
+                branch=branch, title=subject, author=email or None,
             )
         if kept_any:
             stats.files_kept += 1
+
+    def _collect_pushes(
+        self,
+        repo: Path,
+        repo_key: str,
+        since: datetime,
+        until: datetime,
+        stats: IngestStats,
+    ) -> Iterator[ClosureEvent]:
+        """Emit ``push`` closure events from this clone's remote-tracking
+        reflogs. A `git push` writes an ``update by push`` entry to the reflog
+        of the pushed ``refs/remotes/<remote>/<branch>`` ref; a `git fetch`/
+        `pull` writes ``fetch``/``pull`` instead, so filtering on the push
+        subject isolates the operator's own outbound shipments.
+
+        Inherently self-scoped: only pushes performed FROM this clone land here,
+        so no identity filter is needed (a server-side merge bot never writes to
+        our local reflog). Note this signal is lossy in MR workflows — when a
+        merged feature branch is pruned (``fetch --prune``), its remote-tracking
+        ref and reflog go with it — so own-authored commits remain the primary
+        denominator and push is the strongest signal *where it survives*.
+
+        One push reflects onto several remote-tracking refs at once — the branch
+        ref (``origin/main``) and the remote-HEAD pseudo-ref (``origin``) both get
+        an identical ``update by push`` entry at the same instant — so we dedupe
+        by timestamp to count one push per shipment, not one per touched ref.
+
+        Parse failures are silent: the reflog is git-internal, not session data,
+        so we don't pollute the ingest malformed/no-timestamp counters."""
+        fmt = "%gd%x1f%gs"
+        cmd = [
+            "git", "-C", str(repo), "reflog",
+            "--date=iso-strict",
+            f"--format={fmt}",
+            "--glob=refs/remotes/*",
+        ]
+        try:
+            result = subprocess.run(
+                cmd, capture_output=True, text=True,
+                timeout=30, check=False,
+            )
+        except (subprocess.SubprocessError, OSError):
+            return
+        if result.returncode != 0:
+            return
+        seen: set[datetime] = set()
+        for line in result.stdout.splitlines():
+            parts = line.split("\x1f")
+            if len(parts) < 2:
+                continue
+            selector, subject = parts[0], parts[1]
+            if "update by push" not in subject.lower():
+                continue
+            m = _REFLOG_SELECTOR_RE.search(selector)
+            if not m:
+                continue
+            ts = _parse_git_iso(m.group("ts"))
+            if ts is None:
+                continue
+            if not (since <= ts <= until):
+                continue
+            if ts in seen:  # same push reflected onto another remote-tracking ref
+                continue
+            seen.add(ts)
+            stats.events_emitted += 1
+            yield ClosureEvent(
+                ts=ts, kind="push", repo=repo_key,
+                branch=None, title=subject.strip(),
+            )
 
     def _collect_reflog(
         self,

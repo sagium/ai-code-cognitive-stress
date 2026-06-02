@@ -416,10 +416,17 @@ def _closure_fingerprint(closure_sources) -> str:
     for cs in closure_sources:
         name = getattr(cs, "name", cs.__class__.__name__)
         repos = getattr(cs, "repos", None)
+        # Identity scoping changes which commits become closures, so fold the
+        # operator identity set into the fingerprint: switching scope (or adding
+        # an account) invalidates stale all-author cache entries automatically.
+        ids = getattr(cs, "identities", None)
+        id_sig = "#" + ",".join(sorted(ids)) if ids else ""
         if repos:
-            parts.append(f"{name}:" + ",".join(sorted(str(r) for r in repos)))
+            parts.append(
+                f"{name}:" + ",".join(sorted(str(r) for r in repos)) + id_sig
+            )
         else:
-            parts.append(str(name))
+            parts.append(str(name) + id_sig)
     return "|".join(sorted(parts))
 
 
@@ -688,6 +695,7 @@ def _aggregate_to_dict(a: DayAggregate) -> dict:
                 "repo": c.repo,
                 "branch": c.branch,
                 "title": c.title,
+                "author": c.author,
             }
             for c in a.closure_events
         ]
@@ -723,6 +731,7 @@ def _aggregate_from_dict(d: dict) -> DayAggregate:
                 repo=c["repo"],
                 branch=c.get("branch"),
                 title=c.get("title"),
+                author=c.get("author"),
             )
             for c in raw_closures
         )

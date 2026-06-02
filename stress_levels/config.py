@@ -57,9 +57,19 @@ class ClosureConfig:
     ``repos`` is an explicit list of local git repo paths, always scanned and
     unioned with any auto-discovered roots. When the union is empty (e.g.
     ``autodiscover`` off and no explicit repos), the Closure Deficit falls back
-    to the legacy concurrency-presence proxy."""
+    to the legacy concurrency-presence proxy.
+
+    ``identities`` is the operator's own commit-author identities (emails and/or
+    names) used to scope closures: only commits/merges by these authors count as
+    the operator closing a loop, so a shared monorepo's teammate and merge-bot
+    commits don't spuriously close it. When empty (the default) the identities
+    are auto-discovered from local git config (global + each scanned repo's
+    ``user.email``/``user.name``), which already handles an operator who commits
+    under multiple accounts. Set explicitly only to add identities no local git
+    config records. Pushes are self-scoped by their reflog and ignore this."""
     repos: tuple[str, ...] = ()
     autodiscover: bool = True
+    identities: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -164,7 +174,20 @@ def _parse_closure(raw: dict) -> ClosureConfig:
         raise ValueError(
             f"closure.autodiscover must be a boolean, got {autodiscover!r}"
         )
-    return ClosureConfig(repos=tuple(repos), autodiscover=autodiscover)
+    identities = raw.get("identities", [])
+    if identities in (None, ""):
+        identities = []
+    if not isinstance(identities, list) or not all(
+        isinstance(i, str) for i in identities
+    ):
+        raise ValueError(
+            f"closure.identities must be a list of strings, got {identities!r}"
+        )
+    return ClosureConfig(
+        repos=tuple(repos),
+        autodiscover=autodiscover,
+        identities=tuple(identities),
+    )
 
 
 def _parse_codl(raw: dict) -> CodlConfig:

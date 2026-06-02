@@ -454,12 +454,13 @@ def test_git_closure_parses_crafted_log_branches(tmp_path, monkeypatch):
     repo = tmp_path / "repo"
     (repo / ".git").mkdir(parents=True)
     SEP = "\x1f"
+    # Format: ts | refs | author-email | author-name | subject
     lines = [
-        "malformed-no-separators",                       # < 3 fields → malformed
-        f"not-a-timestamp{SEP}{SEP}bad ts",              # unparseable ts → skipped
-        f"2020-01-01T00:00:00+00:00{SEP}{SEP}too old",   # outside window → dropped
-        f"2026-05-15T10:00:00Z{SEP}HEAD -> main{SEP}fix the bug",
-        f"2026-05-15T11:00:00Z{SEP}{SEP}Merge branch 'x'",
+        "malformed-no-separators",                                     # <5 → malformed
+        f"not-a-timestamp{SEP}{SEP}t@e.com{SEP}T{SEP}bad ts",          # bad ts → skipped
+        f"2020-01-01T00:00:00+00:00{SEP}{SEP}t@e.com{SEP}T{SEP}old",   # outside window
+        f"2026-05-15T10:00:00Z{SEP}HEAD -> main{SEP}t@e.com{SEP}T{SEP}fix the bug",
+        f"2026-05-15T11:00:00Z{SEP}{SEP}t@e.com{SEP}T{SEP}Merge branch 'x'",
     ]
 
     class _Fake:
@@ -475,8 +476,73 @@ def test_git_closure_parses_crafted_log_branches(tmp_path, monkeypatch):
     assert ("commit", "main") in kinds
     assert ("merge", None) in kinds
     assert len(items) == 2
+    assert all(e.author == "t@e.com" for e in items)  # author captured
     assert stats.lines_skipped_malformed == 1
     assert stats.lines_skipped_no_timestamp == 1
+
+
+def test_git_closure_identity_scoping_drops_foreign_authors(tmp_path, monkeypatch):
+    """With an identity set, only the operator's own commits become closures;
+    a teammate's and a merge-bot's commits in the same repo are dropped. Matches
+    on either author email or name, case-insensitively."""
+    from stress_levels.sources import git_closure
+    repo = tmp_path / "repo"
+    (repo / ".git").mkdir(parents=True)
+    SEP = "\x1f"
+    lines = [
+        f"2026-05-15T10:00:00Z{SEP}HEAD -> main{SEP}ME@Work.com{SEP}Me{SEP}mine",
+        f"2026-05-15T10:05:00Z{SEP}{SEP}teammate@x.com{SEP}Teammate{SEP}theirs",
+        f"2026-05-15T10:10:00Z{SEP}{SEP}bot@ci{SEP}Automerger{SEP}Merge bot job",
+        f"2026-05-15T10:15:00Z{SEP}{SEP}side@personal.com{SEP}Me{SEP}name match",
+    ]
+
+    class _Fake:
+        returncode = 0
+        stdout = "\n".join(lines)
+
+    monkeypatch.setattr(git_closure.shutil, "which", lambda n: "/usr/bin/git")
+    monkeypatch.setattr(git_closure.subprocess, "run", lambda *a, **k: _Fake())
+    src = git_closure.GitRepoClosureSource(
+        repos=[repo], identities={"me@work.com", "Me"},
+    )
+    items = list(src.collect(_utc(2026, 1, 1), _utc(2026, 12, 31), IngestStats()))
+    titles = sorted(e.title for e in items)
+    # "mine" (email match) and "name match" (author-name match) kept;
+    # teammate + bot dropped.
+    assert titles == ["mine", "name match"]
+
+
+def test_git_closure_collects_pushes_deduped(tmp_path, monkeypatch):
+    """`update by push` reflog entries become `push` closures; the same push
+    reflected onto several remote-tracking refs (origin + origin/main) at one
+    instant is counted once. fetch/pull entries are ignored."""
+    from stress_levels.sources import git_closure
+    repo = tmp_path / "repo"
+    (repo / ".git").mkdir(parents=True)
+    SEP = "\x1f"
+    push_lines = "\n".join([
+        f"origin@{{2026-05-15T10:00:00+00:00}}{SEP}update by push",
+        f"origin/main@{{2026-05-15T10:00:00+00:00}}{SEP}update by push",  # same push
+        f"origin/feat@{{2026-05-16T09:00:00+00:00}}{SEP}update by push",  # distinct
+        f"origin/main@{{2026-05-17T09:00:00+00:00}}{SEP}fetch",           # not a push
+    ])
+
+    def _fake_run(cmd, *a, **k):
+        class _R:
+            returncode = 0
+        # Push pass uses the remote-tracking glob; everything else returns empty
+        # so the log and HEAD-reflog passes emit nothing.
+        _R.stdout = push_lines if "--glob=refs/remotes/*" in cmd else ""
+        return _R()
+
+    monkeypatch.setattr(git_closure.shutil, "which", lambda n: "/usr/bin/git")
+    monkeypatch.setattr(git_closure.subprocess, "run", _fake_run)
+    items = list(git_closure.GitRepoClosureSource(repos=[repo]).collect(
+        _utc(2026, 1, 1), _utc(2026, 12, 31), IngestStats()))
+    pushes = [e for e in items if e.kind == "push"]
+    assert len(pushes) == 2                       # deduped from 3 raw entries
+    assert all(e.author is None for e in pushes)  # pushes are self-scoped, no author
+    assert {e.ts.day for e in pushes} == {15, 16}
 
 
 def test_git_closure_empty_on_nonzero_exit(tmp_path, monkeypatch):

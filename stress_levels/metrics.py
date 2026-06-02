@@ -110,7 +110,7 @@ W_GIT_REWORK: float = 2.0
 # in sync with sources/git_closure.py and the ClosureEvent docstring in
 # sources/base.py.
 CLOSURE_KINDS: frozenset[str] = frozenset(
-    {"commit", "merge", "pr_merge", "mr_merge", "issue_close"}
+    {"push", "commit", "merge", "pr_merge", "mr_merge", "issue_close"}
 )
 REWORK_KINDS: frozenset[str] = frozenset(
     {"amend", "squash", "rebase", "reset", "revert", "cherry_pick"}
@@ -130,10 +130,15 @@ BACKGROUND_WEIGHT_DEFAULT: float = 0.25
 
 # Closure Deficit — fraction of the day's git-correlatable *opened* loops left
 # *unclosed*. An opened loop is a stream that started inside the work window; it
-# is *closed* by a git commit/merge (ClosureEvent) in the SAME repo whose
-# timestamp lands within the loop's active span plus a grace tail. A loop we
-# can't correlate to git at all (no resolvable repo, or a repo with no commit
-# that day) is dropped — we don't penalise what git can't speak to. Grounding:
+# is *closed* by one of the OPERATOR'S OWN closure events in the SAME repo whose
+# timestamp lands within the loop's active span plus a grace tail. Closure
+# events, strongest first: a `push` (work shipped off the machine; inherently
+# self-scoped via this clone's reflog), then a `commit`/`merge` authored by the
+# operator (a teammate's or merge-bot's commit in a shared repo is NOT the
+# operator closing their own loop and is filtered out at the source). A loop we
+# can't correlate to the operator's own git activity (no resolvable repo, or a
+# repo the operator didn't touch that day) is dropped — we don't penalise what
+# git can't speak to, and we don't credit closure to other people. Grounding:
 #   - Masicampo & Baumeister (2011): an unfulfilled/open goal keeps consuming
 #     working memory until it is closed or planned — so unclosed loops, not
 #     mere presence of parallelism, are the load.

@@ -16,6 +16,8 @@ Two consumers:
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 from datetime import datetime
 from pathlib import Path
 from typing import Iterable
@@ -93,3 +95,45 @@ def repo_map_as_str(cwd_map: dict[str, Path]) -> dict[str, str]:
     """Flatten a cwd→root Path map to cwd→str(root), matching the repo key the
     git source stamps on each ClosureEvent (``str(repo.resolve())``)."""
     return {cwd: str(root) for cwd, root in cwd_map.items()}
+
+
+def _git_config_value(args: list[str]) -> str | None:
+    """Run a read-only ``git config`` query, returning the trimmed value or
+    None. Never raises — a missing key, missing git, or odd repo yields None."""
+    try:
+        out = subprocess.run(
+            ["git", *args], capture_output=True, text=True,
+            timeout=10, check=False,
+        )
+    except (subprocess.SubprocessError, OSError):
+        return None
+    if out.returncode != 0:
+        return None
+    v = out.stdout.strip()
+    return v or None
+
+
+def discover_identities(roots: Iterable[str | Path]) -> set[str]:
+    """The operator's own commit-author identities, read from local git config.
+
+    Unions the global ``user.email``/``user.name`` with each scanned repo's
+    own configured ``user.email``/``user.name``. This is exactly how an operator
+    who commits under multiple accounts (e.g. a work email in one repo and a
+    personal/GitHub no-reply address in another) is captured, with no manual
+    listing. Read-only ``git config`` calls, no network — same local invariant
+    as the rest of the tool. The git source matches commit authors against this
+    set (case-insensitively) so teammate and merge-bot commits in a shared repo
+    don't count as the operator's closures."""
+    if shutil.which("git") is None:
+        return set()
+    identities: set[str] = set()
+    for key in ("user.email", "user.name"):
+        v = _git_config_value(["config", "--global", "--get", key])
+        if v:
+            identities.add(v)
+    for r in roots:
+        for key in ("user.email", "user.name"):
+            v = _git_config_value(["-C", str(r), "config", "--get", key])
+            if v:
+                identities.add(v)
+    return identities

@@ -187,7 +187,8 @@ def _build_closure_sources(sources, since: date, until: date) -> tuple[list, dic
 
     from .config import load_config
     from .discovery import (
-        collect_session_cwds, discover_repo_roots, repo_map_as_str,
+        collect_session_cwds, discover_identities, discover_repo_roots,
+        repo_map_as_str,
     )
     from .sources.git_closure import GitRepoClosureSource
 
@@ -214,7 +215,17 @@ def _build_closure_sources(sources, since: date, until: date) -> tuple[list, dic
 
     if not roots:
         return [], {}
-    return [GitRepoClosureSource(repos=[_Path(r) for r in roots])], repo_map
+
+    # Operator identity set for scoping commit/merge closures: explicit config
+    # identities unioned with those auto-discovered from local git config
+    # (global + each scanned repo). Empty → no scoping (legacy all-author),
+    # which is only sane for solo repos. Pushes ignore this (self-scoped).
+    identities = set(cfg.identities) | discover_identities(roots.keys())
+
+    return [GitRepoClosureSource(
+        repos=[_Path(r) for r in roots],
+        identities=identities,
+    )], repo_map
 
 
 def main(argv: list[str] | None = None) -> int:

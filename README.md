@@ -248,7 +248,7 @@ default.
 |---|---|---|---|
 | **CODL** (Concurrent Operational Demand Load) | How many agent sessions you supervise at once | 1-min samples over the work window; `codl_avg` time-weighted, `codl_peak` the max. Status threshold at the working-memory cap (~4) | Working memory ≈ 4 chunks (**Cowan 2001**); non-linear degradation past fan-out limits (**Cummings & Mitchell 2008**; **Sheridan 1992**) |
 | **Interruption Index** | Weighted attention-pulls per work hour | `(tool_error × 1.5 + cross-session-start × 3.0) / work_hours`. Tool calls *within* a session don't count — that's a Waiting state, not an interruption | Interrupted work is faster but more stressful (**Mark, Gudith & Klocke 2008**); external switches cost ~25% more (**Mark, Gonzalez & Harris 2005**); attention residue (**Leroy 2009**); cross-tool switches cost more (**Wickens 2008**) |
-| **Closure Deficit** | Share of the git-visible loops you opened but never closed (0 = everything landed, 1 = nothing did) | `1 − closed / correlatable`: a loop (stream started in the work window) is *closed* by a git commit/merge in **its own repo** whose timestamp falls within the session's active span + 30 min; each commit closes one loop. Loops in a repo git didn't touch that day are **excluded** (scored only where git can see them). Repos auto-discovered from session cwds (or set `closure.repos` in `config.json`). Per-session correlation, not concurrency — independent of the CODL shape. Falls back to the `CODL > 1` proxy when no repos are configured | Open loops keep consuming working memory until closed (**Masicampo & Baumeister 2011**); closure removes attention residue (**Leroy 2009**) and is a recovery resource (**Sonnentag & Fritz 2007**); burnout = demands exceeding recoverable resources (**Demerouti et al. 2001**) |
+| **Closure Deficit** | Share of the git-visible loops *you* opened but never closed (0 = everything landed, 1 = nothing did) | `1 − closed / correlatable`: a loop (stream started in the work window) is *closed* by **your own** git push/commit/merge in **its own repo** whose timestamp falls within the session's active span + 30 min; each closure event closes one loop. A **push** is the strongest signal (work left the machine, self-scoped by the local reflog); commits/merges count only when **you** authored them (your `user.email`/`user.name` from local git config, across multiple accounts) — so a shared repo's teammate and merge-bot commits don't spuriously close your loops. Loops in a repo *you* didn't touch that day are **excluded** (scored only where git can see your own activity). Repos and identities auto-discovered (or set `closure.repos` / `closure.identities` in `config.json`). Per-session correlation, not concurrency — independent of the CODL shape. Falls back to the `CODL > 1` proxy when no repos are configured | Open loops keep consuming working memory until closed (**Masicampo & Baumeister 2011**); closure removes attention residue (**Leroy 2009**) and is a recovery resource (**Sonnentag & Fritz 2007**); burnout = demands exceeding recoverable resources (**Demerouti et al. 2001**) |
 
 **Composite (0–100)** is the equal-weighted blend of the three normalised axes —
 the explicit v1 null hypothesis (no evidence yet favours one axis), stated as such
@@ -274,11 +274,14 @@ not peaks, is what damages you over time.
   is a self-run triage signal, not a diagnosis.
 - The supervisory-control analogy is borrowed from UAV operators
   (**Crandall & Cummings 2007**) and is plausible but **unvalidated** for LLM
-  oversight. The Closure Deficit now folds in real git commits/merges,
-  correlating each to a session by repo and time overlap — a heuristic, not a
-  shared identifier; loops in repos git didn't touch are excluded by design, so
-  it scores closure only where git can see it, and with no repos configured it
-  falls back to a concurrency-presence proxy.
+  oversight. The Closure Deficit now folds in real git pushes/commits/merges,
+  scoped to *your own* author identities (so a shared monorepo's teammate and
+  merge-bot commits don't close your loops) and correlating each to a session by
+  repo, author, and time overlap — a heuristic, not a shared identifier; loops
+  in repos you didn't touch are excluded by design, so it scores closure only
+  where git can see your own activity (deliberately low-power — silent on most
+  days rather than guessing), and with no repos configured it falls back to a
+  concurrency-presence proxy.
 
 Every threshold, weight, and recommendation traces to an entry in
 [`stress_levels/citations.yml`](stress_levels/citations.yml) — the report renders
