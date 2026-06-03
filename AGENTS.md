@@ -82,6 +82,7 @@ ai-code-cognitive-stress/
 ├── desktop/plasmoid/            # KDE Plasma 6 widget — thin WebEngineView host for `aicogstress --emit-html-card`
 ├── desktop/ubersicht/           # macOS Übersicht widget — thin JSX host (same card) + browser preview harness
 ├── SKILL.md  ·  AGENTS.md       # chat-skill definition · this file (rules + layout)
+├── install.py                   # one-command setup: skill + CLI + widget + first computation
 ├── pyproject.toml               # packaging (hatchling) + console scripts
 └── LICENSE                      # MIT
 ```

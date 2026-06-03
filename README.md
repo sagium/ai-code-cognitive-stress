@@ -144,7 +144,7 @@ above): a translucent glass card over your wallpaper, in system SF Pro
 `desktop/ubersicht/cognitive-stress.jsx` into
 `~/Library/Application Support/Übersicht/widgets/` yourself). If the score
 stays blank, set the absolute path to `aicogstress` in the file's `command`
-line. Remove it with `python3 install.py --uninstall --ubersicht`. Not on a
+line. Remove it with `python install.py --uninstall --ubersicht`. Not on a
 Mac? `desktop/ubersicht/preview.html` shows the widgets' exact card in any
 browser (instructions inside) — handy for hacking on it from Linux.
 
