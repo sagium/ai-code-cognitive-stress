@@ -8,8 +8,8 @@ import pytest
 
 from stress_levels.aggregate import AggregateStats, DayAggregate, StreamDayActivity
 from stress_levels.metrics import DayMetrics, StressProfile, WorkWindow
+from stress_levels.i18n import t
 from stress_levels.render import (
-    CALIBRATING_LABEL,
     _color_for_composite,
     _heatmap_day_cell,
     _max_consecutive_days_above,
@@ -253,7 +253,7 @@ def test_report_surfaces_calibrating_label_when_no_optimum():
         )},
     )
     html = report(profile, {}, label="May 2026")
-    assert CALIBRATING_LABEL in html
+    assert t("note.calibrating") in html
 
 
 def test_report_recommendation_fires_when_5_consecutive_high_days():

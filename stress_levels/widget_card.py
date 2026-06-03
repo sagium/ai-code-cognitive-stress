@@ -23,6 +23,7 @@ from __future__ import annotations
 from html import escape
 
 from .dayview import AxisTile, DayView
+from .i18n import t
 
 CARD_WIDTH = 384  # px — fixed card width shared by every host
 
@@ -168,7 +169,7 @@ def _header(dv: DayView) -> str:
     c = dv.composite_color if dv.has_activity else _DIM
     return (
         f'<div class="head">'
-        f'<div class="score"><b style="color:{c}">{_esc(dv.composite_label)}</b><span>/ 100</span></div>'
+        f'<div class="score"><b style="color:{c}">{_esc(dv.composite_label)}</b><span>{_esc(t("card.out_of_100"))}</span></div>'
         f'{_sparkline(dv)}'
         f'<div class="advice" style="color:{c}; background:{c}22; border:1px solid {c}33">{_esc(dv.advice)}</div>'
         f'</div>'
@@ -225,7 +226,7 @@ def _hour_chart(dv: DayView) -> str:
         )
 
     return (
-        f'<div class="chart"><div class="chart-title">Concurrent agent sessions per hour</div>'
+        f'<div class="chart"><div class="chart-title">{_esc(t("card.chart_title"))}</div>'
         f'<svg viewBox="0 0 {w} {h}" width="100%">{out}</svg></div>'
     )
 
@@ -263,8 +264,8 @@ def _range_bar(a: AxisTile) -> str:
             f"font-family='{FONT_MONO}' font-size=\"7\" fill=\"rgba(245,243,237,.38)\">{_esc(label)}</text>"
         )
 
-    for t in a.boundary_ticks:
-        out += tick(x_at(t.fraction), t.label)
+    for bt in a.boundary_ticks:
+        out += tick(x_at(bt.fraction), bt.label)
     out += tick(pad, "0") + tick(w - pad, f"{a.range_max:g}")
 
     if a.baseline_fraction is not None:
@@ -290,11 +291,14 @@ def _range_bar(a: AxisTile) -> str:
     if not a.has_data:
         out += (
             f'<text x="{w / 2:g}" y="{you_y}" text-anchor="middle" font-size="8" '
-            f'font-style="italic" fill="rgba(245,243,237,.38)">not measured this day</text>'
+            f'font-style="italic" fill="rgba(245,243,237,.38)">{_esc(t("marker.not_measured"))}</text>'
         )
     else:
         ux = x_at(min(1.0, a.fraction))
-        marker = "you " + f"{a.value:.2f}" + (" ▶" if a.off_scale else "")
+        marker = t(
+            "marker.you_off_scale" if a.off_scale else "marker.you",
+            value=f"{a.value:.2f}",
+        )
         out += (
             f'<line x1="{_num(ux)}" y1="{bar_y - 6}" x2="{_num(ux)}" y2="{bar_y + bar_h + 6}" '
             f'stroke="#fff" stroke-width="2" style="filter: drop-shadow(0 0 4px rgba(255,255,255,.6))"/>'
@@ -338,7 +342,7 @@ def render_card(dv: DayView) -> str:
         f'<div class="nag">{_esc(dv.off_hours_nag)}</div>' if dv.off_hours_nag else "",
         _hour_chart(dv),
         *(_axis_tile(a) for a in dv.axes),
-        f'<div class="foot"><span>private · updates live</span>'
+        f'<div class="foot"><span>{_esc(t("card.footer"))}</span>'
         f'<span>{_esc(dv.day.isoformat()[:7])}</span></div>',
     ])
     return _wrap(
@@ -351,8 +355,10 @@ def render_error_card(message: str) -> str:
     """An error state in the same card chrome (used by hosts that got a card
     earlier but a failure now, and by the preview's no-data hint)."""
     inner = (
-        f'<div class="head"><div class="score"><b style="color:{_DIM}">—</b><span>/ 100</span></div></div>'
+        f'<div class="head"><div class="score"><b style="color:{_DIM}">—</b>'
+        f'<span>{_esc(t("card.out_of_100"))}</span></div></div>'
         f'<div class="error">{_esc(message)}</div>'
-        f'<div class="foot"><span>private</span><span>cognitive stress</span></div>'
+        f'<div class="foot"><span>{_esc(t("card.error_footer_left"))}</span>'
+        f'<span>{_esc(t("card.error_footer_right"))}</span></div>'
     )
     return _wrap(inner, label="—", color=_DIM, has_activity=False)

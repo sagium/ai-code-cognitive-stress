@@ -16,6 +16,8 @@ from dataclasses import dataclass, replace
 from datetime import date, datetime, time, timedelta, timezone, tzinfo
 
 from .aggregate import DayAggregate, get_day_aggregates
+from . import i18n
+from .i18n import t
 from .metrics import (
     CODL_NORMALISATION_CEILING,
     OFF_HOURS_LOAD_CEILING_MIN,
@@ -44,105 +46,39 @@ Zone = tuple[float, str, str]
 
 
 # ---------------------------------------------------------------------------
-# Per-axis static metadata (plain text — the HTML layer escapes it, the widget
-# shows it verbatim). Descriptions/technique/basis/caveat are the SAME copy the
-# report shows; render.py reads them from here so the two cannot diverge.
+# Per-axis static metadata. The display copy (name/description/technique/
+# basis/caveat) lives in the i18n catalog (locales/<locale>.json) under
+# `axis.<key>.*` and is resolved at tile-build time, so the report and the
+# widgets share one translated source and the locale can be chosen at runtime.
+# The translated text is plain (the HTML layer escapes it, the widget shows it
+# verbatim).
 
 @dataclass(frozen=True, slots=True)
 class AxisMeta:
     key: str
-    name: str
-    description: str
     range_max: float
     zones: list[Zone]
     has_optimum: bool
-    technique: str
-    basis: str
-    caveat: str
 
 
 AXES: tuple[AxisMeta, ...] = (
     AxisMeta(
         key="codl",
-        name="CODL",
-        description=(
-            "How many agent sessions you're supervising at once. "
-            "Working memory caps at about 4 concurrent threads (Cowan 2001)."
-        ),
         range_max=CODL_NORMALISATION_CEILING,
         zones=CODL_ZONES,
         has_optimum=True,
-        technique=(
-            "Sweep over per-stream (first_ts, last_ts) intervals sampled at "
-            "1-min resolution within the configured work window."
-        ),
-        basis=(
-            "Cowan (2001); Cummings & Mitchell (2008) on supervisory-control "
-            "fan-out."
-        ),
-        caveat=(
-            "Streams treated as continuously alive between first/last event; "
-            "long mid-session gaps are over-counted as engaged time."
-        ),
     ),
     AxisMeta(
         key="interruption",
-        name="Interruption Index",
-        description=(
-            "Weighted attention-pulling events per work hour: tool errors "
-            "(need user intervention) and cross-session switches. Mark (2008) "
-            "showed interrupted work is faster but more stressful."
-        ),
         range_max=INTERRUPTION_RANGE_MAX,
         zones=INTERRUPTION_ZONES,
         has_optimum=False,
-        technique=(
-            "tool_error × 1.5 + cross-stream-start × 3.0, divided by work-hour "
-            "duration. Tool calls inside a session are intentionally NOT "
-            "counted — when the agent is using a tool the supervisor is in a "
-            "Waiting state, not being interrupted."
-        ),
-        basis=(
-            "Mark, Gudith & Klocke (2008); Mark, Gonzalez & Harris (2005); "
-            "Leroy (2009) on attention residue."
-        ),
-        caveat=(
-            "Tool-use timestamps not preserved at the aggregate layer; events "
-            "are apportioned by stream-active-time overlap with the work window."
-        ),
     ),
     AxisMeta(
         key="closure",
-        name="Closure Deficit",
-        description=(
-            "Loops you couldn't finish in one sitting and had to pick back up. "
-            "Each resume costs more the longer the session sat parked. 0 = every "
-            "loop closed in one sitting, 1 = many cold reloads. Lower is better."
-        ),
         range_max=CLOSURE_RANGE_MAX,
         zones=CLOSURE_ZONES,
         has_optimum=False,
-        technique=(
-            "Sum of per-resume severities ÷ a daily ceiling, clipped to [0,1]. A "
-            "resume is a true-idle gap in a session (no activity at all) of ≥ 30 "
-            "min, or a pickup on a later day; each resume's severity is "
-            "min(1, gap ÷ 120 min), so cost rises with how long the loop was "
-            "parked then saturates once context is fully cold. Scored on every "
-            "active day; independent of the CODL shape."
-        ),
-        basis=(
-            "Monk, Trafton & Boehm-Davis (2008) resumption cost rises with gap "
-            "duration; Altmann & Trafton (2002) goal-activation decay; Parnin & "
-            "Rugaber (2011) in-domain reconstruction tax; Sonnentag & Fritz "
-            "(2007) closure as recovery."
-        ),
-        caveat=(
-            "A gap is dormant wall-clock time, a proxy for a parked loop — a long "
-            "autonomous agent turn is excluded (it's not idle), but stepping away "
-            "with a session still mid-turn isn't. The lab evidence measured short "
-            "(sub-minute) gaps; multi-hour and cross-day gaps extrapolate beyond "
-            "that regime, with Parnin & Rugaber as the closest field bridge."
-        ),
     ),
 )
 AXES_BY_KEY: dict[str, AxisMeta] = {a.key: a for a in AXES}
@@ -158,12 +94,12 @@ def _axis_value(key: str, m: DayMetrics) -> float:
 
 def _axis_unit(key: str, m: DayMetrics) -> str:
     if key == "codl":
-        return f"avg · peak {m.codl_peak} streams"
+        return t("axis.unit.codl", peak=m.codl_peak)
     if key == "interruption":
-        return "weighted events per work hour"
+        return t("axis.unit.interruption")
     if m.closure_deficit is None:
-        return "not scored — no activity this day"
-    return f"{m.closure_deficit * 100:.0f}% of the daily resume ceiling"
+        return t("axis.unit.closure_not_scored")
+    return t("axis.unit.closure", percent=f"{m.closure_deficit * 100:.0f}")
 
 
 # ---------------------------------------------------------------------------
@@ -319,19 +255,24 @@ def build_axis_tile(meta: AxisMeta, m: DayMetrics, profile: StressProfile) -> Ax
     # is kept for that edge and for any future axis that can genuinely lack data.
     if raw is None:
         return AxisTile(
-            key=meta.key, name=meta.name, description=meta.description,
+            key=meta.key, name=t(f"axis.{meta.key}.name"),
+            description=t(f"axis.{meta.key}.description"),
             value=0.0, value_label="—", unit_text=_axis_unit(meta.key, m),
-            range_max=rmax, has_data=False, status="", zone_label="not scored",
+            range_max=rmax, has_data=False, status="",
+            zone_label=t("zone.not_scored"),
             color=zone_color(""), fraction=0.0, off_scale=False,
-            baseline=None, baseline_fraction=None, baseline_label="typical day",
+            baseline=None, baseline_fraction=None,
+            baseline_label=t("axis.baseline_label"),
             optimum=None, optimum_fraction=None,
-            optimum_label="optimum" if meta.has_optimum else "",
+            optimum_label=t("axis.optimum_label") if meta.has_optimum else "",
             segments=segments, boundary_ticks=ticks,
-            technique=meta.technique, basis=meta.basis, caveat=meta.caveat,
+            technique=t(f"axis.{meta.key}.technique"),
+            basis=t(f"axis.{meta.key}.basis"),
+            caveat=t(f"axis.{meta.key}.caveat"),
         )
 
     value = raw
-    status, zone_label = zone_for(value, meta.zones)
+    status, zone_label_key = zone_for(value, meta.zones)
 
     baseline = personal_baseline(profile, {
         "codl": "codl_avg", "interruption": "interruption_rate",
@@ -348,16 +289,21 @@ def build_axis_tile(meta: AxisMeta, m: DayMetrics, profile: StressProfile) -> Ax
     )
 
     return AxisTile(
-        key=meta.key, name=meta.name, description=meta.description,
+        key=meta.key, name=t(f"axis.{meta.key}.name"),
+        description=t(f"axis.{meta.key}.description"),
         value=value, value_label=f"{value:.2f}", unit_text=_axis_unit(meta.key, m),
-        range_max=rmax, has_data=True, status=status, zone_label=zone_label,
+        range_max=rmax, has_data=True, status=status,
+        zone_label=t(zone_label_key),
         color=zone_color(status), fraction=_clamp01(value / rmax) if rmax else 0.0,
         off_scale=value > rmax,
-        baseline=baseline, baseline_fraction=baseline_frac, baseline_label="typical day",
+        baseline=baseline, baseline_fraction=baseline_frac,
+        baseline_label=t("axis.baseline_label"),
         optimum=optimum, optimum_fraction=optimum_frac,
-        optimum_label="optimum" if meta.has_optimum else "",
+        optimum_label=t("axis.optimum_label") if meta.has_optimum else "",
         segments=segments, boundary_ticks=ticks,
-        technique=meta.technique, basis=meta.basis, caveat=meta.caveat,
+        technique=t(f"axis.{meta.key}.technique"),
+        basis=t(f"axis.{meta.key}.basis"),
+        caveat=t(f"axis.{meta.key}.caveat"),
     )
 
 
@@ -433,7 +379,7 @@ def _off_hours_when_label(ranges: tuple[tuple[time, time], ...]) -> str:
         f"{s.strftime('%H:%M')}–{e.strftime('%H:%M')}" for s, e in shown
     )
     extra = len(ranges) - len(shown)
-    return label + (f" +{extra} more" if extra > 0 else "")
+    return label + (t("nag.more", count=extra) if extra > 0 else "")
 
 
 def build_dayview(
@@ -444,14 +390,14 @@ def build_dayview(
 ) -> DayView:
     counts = hour_counts(metrics.day, agg, local_tz)
     ww = None
-    ww_label = "work window: (unknown)"
+    ww_label = t("workwindow.unknown")
     if metrics.work_window_local:
         ws, we = metrics.work_window_local
         ww = WorkWindow(
             start=ws.strftime("%H:%M"), end=we.strftime("%H:%M"),
             start_hour=ws.hour + ws.minute / 60, end_hour=we.hour + we.minute / 60,
         )
-        ww_label = f"work window: {ws.strftime('%H:%M')} – {we.strftime('%H:%M')}"
+        ww_label = t("workwindow.label", start=ww.start, end=ww.end)
     has_activity = metrics.composite > 0
     status = composite_status(metrics.composite, profile.composite_p75, profile.composite_p90)
 
@@ -465,16 +411,16 @@ def build_dayview(
     if off_min >= 15:
         when = _off_hours_when_label(metrics.off_hours_ranges_local)
         off_hours_nag = (
-            f"↑ +{off_pts} pts from {off_min} min of off-hours work"
-            + (f" ({when})" if when else "")
-            + (f" · work window: {ww.start}–{ww.end}" if ww else "")
+            t("nag.off_hours", points=off_pts, minutes=off_min)
+            + (t("nag.when", when=when) if when else "")
+            + (t("nag.window", start=ww.start, end=ww.end) if ww else "")
         )
     else:
         off_hours_nag = ""
 
     return DayView(
         day=metrics.day,
-        day_label=metrics.day.strftime("%A %d %B %Y"),
+        day_label=i18n.day_label(metrics.day),
         has_activity=has_activity,
         composite=metrics.composite,
         composite_label=f"{metrics.composite:.0f}" if has_activity else "—",

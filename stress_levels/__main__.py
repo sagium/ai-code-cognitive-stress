@@ -145,6 +145,13 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Where --calibrate writes its JSON report "
              "(default: ./calibration-report.json).",
     )
+    parser.add_argument(
+        "--locale", metavar="CODE",
+        help="Language for all rendered text (report and widget card), e.g. "
+             "'en'. Overrides the 'locale' set in config.json. Catalogs live "
+             "in stress_levels/locales/<CODE>.json; missing keys fall back "
+             "to English.",
+    )
     return parser
 
 
@@ -170,6 +177,9 @@ def _clear_cache(cache_dir: Path) -> bool:
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     try:
+        if args.locale:
+            from .i18n import set_locale
+            set_locale(args.locale)
         since, until, label = _parse_range(args)
     except ValueError as exc:
         print(f"stress-levels: error: {exc}", file=sys.stderr)

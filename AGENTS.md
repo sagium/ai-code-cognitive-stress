@@ -67,6 +67,8 @@ ai-code-cognitive-stress/
 │   ├── dayview.py              # canonical daily-view model + compute_today_dayview (report + widgets)
 │   ├── widget_card.py          # the ONE widget renderer: dayview → self-contained HTML card (--emit-html-card)
 │   ├── render.py               # self-contained HTML report builder
+│   ├── i18n.py                 # translatable strings for the renderers (t/tn + date names)
+│   ├── locales/                # one <code>.json catalog per language; en.json is the reference
 │   ├── serialize.py            # JSON sibling for the chat skill
 │   ├── research_export.py      # anonymized full-year export (local file; manual upload)
 │   ├── calibrate.py            # maintainer: pool exports → suggest scoring (private, unsupervised)

@@ -109,6 +109,7 @@ analysis layer. The flags you'll actually use (`--help` has the rest):
 | `-o <path>` · `--open` | output path · open the report in your browser |
 | `--emit-json` / `--emit-html-card` | print today's daily view as JSON / as the widgets' HTML card |
 | `--rebuild-cache` | nuke the on-disk cache and recompute from raw logs |
+| `--locale <code>` | language for all rendered text (report + widget card); overrides `"locale"` in `config.json` |
 | `--export-research` | write an anonymized year for the calibration study ([see below](#help-calibrate-the-index-optional-anonymous)) |
 
 The per-day aggregate cache lives at
@@ -306,6 +307,14 @@ Adding a new coding tool is a single file: implement the `SessionSource`
 protocol in [`stress_levels/sources/base.py`](stress_levels/sources/base.py)
 (yield typed events from wherever that tool logs) and the rest of the
 pipeline — aggregate, metrics, render, cache — is identical.
+
+Adding a language is a single file too: every string the report and the
+widget card render comes from a key → string catalog in
+[`stress_levels/locales/`](stress_levels/locales/). Copy `en.json` to
+`<code>.json` (e.g. `de.json`), translate the values (keep the `{name}`
+placeholders), and select it with `"locale": "<code>"` in `config.json` or
+`--locale <code>`. Missing keys fall back to English, so a partial
+translation still renders a complete report.
 
 The project layout and the rules for working in this repo live in
 [`AGENTS.md`](AGENTS.md) — the tool-agnostic instructions file that agent

@@ -21,6 +21,8 @@ from . import __version__
 from .aggregate import AggregateStats, DayAggregate
 from .citations import load_registry
 from . import dayview
+from . import i18n
+from .i18n import t, tn
 from .metrics import (
     DayMetrics,
     StressProfile,
@@ -32,8 +34,6 @@ from .scales import (
     zone_color,
 )
 from .widget_card import FONT_MONO, FONT_UI
-
-CALIBRATING_LABEL = "calibrating"
 
 # Dark-glass ink palette, mirroring widget_card.py. SVG presentation
 # attributes can't resolve CSS custom properties, so the inline-SVG builders
@@ -72,7 +72,7 @@ def report(
     ]
     body = "\n".join(s for s in sections if s)
     return _wrap_document(
-        f"Cognitive Stress Profile — {label}", body,
+        t("report.title", label=label), body,
         extra_css=_selected_month_style(profile),
     )
 
@@ -98,7 +98,7 @@ def _render_agent_analysis(html_fragment: str | None) -> str:
         return ""
     return f"""
 <section class="agent-analysis">
-  <h2>Top focus</h2>
+  <h2>{escape(t("report.top_focus"))}</h2>
   <div class="agent-analysis-body">
     {html_fragment}
   </div>
@@ -135,16 +135,21 @@ def _render_header(
     src = ""
     if ingest_stats is not None:
         i = ingest_stats.ingest
-        src = (
-            f" &middot; {ingest_stats.days_with_activity} active days / "
-            f"{ingest_stats.days_in_window} in window &middot; "
-            f"{i.events_emitted:,} events from {ingest_stats.ingest.lines_decoded:,} records"
+        src = t(
+            "report.source_stats",
+            active=ingest_stats.days_with_activity,
+            window=ingest_stats.days_in_window,
+            events=f"{i.events_emitted:,}",
+            records=f"{ingest_stats.ingest.lines_decoded:,}",
         )
+    generated = t(
+        "report.generated", timestamp=generated_at.strftime("%Y-%m-%d %H:%M %Z"),
+    )
     return f"""
 <header class="report">
-  <h1>Cognitive Stress Profile</h1>
+  <h1>{escape(t("report.heading"))}</h1>
   <p class="subtitle">
-    {escape(label)} &middot; generated {generated_at.strftime("%Y-%m-%d %H:%M %Z")}{src}
+    {escape(label)} &middot; {generated}{src}
   </p>
 </header>
 """.strip()
@@ -179,17 +184,14 @@ def _render_year_overview(profile: StressProfile) -> str:
 
     return f"""
 <section class="year-view">
-  <h2>{year} &middot; year overview</h2>
+  <h2>{t("report.year_overview", year=year)}</h2>
   <div class="panel">
     <div class="year-grid">
       {"".join(cells)}
     </div>
     {sparkline}
     <p class="note">
-      Monthly cells show the average composite score over the month's active
-      workdays. The line below shows each workday as a bar colored by its
-      composite score (same palette as the calendar heatmap). The dashed
-      green line marks your typical-day composite (p50) — a health reference.
+      {escape(t("report.year_note"))}
     </p>
   </div>
 </section>
@@ -203,7 +205,7 @@ def _year_cell(
     is_future: bool,
     profile: StressProfile,
 ) -> str:
-    month_name = date(year, month, 1).strftime("%b")
+    month_name = i18n.month_name(month, short=True)
     classes = ["year-cell"]
     if is_future:
         classes.append("future")
@@ -220,7 +222,7 @@ def _year_cell(
     else:
         avg = sum(d.composite for d in days_metrics) / len(days_metrics)
         value = f"{avg:.0f}"
-        trend = f"{len(days_metrics)} day{'s' if len(days_metrics) != 1 else ''} active"
+        trend = tn("report.days_active", len(days_metrics))
     inner = (
         f'<div class="ym-month">{month_name}</div>'
         f'<div class="ym-value">{value}</div>'
@@ -255,8 +257,9 @@ def _year_sparkline(profile: StressProfile, year: int) -> str:
     reference = typical if typical is not None else 50.0
     reference_y = height - pad_bot - (reference / 100) * plot_h
     reference_label = (
-        f"your typical day {reference:.0f}" if typical is not None
-        else "global midpoint 50 (calibrating)"
+        t("report.typical_day_reference", value=f"{reference:.0f}")
+        if typical is not None
+        else t("report.calibrating_midpoint")
     )
 
     def _y_for(composite: float) -> float:
@@ -307,7 +310,7 @@ def _year_sparkline(profile: StressProfile, year: int) -> str:
             f'cy="{_y_for(c):.2f}" r="2.5" '
             f'fill="{_color_for_composite(c, profile)}" '
             f'stroke="#1a1c19" stroke-width="0.6">'
-            f'<title>{d.strftime("%a %d %b")}: composite {c:.0f}</title>'
+            f'<title>{escape(t("report.sparkline_tooltip", date=i18n.day_month_label(d), value=f"{c:.0f}"))}</title>'
             f'</circle>'
             for d, c in points
         )
@@ -327,7 +330,7 @@ def _year_sparkline(profile: StressProfile, year: int) -> str:
     month_ticks = "".join(
         f'<text x="{((date(year, m_idx + 1, 1) - date(year, 1, 1)).days * day_w):.1f}" '
         f"y=\"{height - 1}\" font-size=\"8\" font-family='{FONT_MONO}' fill=\"{_INK_FAINT}\">"
-        f'{date(year, m_idx + 1, 1).strftime("%b")}</text>'
+        f'{escape(i18n.month_name(m_idx + 1, short=True))}</text>'
         for m_idx in (0, 2, 5, 8, 11)
     )
 
@@ -363,10 +366,10 @@ def _render_all_months(
     year-overview cell sets a new :target and switches the visible month.
     """
     if not profile.days:
-        return _render_no_data_panel("No activity in window")
+        return _render_no_data_panel(t("report.no_activity"))
     months = _months_with_activity(profile)
     if not months:
-        return _render_no_data_panel("No active days in window")
+        return _render_no_data_panel(t("report.no_active_days"))
     today = now or _today_local()
     default_month: tuple[int, int] | None = None
     if (today.year, today.month) in months:
@@ -418,27 +421,27 @@ def _render_month_section(
         classes += " month-default"
     return f"""
 <section id="month-{year}-{month:02d}" class="{classes}">
-  <h2>{date(year, month, 1).strftime("%B %Y")} &middot; month overview</h2>
+  <h2>{t("report.month_overview", month_year=i18n.month_year_label(year, month))}</h2>
   <div class="summary-row">
-    {_stat_card("Avg composite (work hours)", f"{avg_composite:.0f}", "/100",
+    {_stat_card(t("stat.avg_composite"), f"{avg_composite:.0f}", t("stat.out_of_100"),
                 _status_for_composite(avg_composite, profile),
                 _composite_target_note(profile))}
-    {_stat_card("Peak day",
+    {_stat_card(t("stat.peak_day"),
                 f"{peak_day.composite:.0f}" if peak_day else "—",
-                f"&nbsp;{peak_day.day.strftime('%a %d %b')}" if peak_day else "",
+                f"&nbsp;{escape(i18n.day_month_label(peak_day.day))}" if peak_day else "",
                 _status_for_composite(peak_day.composite if peak_day else 0, profile),
                 _peak_target_note(profile),
                 href=f"#day-{peak_day.day.isoformat()}" if peak_day else None)}
-    {_stat_card("Days > personal p75",
+    {_stat_card(t("stat.days_over_p75"),
                 f"{days_over_p75}",
-                f"/ {len(active)} active days",
+                escape(t("stat.active_days_suffix", count=len(active))),
                 _status_for_count(days_over_p75, [3, 6]),
-                "healthy &lt; 4")}
-    {_stat_card("Off-hours days",
+                t("stat.healthy_under_4"))}
+    {_stat_card(t("stat.off_hours_days"),
                 f"{off_hours_days}",
                 "",
                 _status_for_count(off_hours_days, [0, 2]),
-                "healthy = 0")}
+                t("stat.healthy_zero"))}
   </div>
   <div class="panel">
     {_render_heatmap(year, month, profile)}
@@ -457,8 +460,8 @@ def _stat_card(
     href: str | None = None,
 ) -> str:
     status_class = f"status-{status}" if status else ""
-    status_label = {"good": "ok", "caution": "watch",
-                    "high": "elevated"}.get(status, "")
+    status_label = escape(t(f"status.{status}")) if status in (
+        "good", "caution", "high") else ""
     tag = "a" if href else "div"
     href_attr = f' href="{href}"' if href else ""
     return f"""
@@ -480,10 +483,10 @@ def _render_heatmap(year: int, month: int, profile: StressProfile) -> str:
         last = date(year, month + 1, 1) - timedelta(days=1)
     # Leading blanks: cells before the first weekday
     leading = first.weekday()
-    cells = ['<div class="dow-label">Mon</div><div class="dow-label">Tue</div>'
-             '<div class="dow-label">Wed</div><div class="dow-label">Thu</div>'
-             '<div class="dow-label">Fri</div><div class="dow-label">Sat</div>'
-             '<div class="dow-label">Sun</div>']
+    cells = ["".join(
+        f'<div class="dow-label">{escape(name)}</div>'
+        for name in i18n.weekday_names_short()
+    )]
     for _ in range(leading):
         cells.append('<div class="cell outside"></div>')
     d = first
@@ -501,7 +504,7 @@ def _render_heatmap(year: int, month: int, profile: StressProfile) -> str:
   {"".join(cells)}
 </div>
 <div class="legend">
-  Daily composite stress &middot; low to high
+  {t("heatmap.legend")}
   <span class="legend-bar"></span>
 </div>
 """.strip()
@@ -543,34 +546,23 @@ def _render_recommendations(profile: StressProfile) -> str:
         consec = _max_consecutive_days_above(profile, profile.composite_p75)
         if consec >= 5:
             recs.append(_recommendation(
-                title=f"Sustained elevated load: {consec} consecutive workdays above your p75",
+                title=t("recs.sustained.title", days=consec),
                 severity="high",
-                trigger=f"composite &ge; your p75 ({profile.composite_p75:.0f}) "
-                        f"for {consec} consecutive days",
-                advice=(
-                    "Allostatic-load research is clear that cumulative wear "
-                    "comes from the absence of low-load periods, not from "
-                    "peak load alone. Consider a deliberately low-load day "
-                    "in the current week to break the curve."
-                ),
-                citation="McEwen (1998) — <em>Protective and Damaging Effects of Stress Mediators</em>; recovery framing: Sonnentag &amp; Fritz (2007).",
+                trigger=t("recs.sustained.trigger",
+                          p75=f"{profile.composite_p75:.0f}", days=consec),
+                advice=t("recs.sustained.advice"),
+                citation=t("recs.sustained.citation"),
             ))
 
     # Pattern: off-hours activity
     off_hours_days = sum(1 for m in profile.days.values() if m.off_hours_minutes > 0)
     if off_hours_days >= 2:
         recs.append(_recommendation(
-            title=f"Off-hours engagement on {off_hours_days} days",
+            title=t("recs.offhours.title", days=off_hours_days),
             severity="medium",
-            trigger=f"&gt; 0 min of activity outside detected work window on "
-                    f"{off_hours_days} day(s)",
-            advice=(
-                "Psychological detachment from work in off-hours predicts "
-                "next-day vigor and longer-term well-being; off-hours "
-                "engagement after a heavy week compounds rather than "
-                "relieves load."
-            ),
-            citation="Sonnentag, Binnewies &amp; Mojza (2010) — <em>Staying well and engaged when demands are high</em>.",
+            trigger=t("recs.offhours.trigger", days=off_hours_days),
+            advice=t("recs.offhours.advice"),
+            citation=t("recs.offhours.citation"),
         ))
 
     # Pattern: peak fan-out. Keyed on the engagement-weighted active peak, not
@@ -583,31 +575,20 @@ def _render_recommendations(profile: StressProfile) -> str:
         )
         if days_at_high_fanout >= 3:
             recs.append(_recommendation(
-                title=f"Parallel-stream fan-out exceeded WM capacity on {days_at_high_fanout} days",
+                title=t("recs.fanout.title", days=days_at_high_fanout),
                 severity="medium",
-                trigger=f"actively-supervised concurrent streams &ge; 4 on "
-                        f"{days_at_high_fanout} workdays (max observed: {max_peak:.1f})",
-                advice=(
-                    "Supervisory-control studies identify fan-out limits "
-                    "where performance degrades non-linearly and subjective "
-                    "stress rises. Sequencing two streams often produces "
-                    "equal throughput with materially lower cognitive cost."
-                ),
-                citation="Cummings &amp; Mitchell (2008) — <em>Predicting Controller Capacity in Supervisory Control of Multiple UAVs</em>; WM grounding: Cowan (2001).",
+                trigger=t("recs.fanout.trigger", days=days_at_high_fanout,
+                          max_peak=f"{max_peak:.1f}"),
+                advice=t("recs.fanout.advice"),
+                citation=t("recs.fanout.citation"),
             ))
 
     if not recs:
         return ""
-    disclaimer = (
-        '<div class="disclaimer"><strong>Informational only.</strong> '
-        'These signals are behavioral proxies for cognitive load and '
-        'recovery, not a clinical assessment. For burnout evaluation, '
-        'the Maslach Burnout Inventory (Maslach &amp; Jackson, 1981) is '
-        'the validated instrument.</div>'
-    )
+    disclaimer = f'<div class="disclaimer">{t("recs.disclaimer")}</div>'
     return f"""
 <section class="recommendations">
-  <h2>Patterns detected</h2>
+  <h2>{escape(t("recs.heading"))}</h2>
   <div class="rec-list">
     {"".join(recs)}
     {disclaimer}
@@ -620,9 +601,9 @@ def _recommendation(title: str, severity: str, trigger: str, advice: str, citati
     return f"""
 <div class="rec rec-{severity}">
   <div class="rec-title">{title}</div>
-  <div class="rec-trigger">Triggered by: <code>{trigger}</code></div>
+  <div class="rec-trigger">{escape(t("recs.triggered_by"))} <code>{trigger}</code></div>
   <div class="rec-advice">{advice}</div>
-  <div class="rec-cite">Basis: {citation}</div>
+  <div class="rec-cite">{escape(t("recs.basis"))} {citation}</div>
 </div>
 """.strip()
 
@@ -664,23 +645,27 @@ def _render_day_section(
     if metrics is None:
         return ""
     agg = aggregates.get(day)
-    window_label = "work window: (unknown)"
+    window_label = t("workwindow.unknown")
     if metrics.work_window_local:
         ws, we = metrics.work_window_local
-        window_label = f"work window: {ws.strftime('%H:%M')} – {we.strftime('%H:%M')}"
+        window_label = t(
+            "workwindow.label",
+            start=ws.strftime("%H:%M"), end=we.strftime("%H:%M"),
+        )
     close_href = f"#month-{day.year}-{day.month:02d}"
+    close = escape(t("day.close"), quote=True)
     return f"""
 <section id="day-{day.isoformat()}" class="day-view" role="dialog" aria-modal="true">
-  <a class="day-backdrop" href="{close_href}" aria-label="close drill-down"></a>
+  <a class="day-backdrop" href="{close_href}" aria-label="{escape(t("day.close_drilldown"), quote=True)}"></a>
   <div class="day-modal">
     <h3>
-      {day.strftime("%A %d %B %Y")}
-      <a class="close-day" href="{close_href}" title="close" aria-label="close">&times;</a>
+      {escape(i18n.day_label(day))}
+      <a class="close-day" href="{close_href}" title="{close}" aria-label="{close}">&times;</a>
     </h3>
     <div class="panel">
       <div class="day-meta">
-        <div><strong>Composite: {metrics.composite:.0f} / 100</strong></div>
-        <div class="work-window">{window_label}</div>
+        <div><strong>{escape(t("day.composite", value=f"{metrics.composite:.0f}"))}</strong></div>
+        <div class="work-window">{escape(window_label)}</div>
       </div>
       {_render_day_chart(day, agg, metrics) if agg else ""}
     </div>
@@ -737,8 +722,9 @@ def _render_day_chart(day: date, agg: DayAggregate, metrics: DayMetrics) -> str:
             )
             work_window_legend = (
                 f' &middot; <tspan fill="#6c9a8b" font-weight="600">'
-                f'&#9632;</tspan> work window '
-                f'{ws.strftime("%H:%M")}&#8211;{we.strftime("%H:%M")}'
+                f'&#9632;</tspan> '
+                + t("chart.work_window_legend",
+                    start=ws.strftime("%H:%M"), end=we.strftime("%H:%M"))
             )
 
     # Y-axis: gridlines and integer tick labels.
@@ -758,7 +744,7 @@ def _render_day_chart(day: date, agg: DayAggregate, metrics: DayMetrics) -> str:
     y_axis_parts.append(
         f'<text transform="rotate(-90)" x="{-(m_top + plot_h / 2):.1f}" '
         f'y="14" font-size="10" text-anchor="middle" fill="{_INK_FAINT}">'
-        f'concurrent sessions</text>'
+        f'{escape(t("chart.y_label"))}</text>'
     )
 
     # Bars + per-bar value labels.
@@ -792,7 +778,7 @@ def _render_day_chart(day: date, agg: DayAggregate, metrics: DayMetrics) -> str:
     x_caption = (
         f'<text x="{m_left + plot_w / 2:.1f}" y="{chart_h - 6}" '
         f'font-size="10" text-anchor="middle" fill="{_INK_FAINT}">'
-        f'hour of day (local)</text>'
+        f'{escape(t("chart.x_caption"))}</text>'
     )
     x_axis_line = (
         f'<line x1="{m_left}" y1="{m_top + plot_h}" '
@@ -802,9 +788,9 @@ def _render_day_chart(day: date, agg: DayAggregate, metrics: DayMetrics) -> str:
 
     title = (
         f'<text x="{m_left}" y="22" font-size="13" font-weight="600" '
-        f'fill="{_INK}">Concurrent agent sessions per hour</text>'
+        f'fill="{_INK}">{escape(t("card.chart_title"))}</text>'
         f'<text x="{m_left}" y="42" font-size="11" fill="{_INK_SOFT}">'
-        f'Bucketed by local hour &middot; peak {max_count} simultaneous'
+        f'{t("chart.subtitle", count=max_count)}'
         f'{work_window_legend}'
         f'</text>'
     )
@@ -845,42 +831,42 @@ def _render_axis_tile(
     """Render one axis tile from the shared dayview model. Static copy
     (description/technique/basis/caveat), zones, baseline, and the value/unit
     formatting all come from dayview, so this HTML and the widgets agree."""
-    t = dayview.build_axis_tile(meta, metrics, profile)
+    tile = dayview.build_axis_tile(meta, metrics, profile)
     range_bar = _render_range_bar(
-        value=t.value,
-        range_max=t.range_max,
+        value=tile.value,
+        range_max=tile.range_max,
         zones=meta.zones,
-        baseline=t.baseline,
-        baseline_label=t.baseline_label,
-        optimum=t.optimum,
-        optimum_label=t.optimum_label,
-        show_value=t.has_data,
+        baseline=tile.baseline,
+        baseline_label=tile.baseline_label,
+        optimum=tile.optimum,
+        optimum_label=tile.optimum_label,
+        show_value=tile.has_data,
     )
     return f"""
 <div class="tile">
   <div class="tile-head">
-    <div class="tile-name">{escape(t.name)}</div>
-    <div class="tile-status status-{t.status}">{escape(t.zone_label)}</div>
+    <div class="tile-name">{escape(tile.name)}</div>
+    <div class="tile-status status-{tile.status}">{escape(tile.zone_label)}</div>
   </div>
-  <p class="tile-meaning">{escape(t.description)}</p>
+  <p class="tile-meaning">{escape(tile.description)}</p>
   {range_bar}
   <div class="tile-value-row">
-    <div class="tile-value">{t.value_label}</div>
-    <div class="tile-unit">{escape(t.unit_text)}</div>
+    <div class="tile-value">{tile.value_label}</div>
+    <div class="tile-unit">{escape(tile.unit_text)}</div>
   </div>
   <details class="tile-details">
-    <summary>How this is computed &amp; what it can't tell you</summary>
+    <summary>{t("tile.details_summary")}</summary>
     <div class="tile-detail-section">
-      <span class="tile-detail-head">Technique</span>
-      <span class="tile-detail-body">{escape(t.technique)}</span>
+      <span class="tile-detail-head">{escape(t("tile.technique"))}</span>
+      <span class="tile-detail-body">{escape(tile.technique)}</span>
     </div>
     <div class="tile-detail-section">
-      <span class="tile-detail-head">Research basis</span>
-      <span class="tile-detail-body">{escape(t.basis)}</span>
+      <span class="tile-detail-head">{escape(t("tile.basis"))}</span>
+      <span class="tile-detail-body">{escape(tile.basis)}</span>
     </div>
     <div class="tile-detail-section">
-      <span class="tile-detail-head">Caveat</span>
-      <span class="tile-detail-body">{escape(t.caveat)}</span>
+      <span class="tile-detail-head">{escape(t("tile.caveat"))}</span>
+      <span class="tile-detail-body">{escape(tile.caveat)}</span>
     </div>
   </details>
 </div>
@@ -991,9 +977,10 @@ def _render_range_bar(
     if show_value:
         user_x = _x(value)
         off_scale = value > range_max
-        user_label = f"you {value:.2f}"
-        if off_scale:
-            user_label = f"you {value:.2f} ▶"
+        user_label = escape(t(
+            "marker.you_off_scale" if off_scale else "marker.you",
+            value=f"{value:.2f}",
+        ))
         user_marker = (
             f'<line x1="{user_x:.1f}" y1="{bar_y - 8}" x2="{user_x:.1f}" '
             f'y2="{bar_y + bar_h + 8}" stroke="#fff" stroke-width="2" '
@@ -1006,7 +993,7 @@ def _render_range_bar(
         user_marker = (
             f'<text x="{width / 2:.1f}" y="68" font-size="10" '
             f'text-anchor="middle" fill="{_INK_FAINT}" font-style="italic">'
-            f'not measured this day</text>'
+            f'{escape(t("marker.not_measured"))}</text>'
         )
 
     return f"""
@@ -1031,18 +1018,13 @@ def _render_methodology(profile: StressProfile, stats: AggregateStats | None) ->
     default_w = abs(sc.weights[0] - sc.weights[1]) < 1e-9 and abs(sc.weights[1] - sc.weights[2]) < 1e-9
     default_c = sc.codl_ceiling == 5.0 and sc.interruption_ceiling == 10.0
     if default_w and default_c:
-        scoring_note = (
-            "blended with <strong>equal weights</strong> (the v1 null hypothesis) "
-            "and literature normalization ceilings (CODL &divide; 5, "
-            "interruption &divide; 10/hr)."
-        )
+        scoring_note = t("methodology.scoring_default")
     else:
-        scoring_note = (
-            f"blended with weights CODL/interruption/closure = "
-            f"{wpct[0]}/{wpct[1]}/{wpct[2]}% and normalization ceilings "
-            f"CODL &divide; {sc.codl_ceiling:g}, interruption &divide; "
-            f"{sc.interruption_ceiling:g}/hr — population-calibrated overrides "
-            "set in <code>config.json</code>, not the v1 equal-weight defaults."
+        scoring_note = t(
+            "methodology.scoring_custom",
+            w_codl=wpct[0], w_interruption=wpct[1], w_closure=wpct[2],
+            codl_ceiling=f"{sc.codl_ceiling:g}",
+            interruption_ceiling=f"{sc.interruption_ceiling:g}",
         )
     registry = load_registry()
     citations_html = "\n  ".join(
@@ -1052,65 +1034,35 @@ def _render_methodology(profile: StressProfile, stats: AggregateStats | None) ->
     )
     cache_summary = ""
     if stats:
-        cache_summary = (
-            f"<p>Cache: {stats.cache_hits} hits, {stats.cache_misses} misses, "
-            f"{stats.cache_write_errors} write errors. "
-            f"{stats.ingest.lines_skipped_malformed} malformed lines, "
-            f"{stats.ingest.lines_skipped_no_timestamp} skipped (no timestamp).</p>"
-        )
+        cache_summary = "<p>" + t(
+            "methodology.cache",
+            hits=stats.cache_hits, misses=stats.cache_misses,
+            write_errors=stats.cache_write_errors,
+            malformed=stats.ingest.lines_skipped_malformed,
+            no_timestamp=stats.ingest.lines_skipped_no_timestamp,
+        ) + "</p>"
     tz_note = ""
     if profile.local_tz_name and profile.local_tz_name != "UTC":
-        tz_note = f"Local timezone for work-hours interpretation: <code>{escape(profile.local_tz_name)}</code>."
+        tz_note = t("methodology.tz_note", tz=escape(profile.local_tz_name))
     return f"""
 <footer class="methodology">
   <details class="methodology-fold">
-    <summary><h2>Methodology &amp; citations</h2></summary>
+    <summary><h2>{t("methodology.heading")}</h2></summary>
     <div class="methodology-body">
       <p>
-        Generated by ai-code-cognitive-stress {escape(__version__)}. Inputs:
-        local agent-coding session transcripts (whichever source adapters
-        are configured via `--source`).
-        All processing is local; nothing leaves the machine.
-        {tz_note}
+        {t("methodology.intro", version=escape(__version__), tz_note=tz_note)}
       </p>
       {cache_summary}
       <p>
-        <strong>Caveats inherent to v1:</strong>
-        (1) Supervisory-control research was developed for UAV operators, not LLM
-        users — the analogy to LLM oversight is plausible but unvalidated.
-        (2) All axes are <em>taskload</em> (objective demand), not <em>workload</em>
-        (subjective experience); correlation with felt overload is only moderate,
-        and objective and subjective workload are known to dissociate.
-        (3) The Closure Deficit scores <em>resumption load</em> — idle gaps where
-        a parked session was picked back up — using gap duration as a proxy for
-        how cold the loop went. A long autonomous agent turn is excluded (it is
-        not idle), but stepping away mid-turn is not; and the supporting lab
-        evidence measured short (sub-minute) interruptions, so multi-hour and
-        cross-day gaps extrapolate beyond that regime (Parnin &amp; Rugaber 2011 is
-        the closest field bridge).
-        (4) Personal optimum and percentiles require &ge; 14 days of activity;
-        fewer days renders as "calibrating".
+        {t("methodology.caveats")}
       </p>
       <p>
-        <strong>Foreground vs background sessions.</strong> A session counts at
-        full CODL weight only while you're actively driving it (within a short
-        grace window of one of your messages). The rest of the time it is alive
-        but "cooking" in the background and counts at a reduced weight (default
-        0.25) — discounted, because you're not actively tracking it, but never
-        zero: holding a pending intention still costs ~15–20% of ongoing-task
-        capacity (Smith, 2003) and an open goal keeps occupying working memory
-        until it's closed or planned (Masicampo &amp; Baumeister, 2011). So a
-        session you leave running while you step away is penalised lightly, not
-        as if you were juggling it.
+        {t("methodology.fg_bg")}
       </p>
       <p>
-        <strong>Composite scoring.</strong> The three normalized axes are
-        {scoring_note} Weights and ceilings are configuration parameters
-        (<code>config.json</code> <code>scoring</code>) and can be set from a
-        population calibration over pooled, anonymized exports; the defaults are
-        the literature / null-hypothesis values.
+        {t("methodology.scoring", scoring_note=scoring_note)}
       </p>
-      <h3>Research basis</h3>
+      <h3>{escape(t("methodology.research_basis"))}</h3>
       <ul class="cite-list">
       {citations_html}
       </ul>
@@ -1160,14 +1112,14 @@ def _color_for_composite(score: float, profile: StressProfile) -> str:
 
 def _composite_target_note(profile: StressProfile) -> str:
     if profile.personal_optimum is None:
-        return f"optimum: {CALIBRATING_LABEL}"
-    return f"optimum {profile.personal_optimum:.1f} CODL &middot; aim to stay near"
+        return t("note.optimum_calibrating")
+    return t("note.optimum", value=f"{profile.personal_optimum:.1f}")
 
 
 def _peak_target_note(profile: StressProfile) -> str:
     if profile.composite_p90 is None:
-        return CALIBRATING_LABEL
-    return f"your p90 = {profile.composite_p90:.0f}"
+        return t("note.calibrating")
+    return t("note.p90", value=f"{profile.composite_p90:.0f}")
 
 
 # ---------------------------------------------------------------------------
@@ -1223,7 +1175,7 @@ def _selected_month_style(profile: StressProfile) -> str:
 def _wrap_document(title: str, body_html: str, extra_css: str = "") -> str:
     dynamic = f"\n<style>\n{extra_css}</style>" if extra_css else ""
     return f"""<!DOCTYPE html>
-<html lang="en">
+<html lang="{escape(i18n.get_locale(), quote=True)}">
 <head>
 <meta charset="utf-8">
 <title>{escape(title)}</title>

@@ -5,12 +5,16 @@ report (render.py) and the desktop widgets (via dayview.py / --emit-json),
 so the surfaces can never drift. UI-agnostic: no HTML, no QML, no
 metrics/render imports.
 
-Zones: list of (upper_bound, status_class, label). A value falls in the first
-zone whose upper_bound it does not exceed. status_class ∈
-{"good","moderate","caution","high"} drives the colour.
+Zones: list of (upper_bound, status_class, label_key). A value falls in the
+first zone whose upper_bound it does not exceed. status_class ∈
+{"good","moderate","caution","high"} drives the colour. label_key is an i18n
+catalog key (locales/en.json); consumers translate it via `i18n.t` at render
+time so the locale can be selected after import.
 """
 
 from __future__ import annotations
+
+from .i18n import t
 
 # Named palette. Only good/warn/bad/ink_faint are consumed (composite
 # colours); they must stay plain hex — the Plasma panel parses the widget
@@ -39,22 +43,22 @@ ZONE_COLORS = {
 
 # Per-axis zone tables. Upper bound is inclusive (value <= upper → that zone).
 CODL_ZONES = [
-    (1.5, "good", "Focused single-stream work"),
-    (3.0, "moderate", "Parallel but manageable"),
-    (4.0, "caution", "Approaching working-memory limit"),
-    (999.0, "high", "Above working-memory capacity"),
+    (1.5, "good", "zone.codl.good"),
+    (3.0, "moderate", "zone.codl.moderate"),
+    (4.0, "caution", "zone.codl.caution"),
+    (999.0, "high", "zone.codl.high"),
 ]
 INTERRUPTION_ZONES = [
-    (2.0, "good", "Few attention-pulls"),
-    (5.0, "moderate", "Normal interruption rate"),
-    (8.0, "caution", "Frequently fragmented"),
-    (999.0, "high", "Heavily fragmented"),
+    (2.0, "good", "zone.interruption.good"),
+    (5.0, "moderate", "zone.interruption.moderate"),
+    (8.0, "caution", "zone.interruption.caution"),
+    (999.0, "high", "zone.interruption.high"),
 ]
 CLOSURE_ZONES = [
-    (0.20, "good", "Loops closed in one sitting"),
-    (0.45, "moderate", "Some parked and resumed"),
-    (0.70, "caution", "Frequent cold resumes"),
-    (1.01, "high", "Heavy resume thrashing"),
+    (0.20, "good", "zone.closure.good"),
+    (0.45, "moderate", "zone.closure.moderate"),
+    (0.70, "caution", "zone.closure.caution"),
+    (1.01, "high", "zone.closure.high"),
 ]
 
 # Range-bar maxima per axis. CODL's ceiling is the metric's normalisation
@@ -65,7 +69,8 @@ CLOSURE_RANGE_MAX = 1.0
 
 
 def zone_for(value: float, zones: list[tuple[float, str, str]]) -> tuple[str, str]:
-    """Return (status_class, label) for the first zone the value fits in."""
+    """Return (status_class, label_key) for the first zone the value fits in.
+    The label is an i18n key — translate with `i18n.t` before display."""
     for upper, status_class, label in zones:
         if value <= upper:
             return status_class, label
@@ -96,10 +101,11 @@ def composite_color(status_class: str) -> str:
 
 def composite_advice(status_class: str) -> str:
     """A light, one-word read on what a composite level means, shown beside the
-    score in the widgets. Casual heat metaphor: chill → heating up → cooked."""
-    return {
-        "good": "Chill", "caution": "Heating up", "high": "Cooked",
-    }.get(status_class, "Idle")
+    score in the widgets. Casual heat metaphor: chill → heating up → cooked.
+    Translated via the i18n catalog (advice.*)."""
+    return t({
+        "good": "advice.good", "caution": "advice.caution", "high": "advice.high",
+    }.get(status_class, "advice.idle"))
 
 
 def composite_status(

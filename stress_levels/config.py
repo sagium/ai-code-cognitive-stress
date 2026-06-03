@@ -82,6 +82,9 @@ class Config:
     codl: CodlConfig = CodlConfig()
     resumption: ResumptionConfig = ResumptionConfig()
     scoring: ScoringConfig = ScoringConfig()
+    # Locale for all rendered text (report + widget card); a catalog file
+    # stress_levels/locales/<locale>.json. Missing keys fall back to English.
+    locale: str = "en"
 
 
 def _parse_hhmm(value: str) -> time:
@@ -112,11 +115,15 @@ def load_config(path: Path | None = None) -> Config:
         work_window: WorkWindow | None = WorkWindow(start=start, end=end)
     else:
         work_window = None
+    locale = data.get("locale", "en")
+    if not isinstance(locale, str) or not locale:
+        raise ValueError(f"locale must be a non-empty string, got {locale!r}")
     config = Config(
         work_window=work_window,
         codl=_parse_codl(data.get("codl") or {}),
         resumption=_parse_resumption(data.get("resumption") or {}),
         scoring=_parse_scoring(data.get("scoring") or {}),
+        locale=locale,
     )
     _CONFIG_CACHE[key] = config
     return config

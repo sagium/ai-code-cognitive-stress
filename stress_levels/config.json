@@ -1,5 +1,7 @@
 {
   "_comment": "Runtime configuration for ai-code-cognitive-stress. Edit these defaults to change behaviour without touching code.",
+  "_comment_locale": "Language for all rendered text (HTML report + widget card). Catalogs live in stress_levels/locales/<code>.json; 'en' ships with the tool. To add a language, copy en.json to e.g. de.json, translate the values, and set 'locale' to 'de'. Missing keys fall back to English.",
+  "locale": "en",
   "_comment_work_window": "The work window is inferred per-user from interaction timestamps by default (p10–p90 of your daytime message hours, requiring at least 5 distinct weekdays of data). To PIN a manual window instead, add a 'work_window' block with 'start' and 'end' (HH:MM, local time) and it will override inference. Example: {\"start\": \"09:00\", \"end\": \"19:00\"}.",
   "codl": {
     "_comment": "Engagement weighting for CODL. A session counts at full weight (1.0) only while you're actively driving it — within foreground_grace_minutes of one of YOUR messages. The rest of the time it is alive but 'cooking' in the background and counts at background_weight. Research basis: a background locus is the 'out-of-the-loop' supervisory regime, where monitoring is effortful and stressful (Warm et al. 2008; Endsley & Kiris 1995; Parasuraman & Manzey 2010) — discounted but never free. The magnitude (0.25) is borrowed from the prospective-memory monitoring cost of ~15-20% of ongoing-task capacity (Smith 2003; Masicampo & Baumeister 2011), at the conservative top of that range.",
