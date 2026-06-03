@@ -124,8 +124,7 @@ class ClaudeCodeSessionSource:
                 except ValueError:
                     stats.lines_skipped_no_timestamp += 1
                     continue
-                cwd = record.get("cwd") or None
-                for ev in _events_from_record(record, ts, stream_id, project, cwd):
+                for ev in _events_from_record(record, ts, stream_id, project):
                     stats.events_emitted += 1
                     yield ev
 
@@ -148,16 +147,13 @@ def _events_from_record(
     ts: datetime,
     stream_id: str,
     project: str,
-    cwd: str | None = None,
 ) -> Iterator[Event]:
     rec_type = record["type"]
     uuid = record.get("uuid")
-    branch = record.get("gitBranch") or None
 
     if rec_type == "user":
         yield UserMessageEvent(
-            ts=ts, stream_id=stream_id, project=project,
-            uuid=uuid, branch=branch, cwd=cwd,
+            ts=ts, stream_id=stream_id, project=project, uuid=uuid,
         )
         for block in _iter_content_blocks(record):
             if block.get("type") == "tool_result":
@@ -165,12 +161,11 @@ def _events_from_record(
                     ts=ts, stream_id=stream_id, project=project,
                     tool_use_id=block.get("tool_use_id"),
                     is_error=bool(block.get("is_error")),
-                    uuid=uuid, branch=branch, cwd=cwd,
+                    uuid=uuid,
                 )
     else:  # assistant
         yield AssistantMessageEvent(
-            ts=ts, stream_id=stream_id, project=project,
-            uuid=uuid, branch=branch, cwd=cwd,
+            ts=ts, stream_id=stream_id, project=project, uuid=uuid,
         )
         for block in _iter_content_blocks(record):
             if block.get("type") == "tool_use":
@@ -178,7 +173,7 @@ def _events_from_record(
                     ts=ts, stream_id=stream_id, project=project,
                     tool_name=block.get("name"),
                     tool_use_id=block.get("id"),
-                    uuid=uuid, branch=branch, cwd=cwd,
+                    uuid=uuid,
                 )
 
 

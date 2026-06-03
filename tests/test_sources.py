@@ -91,8 +91,6 @@ def test_claude_code_source_yields_typed_events_with_keys(tmp_path):
         assert isinstance(version, float)
     assert isinstance(items[0][0], UserMessageEvent)
     assert isinstance(items[1][0], AssistantMessageEvent)
-    # The recorded cwd is threaded onto every event (for repo attribution).
-    assert all(ev.cwd == "/home/test" for ev, _k, _v in items)
 
 
 # ---------------------------------------------------------------------------

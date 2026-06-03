@@ -140,16 +140,15 @@ def test_project_token_is_directory_name(tmp_path):
     assert events[0].project == "-home-test-my-proj"
 
 
-def test_event_carries_branch_and_uuid_typed(tmp_path):
+def test_event_carries_uuid_typed(tmp_path):
     proj = _project(tmp_path)
     _write_session(proj / "sess.jsonl", [
-        _session_record("user", "2026-05-15T10:00:00.000Z", branch="feature/x"),
+        _session_record("user", "2026-05-15T10:00:00.000Z"),
     ])
     events, _ = collect(
         date(2026, 5, 1), date(2026, 5, 31),
         projects_dir=_projects_root(tmp_path),
     )
-    assert events[0].branch == "feature/x"
     assert events[0].uuid.startswith("uuid-user-")
 
 

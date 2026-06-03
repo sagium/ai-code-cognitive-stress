@@ -185,16 +185,11 @@ class StreamDayActivity:
     project: str
     first_ts: datetime          # UTC, tz-aware
     last_ts: datetime           # UTC, tz-aware
-    # Absolute working directory the session ran in (from the source, when it
-    # records one). Retained as session metadata; not consumed by any axis.
-    # None when the source didn't record a cwd.
-    cwd: str | None = None
     user_msg_count: int = 0
     assistant_msg_count: int = 0
     tool_use_count: int = 0
     tool_result_count: int = 0
     tool_error_count: int = 0
-    branches: tuple[str, ...] = ()
     # User-message timestamps in UTC. Needed by metrics.py for CODL engagement
     # weighting: _stream_weight_at uses them to detect foreground vs background
     # activity within the grace window.
@@ -377,7 +372,6 @@ def _aggregate_events(
     per_stream: dict[str, dict] = defaultdict(lambda: {
         "stream_id": "",
         "project": "",
-        "cwd": None,
         "first_ts": None,
         "last_ts": None,
         "user_msg_count": 0,
@@ -385,7 +379,6 @@ def _aggregate_events(
         "tool_use_count": 0,
         "tool_result_count": 0,
         "tool_error_count": 0,
-        "branches": set(),
         "user_msg_timestamps": [],
         "event_timestamps": [],
     })
@@ -394,17 +387,12 @@ def _aggregate_events(
         s = per_stream[ev.stream_id]
         s["stream_id"] = ev.stream_id
         s["project"] = ev.project
-        ev_cwd = getattr(ev, "cwd", None)
-        if ev_cwd:
-            s["cwd"] = ev_cwd
         if s["first_ts"] is None or ev.ts < s["first_ts"]:
             s["first_ts"] = ev.ts
         if s["last_ts"] is None or ev.ts > s["last_ts"]:
             s["last_ts"] = ev.ts
         # Every event's timestamp feeds the idle-gap (resumption) scan below.
         s["event_timestamps"].append(ev.ts)
-        if ev.branch:
-            s["branches"].add(ev.branch)
         if isinstance(ev, UserMessageEvent):
             s["user_msg_count"] += 1
             s["user_msg_timestamps"].append(ev.ts)
@@ -421,7 +409,6 @@ def _aggregate_events(
         StreamDayActivity(
             stream_id=v["stream_id"],
             project=v["project"],
-            cwd=v["cwd"],
             first_ts=v["first_ts"],
             last_ts=v["last_ts"],
             user_msg_count=v["user_msg_count"],
@@ -429,7 +416,6 @@ def _aggregate_events(
             tool_use_count=v["tool_use_count"],
             tool_result_count=v["tool_result_count"],
             tool_error_count=v["tool_error_count"],
-            branches=tuple(sorted(v["branches"])),
             user_msg_timestamps=tuple(sorted(v["user_msg_timestamps"])),
             resume_gaps=_idle_gaps(v["event_timestamps"]),
         )
@@ -605,7 +591,6 @@ def _aggregate_to_dict(a: DayAggregate) -> dict:
             {
                 "stream_id": s.stream_id,
                 "project": s.project,
-                "cwd": s.cwd,
                 "first_ts": s.first_ts.isoformat(),
                 "last_ts": s.last_ts.isoformat(),
                 "user_msg_count": s.user_msg_count,
@@ -613,7 +598,6 @@ def _aggregate_to_dict(a: DayAggregate) -> dict:
                 "tool_use_count": s.tool_use_count,
                 "tool_result_count": s.tool_result_count,
                 "tool_error_count": s.tool_error_count,
-                "branches": list(s.branches),
                 "user_msg_timestamps": [t.isoformat() for t in s.user_msg_timestamps],
                 "resume_gaps": [
                     [t.isoformat(), g] for t, g in s.resume_gaps
@@ -630,7 +614,6 @@ def _aggregate_from_dict(d: dict) -> DayAggregate:
         StreamDayActivity(
             stream_id=s["stream_id"],
             project=s["project"],
-            cwd=s.get("cwd"),
             first_ts=datetime.fromisoformat(s["first_ts"]),
             last_ts=datetime.fromisoformat(s["last_ts"]),
             user_msg_count=int(s.get("user_msg_count", 0)),
@@ -638,7 +621,6 @@ def _aggregate_from_dict(d: dict) -> DayAggregate:
             tool_use_count=int(s.get("tool_use_count", 0)),
             tool_result_count=int(s.get("tool_result_count", 0)),
             tool_error_count=int(s.get("tool_error_count", 0)),
-            branches=tuple(s.get("branches", [])),
             user_msg_timestamps=tuple(
                 datetime.fromisoformat(t) for t in s.get("user_msg_timestamps", [])
             ),

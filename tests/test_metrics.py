@@ -49,7 +49,6 @@ def _stream(stream_id, first_ts, last_ts, **counts):
     return StreamDayActivity(
         stream_id=stream_id,
         project="proj",
-        cwd=counts.get("cwd"),
         first_ts=first_ts,
         last_ts=last_ts,
         user_msg_count=counts.get("user_msg_count", 0),
@@ -57,7 +56,6 @@ def _stream(stream_id, first_ts, last_ts, **counts):
         tool_use_count=counts.get("tool_use_count", 0),
         tool_result_count=counts.get("tool_result_count", 0),
         tool_error_count=counts.get("tool_error_count", 0),
-        branches=counts.get("branches", ()),
         user_msg_timestamps=counts.get("user_msg_timestamps", ()),
         resume_gaps=counts.get("resume_gaps", ()),
     )
@@ -589,7 +587,7 @@ def test_per_day_metrics_single_stream_low_load():
     assert m.codl_peak == 1
     assert 0 < m.codl_avg <= 1.0
     # The stream had no idle gaps, so the Closure Deficit (resumption load) is a
-    # real 0.0 — every loop closed in one sitting — NOT None. No git needed.
+    # real 0.0 — every loop closed in one sitting — NOT None.
     assert m.closure_deficit == 0.0
     # off_hours_minutes should be 0 (stream entirely inside window)
     assert m.off_hours_minutes == 0
@@ -695,7 +693,7 @@ def test_personal_optimum_skips_none_closure_days():
     for d in workdays[:8]:
         days[d] = DayMetrics(day=d, codl_avg=1.2,
                              closure_deficit=0.1, off_hours_minutes=5)
-    # High-load bucket: NO git data (closure None) + heavy off-hours.
+    # High-load bucket: no closure data (closure None) + heavy off-hours.
     for d in workdays[8:]:
         days[d] = DayMetrics(day=d, codl_avg=3.5,
                              closure_deficit=None, off_hours_minutes=120)

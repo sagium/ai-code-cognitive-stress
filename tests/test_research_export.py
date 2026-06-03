@@ -184,7 +184,6 @@ def test_consent_prompt_rejects_anything_else():
 # --- debug detail (with aggregates) ---------------------------------------
 
 _PROJECT_NAME = "secret-internal-project"
-_BRANCH_NAME = "feature/secret-branch"
 _STREAM_ID = "sess-deadbeef"
 
 
@@ -196,7 +195,6 @@ def _stub_aggregates() -> dict:
         first_ts=_ts(10), last_ts=_ts(12),
         user_msg_count=8, assistant_msg_count=9, tool_use_count=20,
         tool_result_count=18, tool_error_count=2,
-        branches=(_BRANCH_NAME,),
         user_msg_timestamps=(_ts(10), _ts(11)),
         resume_gaps=((_ts(11, 30), 3600),),  # one 60-min in-window resume
     )
@@ -205,7 +203,7 @@ def _stub_aggregates() -> dict:
         first_ts=_ts(11), last_ts=_ts(13),
         user_msg_count=3, assistant_msg_count=4, tool_use_count=6,
         tool_result_count=6, tool_error_count=0,
-        branches=(), user_msg_timestamps=(_ts(11, 30),),
+        user_msg_timestamps=(_ts(11, 30),),
     )
     agg = DayAggregate(
         day=_ACTIVE_DAY, streams=(s1, s2), peak_concurrent_streams=2,
@@ -243,31 +241,29 @@ def test_debug_block_present_with_components():
 
 def test_consent_text_discloses_resumption_timing():
     """The export ships session-resumption timing, so the consent statement must
-    disclose it — and must promise no identifying detail (git is no longer read)."""
+    disclose it — and must promise no identifying detail."""
     assert "resumption" in CONSENT_TEXT
-    assert "git" not in CONSENT_TEXT  # the tool no longer reads git at all
+    assert "git" not in CONSENT_TEXT  # the tool reads no git data
     assert "no source code" in CONSENT_TEXT or "no source" in CONSENT_TEXT
     assert "repository or branch names" in CONSENT_TEXT
 
 
-def test_debug_resumption_reproduces_deficit_and_leaks_no_path():
+def test_debug_resumption_reproduces_deficit():
     """The debug block carries the resumption components (resume count, per-resume
     gap minutes, severity-summed load) so the day's closure_deficit is
-    reproducible from them, and the (username-bearing) cwd never appears in the
-    export."""
+    reproducible from them."""
     from stress_levels.metrics import (
         build_profile, RESUME_FULL_DECAY_MINUTES, RESUMPTION_DAILY_CEILING,
     )
 
     def _ts(h):
         return datetime(2026, 5, 14, h, tzinfo=timezone.utc)
-    repo = "/home/someone/secret-repo"
     streams = (
         # one 120-min (fully-cold) in-window resume, picked back up at 14:00
-        StreamDayActivity(stream_id="s1", project="p", cwd=repo,
+        StreamDayActivity(stream_id="s1", project="p",
                           first_ts=_ts(10), last_ts=_ts(16),
                           resume_gaps=((_ts(14), 7200),)),
-        StreamDayActivity(stream_id="s2", project="p", cwd=repo,
+        StreamDayActivity(stream_id="s2", project="p",
                           first_ts=_ts(11), last_ts=_ts(13)),
     )
     aggs = {_ACTIVE_DAY: DayAggregate(day=_ACTIVE_DAY, streams=streams,
@@ -296,9 +292,6 @@ def test_debug_resumption_reproduces_deficit_and_leaks_no_path():
         / RESUMPTION_DAILY_CEILING,
     ), 3)
     assert day["closure_deficit"] == reconstructed
-    # The cwd (which contains a username) never leaks.
-    assert "someone" not in json.dumps(out)
-    assert "secret-repo" not in json.dumps(out)
 
 
 def test_debug_sessions_are_anonymized():
@@ -312,7 +305,7 @@ def test_debug_sessions_are_anonymized():
     # counts preserved, identifiers absent
     assert row["tool_errors"] == 2
     assert row["duration_min"] == 120
-    assert "project" not in row and "branches" not in row
+    assert "project" not in row
     assert "stream_id" not in row and "first_ts" not in row
 
 
@@ -324,9 +317,9 @@ def test_debug_hourly_concurrency_is_sparse_and_keyed_by_hour():
     assert all(v > 0 for v in hc.values())  # only active hours emitted
 
 
-def test_debug_leaks_no_project_or_branch_or_stream_id():
+def test_debug_leaks_no_project_or_stream_id():
     dump = json.dumps(_export_with_debug())
-    for token in (_PROJECT_NAME, _BRANCH_NAME, _STREAM_ID, "another-project"):
+    for token in (_PROJECT_NAME, _STREAM_ID, "another-project"):
         assert token not in dump
 
 

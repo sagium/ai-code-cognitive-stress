@@ -77,9 +77,9 @@ def test_empty_events_yields_empty_aggregate():
 def test_single_stream_reduces_to_one_stream_activity():
     events = [
         UserMessageEvent(ts=_utc(2026, 5, 15, 9, 0), stream_id="s1",
-                         project="p", branch="main"),
+                         project="p"),
         AssistantMessageEvent(ts=_utc(2026, 5, 15, 9, 5), stream_id="s1",
-                              project="p", branch="main"),
+                              project="p"),
         ToolUseEvent(ts=_utc(2026, 5, 15, 9, 6), stream_id="s1",
                      project="p", tool_name="Read"),
         ToolResultEvent(ts=_utc(2026, 5, 15, 9, 7), stream_id="s1",
@@ -94,7 +94,6 @@ def test_single_stream_reduces_to_one_stream_activity():
     assert s.tool_use_count == 1
     assert s.tool_result_count == 1
     assert s.tool_error_count == 0
-    assert s.branches == ("main",)
     assert s.first_ts == _utc(2026, 5, 15, 9, 0)
     assert s.last_ts == _utc(2026, 5, 15, 9, 7)
 
@@ -150,17 +149,6 @@ def test_streams_sorted_by_first_ts():
     ]
     agg = _aggregate_events(date(2026, 5, 15), events)
     assert [s.stream_id for s in agg.streams] == ["early", "late"]
-
-
-def test_multiple_branches_in_one_stream_day():
-    events = [
-        UserMessageEvent(ts=_utc(2026, 5, 15, 9), stream_id="s1",
-                         project="p", branch="main"),
-        AssistantMessageEvent(ts=_utc(2026, 5, 15, 10), stream_id="s1",
-                              project="p", branch="feature/x"),
-    ]
-    agg = _aggregate_events(date(2026, 5, 15), events)
-    assert agg.streams[0].branches == ("feature/x", "main")
 
 
 def test_stream_count_property_matches_streams_len():
@@ -601,27 +589,6 @@ def test_roundtrip_serialization_preserves_aggregate(tmp_path):
     a2 = aggs2[date(2026, 5, 15)]
     assert a1.streams == a2.streams
     assert a1.peak_concurrent_streams == a2.peak_concurrent_streams
-
-
-def test_cwd_is_captured_on_stream_and_survives_cache_roundtrip(tmp_path):
-    """The session cwd is recorded on the StreamDayActivity and round-trips
-    through the on-disk cache (used by metrics for per-repo attribution)."""
-    proj = _project(tmp_path)
-    _write_session(proj / "s.jsonl", [
-        _session_record("user", "2026-05-15T09:00:00.000Z"),
-        _session_record("assistant", "2026-05-15T09:00:05.000Z"),
-    ])
-    common = dict(
-        projects_dir=tmp_path / "projects",
-        cache_dir=tmp_path / "cache",
-        now=_utc(2026, 5, 16),
-        local_tz=timezone.utc,
-    )
-    aggs1, _ = get_day_aggregates(date(2026, 5, 15), date(2026, 5, 15), **common)
-    aggs2, stats = get_day_aggregates(date(2026, 5, 15), date(2026, 5, 15), **common)
-    assert stats.cache_hits == 1
-    assert aggs1[date(2026, 5, 15)].streams[0].cwd == "/home/test/proj"
-    assert aggs2[date(2026, 5, 15)].streams[0].cwd == "/home/test/proj"
 
 
 # ---------------------------------------------------------------------------
