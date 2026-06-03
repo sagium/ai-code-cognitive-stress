@@ -4,7 +4,7 @@ report and the KDE Plasma widget."""
 from __future__ import annotations
 
 import json
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
 
 from stress_levels.aggregate import DayAggregate, StreamDayActivity
 from stress_levels.dayview import (
@@ -17,6 +17,7 @@ from stress_levels.dayview import (
     dayview_to_dict,
     hour_counts,
     personal_baseline,
+    score_progression,
 )
 from stress_levels.metrics import CODL_NORMALISATION_CEILING, DayMetrics, StressProfile
 
@@ -194,6 +195,36 @@ def test_dayview_hour_colors_match_counts():
     # Serialised for the widgets.
     d = dayview_to_dict(dv)
     assert d["hour_colors"] == dv.hour_colors
+
+
+# --- score progression (sparkline) ------------------------------------------
+
+def test_score_progression_does_not_leak_future_activity():
+    """Each hour-end point scores only the data that existed at that instant.
+    Regression guard: the afternoon's activity used to count as 'off-hours past
+    the window end' at the morning points, painting the early sparkline red on
+    an ordinary day."""
+    day = date(2026, 6, 3)
+    # One stream active 15:00–17:00, a user message every 5 minutes.
+    msgs = tuple(
+        datetime(2026, 6, 3, 15, 0, tzinfo=timezone.utc) + timedelta(minutes=5 * i)
+        for i in range(25)
+    )
+    s = StreamDayActivity(
+        stream_id="s", project="p",
+        first_ts=msgs[0], last_ts=msgs[-1],
+        user_msg_count=len(msgs), user_msg_timestamps=msgs,
+    )
+    m = DayMetrics(day=day, composite=10.0, work_window_local=(time(9), time(19)))
+    points = score_progression(
+        m, DayAggregate(day=day, streams=(s,)), _profile(), timezone.utc,
+    )
+    assert len(points) == 10  # hour-ends 10:00 … 19:00
+    # Before the stream exists (hour-ends 10:00–14:00) the score-so-far is 0 —
+    # the afternoon work must not bleed back as off-hours load.
+    assert all(p.value == 0 for p in points[:5])
+    # Once the stream is live the score-so-far is positive.
+    assert points[-1].value > 0
 
 
 # --- off-hours nag ----------------------------------------------------------

@@ -12,7 +12,7 @@ the widgets from drifting — the same role `scales.py` plays for zones/colours.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, time, timedelta, timezone, tzinfo
 
 from .aggregate import DayAggregate, get_day_aggregates
@@ -367,6 +367,28 @@ class ScorePoint:
     color: str          # zone colour for that level (drives the gradient)
 
 
+def _truncate_aggregate(agg: DayAggregate, cutoff: datetime) -> DayAggregate:
+    """Copy of `agg` containing only activity at or before `cutoff` (UTC) — the
+    day as it existed at that instant. Streams born later are dropped; surviving
+    streams have their last event, message timestamps, and resume gaps clipped.
+    Per-stream counts stay whole-day, but per_day_metrics apportions them by
+    lifetime overlap with the window, so the clipped lifetime scales them to
+    'so far' under a uniform-rate assumption."""
+    streams = tuple(
+        replace(
+            s,
+            last_ts=min(s.last_ts, cutoff),
+            user_msg_timestamps=tuple(
+                t for t in s.user_msg_timestamps if t <= cutoff
+            ),
+            resume_gaps=tuple(g for g in s.resume_gaps if g[0] <= cutoff),
+        )
+        for s in agg.streams
+        if s.first_ts <= cutoff
+    )
+    return replace(agg, streams=streams)
+
+
 def score_progression(
     metrics: DayMetrics,
     agg: DayAggregate | None,
@@ -376,16 +398,26 @@ def score_progression(
     """Cumulative composite (0–100) at each hour-end of the work window — the
     score 'so far' as the day fills, computed with the same engine as the
     headline composite. Each point carries its zone colour so the sparkline can
-    render as a severity gradient. The final point equals the day's composite.
-    Empty when there is no work window or no activity."""
+    render as a severity gradient. Both the window AND the event data are
+    truncated at each hour-end: without the data cut, the afternoon's activity
+    would count as 'off-hours past the window end' at the morning points,
+    painting the early sparkline red on a perfectly ordinary day. The final
+    point equals the day's composite as of the window end (off-hours work after
+    the window can still lift the headline above it). Empty when there is no
+    work window or no activity."""
     if agg is None or not agg.streams or metrics.work_window_local is None:
         return []
     ws, we = metrics.work_window_local
     weekday = metrics.day.weekday()
     points: list[ScorePoint] = []
     for h in range(ws.hour + 1, we.hour + 1):
+        cutoff = datetime.combine(
+            metrics.day, time(h, 0), tzinfo=local_tz,
+        ).astimezone(timezone.utc)
         window = _MetricsWorkWindow(weekday=weekday, start=ws, end=time(h, 0))
-        value = per_day_metrics(agg, window, local_tz).composite
+        value = per_day_metrics(
+            _truncate_aggregate(agg, cutoff), window, local_tz,
+        ).composite
         status = composite_status(value, profile.composite_p75, profile.composite_p90)
         points.append(ScorePoint(value=value, color=composite_color(status)))
     return points
