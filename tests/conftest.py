@@ -41,6 +41,6 @@ def _no_real_browser(monkeypatch):
     # through to a native opener in the first place.
     monkeypatch.setattr(webbrowser, "open", lambda *a, **k: True, raising=False)
     # Belt-and-suspenders: if a path does reach a native opener, neutralize only
-    # the browser commands; real subprocess.run/git stays intact.
+    # the browser commands; real subprocess.run stays intact.
     monkeypatch.setattr(subprocess, "Popen", _guarded_popen, raising=False)
     yield

@@ -20,9 +20,9 @@ Three axes (per day, computed during work hours only):
                       Trafton 2002) at a cost rising with the gap (Monk, Trafton &
                       Boehm-Davis 2008; in-domain, Parnin & Rugaber 2011); closure
                       is a recovery resource (Sonnentag & Fritz 2007). Independent
-                      of the concurrency shape C(t) by construction. Needs no git
-                      and is scored on every active day; None only when a day has
-                      no activity at all.
+                      of the concurrency shape C(t) by construction. Scored on
+                      every active day; None only when a day has no activity at
+                      all.
 
 Composite stress = equal-weighted blend of the three axes mapped to 0..100.
 Equal weights are the null hypothesis for v1; we don't have evidence to favor
@@ -132,10 +132,10 @@ BACKGROUND_WEIGHT_DEFAULT: float = 0.25
 #     tasks (Ovsiankina) replicates; the older "open loops are better remembered"
 #     claim (Zeigarnik) does not — so we ground the axis on resumption cost, not
 #     on memory-persistence of open goals.
-# Unlike the former git-correlation measure this needs no git and is scored on
-# every active day. CAVEAT: the lab studies measured short interruptions (seconds
-# to ~1 min); multi-hour and cross-day gaps are an extrapolation beyond that
-# regime, with Parnin & Rugaber as the closest field bridge.
+# Scored on every active day. CAVEAT: the lab studies measured short
+# interruptions (seconds to ~1 min); multi-hour and cross-day gaps are an
+# extrapolation beyond that regime, with Parnin & Rugaber as the closest
+# field bridge.
 
 # A gap of at least this many minutes (no event of any kind) is a resume — a
 # parked loop picked back up — rather than a short break. Below it, the loop was
@@ -523,7 +523,7 @@ def per_day_debug(
     """Per-day component breakdown behind the scores, for the research export's
     debug detail. Mirrors the inputs `per_day_metrics` reduces, so the two stay
     in sync. Returns only counts/durations and an hourly activity shape — no
-    project/branch names and no absolute timestamps (anonymized at the source).
+    project names and no absolute timestamps (anonymized at the source).
 
     Computed on demand by the export only; not part of `build_profile`, so the
     report/widget path pays nothing for it.
@@ -667,9 +667,9 @@ def _resumption_load(
     ``_resume_severity(gap)``; the day's value is
     ``min(1, Σ severity / daily_ceiling)``. ``0.0`` is a real, good score (every
     loop closed in one sitting) — distinct from ``None`` (no activity to assess).
-    Needs no git and is independent of the concurrency time-series C(t): two days
-    with identical C(t) score differently if one parked-and-reloaded its loops
-    and the other ran them to completion in a sitting.
+    Independent of the concurrency time-series C(t): two days with identical
+    C(t) score differently if one parked-and-reloaded its loops and the other
+    ran them to completion in a sitting.
     """
     if not agg.streams:
         return None
@@ -697,11 +697,10 @@ def _composite_score(
     a calibrated weight vector that doesn't sum to 1 still yields a 0..100 score.
 
     When ``closure_deficit is None`` the Closure axis has no data for the day
-    (no git-correlatable activity), so it is dropped and the blend renormalises
-    over the remaining axes — i.e. its weight is redistributed to CODL and
-    Interruption rather than imputed as a perfect-closure 0. A heavy
-    debugging/chat day is then scored on the load and interruption it actually
-    carried, not discounted for closing loops it never opened."""
+    (``_resumption_load`` returns None only when the day has no activity at
+    all), so it is dropped and the blend renormalises over the remaining axes —
+    i.e. its weight is redistributed to CODL and Interruption rather than
+    imputed as a perfect-closure 0."""
     codl_norm = min(1.0, codl_avg / codl_ceiling)
     int_norm = min(1.0, interruption_rate / interruption_ceiling)
     w_codl, w_int, w_clo = weights
@@ -743,8 +742,8 @@ def _off_hours_engaged_minutes(
 
     Interaction-anchored: driven purely by ``user_msg_timestamps``, so a
     background session alive off-hours with no user messages contributes
-    nothing, and closure/git events never enter. Overlapping grace windows are
-    de-duplicated via a set of minute-floored instants.
+    nothing. Overlapping grace windows are de-duplicated via a set of
+    minute-floored instants.
     """
     grace = timedelta(seconds=grace_seconds)
     minute = timedelta(minutes=1)

@@ -123,8 +123,8 @@ AXES: tuple[AxisMeta, ...] = (
             "resume is a true-idle gap in a session (no activity at all) of ≥ 30 "
             "min, or a pickup on a later day; each resume's severity is "
             "min(1, gap ÷ 120 min), so cost rises with how long the loop was "
-            "parked then saturates once context is fully cold. No git required — "
-            "scored on every active day; independent of the CODL shape."
+            "parked then saturates once context is fully cold. Scored on every "
+            "active day; independent of the CODL shape."
         ),
         basis=(
             "Monk, Trafton & Boehm-Davis (2008) resumption cost rises with gap "

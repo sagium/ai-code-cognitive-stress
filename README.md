@@ -1,13 +1,7 @@
-# ai-code-cognitive-stress
+## Measuring the Cognitive Load of Supervising Parallel AI Coding Agents.
 
-[![tests](https://github.com/sagium/ai-code-cognitive-stress/actions/workflows/tests.yml/badge.svg)](https://github.com/sagium/ai-code-cognitive-stress/actions/workflows/tests.yml)
 
-**See when AI-paced coding is wearing you down — before it burns you out.**
-
-> Your day gets a 0–100 score and a one-word verdict —
-> from `Chill` 🧊 `▁▂▃▄▅▆▇█` 🍳 `Cooked`. Playful label, real research underneath.
-
-📄 **Read the paper:** [*Measuring the Cognitive Load of Supervising Parallel AI Coding Agents — A Local, Research-Grounded, Individualized Index*](paper/ai-code-cognitive-stress-paper.pdf) (PDF). The method, the literature behind every axis, and a section devoted to attacking our own construct.
+**Read the paper:** [*Measuring the Cognitive Load of Supervising Parallel AI Coding Agents — A Local, Research-Grounded, Individualized Index*](paper/ai-code-cognitive-stress-paper.pdf) (PDF). The method, the literature behind every axis, and a section devoted to attacking our own construct.
 
 Running several LLM coding tools at once — or many sessions of one — puts you in a role
 humans rarely held before: one operator supervising multiple semi-autonomous
@@ -180,13 +174,13 @@ The tool **never sends anything** — it writes a local file, you choose to uplo
 The export shows you a consent statement and (in a terminal) asks you to type `yes`;
 pass `--i-consent` to acknowledge non-interactively. What's in the file:
 
-- ✅ **derived daily metrics** (the three axes + composite) and the **components
+- **derived daily metrics** (the three axes + composite) and the **components
   behind them**, **per-session activity counts** (message/tool-call tallies and
   durations), an **hourly activity-load shape**, and your typical **working-hour
   ranges** — enough to debug the metrics and ingestion;
-- 🔀 calendar **dates randomly shifted** and a **random per-export id** — so the data
+- calendar **dates randomly shifted** and a **random per-export id** — so the data
   isn't tied to you or a real calendar;
-- 🚫 **no** source code, file paths, repo or branch names, commit messages, session
+- **no** source code, file paths, repo or branch names, commit messages, session
   text, usernames, or timezone.
 
 Open the JSON first if you'd like to see exactly what you'd send. Because the upload
@@ -248,7 +242,7 @@ default.
 |---|---|---|---|
 | **CODL** (Concurrent Operational Demand Load) | How many agent sessions you supervise at once | 1-min samples over the work window; `codl_avg` time-weighted, `codl_peak` the max. Status threshold at the working-memory cap (~4) | Working memory ≈ 4 chunks (**Cowan 2001**); non-linear degradation past fan-out limits (**Cummings & Mitchell 2008**; **Sheridan 1992**) |
 | **Interruption Index** | Weighted attention-pulls per work hour | `(tool_error × 1.5 + cross-session-start × 3.0) / work_hours`. Tool calls *within* a session don't count — that's a Waiting state, not an interruption | Interrupted work is faster but more stressful (**Mark, Gudith & Klocke 2008**); external switches cost ~25% more (**Mark, Gonzalez & Harris 2005**); attention residue (**Leroy 2009**); cross-tool switches cost more (**Wickens 2008**) |
-| **Closure Deficit** | Loops you couldn't finish in one sitting and had to pick back up — scored by how long they sat parked (0 = everything closed in one sitting, 1 = many cold reloads) | `min(1, Σ severity / 4)`: a **resume** is a true-idle gap in a session (no user *or* agent event) of ≥ 30 min whose pickup lands in the work window, or a same-session pickup on a later day. Each resume's **severity** is `min(1, gap ÷ 120 min)` — cost rises with how long the loop was parked, then saturates once context is fully cold. Sum the severities, divide by a daily ceiling (~4 cold reloads, a loose Cowan anchor), clip to `[0, 1]`. A long *autonomous agent* turn is **not** counted (it isn't idle). No git required — scored on **every** active day; `None` only on a day with no activity. Thresholds in `config.json` (`resumption` block). Per-session, independent of the CODL shape | Resumption cost rises with gap **duration** (**Monk, Trafton & Boehm-Davis 2008**); goal-activation decays over the gap (**Altmann & Trafton 2002**); in-domain reconstruction tax for interrupted coding (**Parnin & Rugaber 2011**); closure is a recovery resource (**Sonnentag & Fritz 2007**) |
+| **Closure Deficit** | Loops you couldn't finish in one sitting and had to pick back up — scored by how long they sat parked (0 = everything closed in one sitting, 1 = many cold reloads) | `min(1, Σ severity / 4)`: a **resume** is a true-idle gap in a session (no user *or* agent event) of ≥ 30 min whose pickup lands in the work window, or a same-session pickup on a later day. Each resume's **severity** is `min(1, gap ÷ 120 min)` — cost rises with how long the loop was parked, then saturates once context is fully cold. Sum the severities, divide by a daily ceiling (~4 cold reloads, a loose Cowan anchor), clip to `[0, 1]`. A long *autonomous agent* turn is **not** counted (it isn't idle). Scored on **every** active day; `None` only on a day with no activity. Thresholds in `config.json` (`resumption` block). Per-session, independent of the CODL shape | Resumption cost rises with gap **duration** (**Monk, Trafton & Boehm-Davis 2008**); goal-activation decays over the gap (**Altmann & Trafton 2002**); in-domain reconstruction tax for interrupted coding (**Parnin & Rugaber 2011**); closure is a recovery resource (**Sonnentag & Fritz 2007**) |
 
 **Composite (0–100)** is the equal-weighted blend of the three normalised axes —
 the explicit v1 null hypothesis (no evidence yet favours one axis), stated as such
@@ -281,8 +275,7 @@ not peaks, is what damages you over time.
   supporting lab evidence (**Monk et al. 2008**; **Altmann & Trafton 2002**)
   measured *short* (sub-minute) interruptions; multi-hour and cross-day gaps
   extrapolate beyond that regime, with **Parnin & Rugaber 2011** the closest
-  in-domain field bridge. No git is required and the axis is scored on every
-  active day.
+  in-domain field bridge. The axis is scored on every active day.
 
 Every threshold, weight, and recommendation traces to an entry in
 [`stress_levels/citations.yml`](stress_levels/citations.yml) — the report renders

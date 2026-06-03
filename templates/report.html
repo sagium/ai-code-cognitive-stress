@@ -547,7 +547,7 @@
     <h1>Cognitive Stress Profile</h1>
     <p class="subtitle">
       Marinos Prevenios &middot; May 2026 &middot;
-      Generated 2026-05-28 from 4 Claude Code projects, local git, and GitLab events.
+      Generated 2026-05-28 from 4 Claude Code projects.
       <em>Mockup — values illustrative.</em>
     </p>
   </header>
@@ -984,9 +984,9 @@
       </div>
 
       <div class="event-row">
-        <span><span class="marker commit"></span> commit / closure event</span>
-        <span><span class="marker block"></span> tool-permission block</span>
-        <span><span class="marker mention"></span> external interruption (GitLab @-mention or MR comment)</span>
+        <span><span class="marker commit"></span> closure event (loop finished in one sitting)</span>
+        <span><span class="marker block"></span> tool error</span>
+        <span><span class="marker mention"></span> external interruption (cross-session start)</span>
         <span><span style="display:inline-block; width:14px; height:2px; background:#6c9a8b; vertical-align:middle; border-top:0; border-bottom:2px dashed #6c9a8b;"></span> personal optimum (flow channel)</span>
       </div>
     </div>
@@ -1058,8 +1058,7 @@
           <div class="tile-section-head">Technique</div>
           <div class="tile-section-body">
             Weighted count of attention-pulling events per work hour. Weights:
-            intra-Claude switch ×1, cross-session ×1.5, agent completion ×1.8,
-            tool-block ×2, GitLab @-mention ×2.5.
+            tool error ×1.5, cross-session start ×3.
           </div>
         </section>
         <section>
@@ -1076,8 +1075,8 @@
         <section>
           <div class="tile-section-head">Caveat</div>
           <div class="tile-section-body">
-            Source classification depends on local hooks &amp; GitLab event API
-            timing; ±2 minutes precision on external events.
+            Event classification depends on each tool's log format and
+            granularity; one-minute sampling precision.
           </div>
         </section>
       </div>
@@ -1160,15 +1159,12 @@
   <footer>
     <h2>Methodology &amp; citations</h2>
     <p>
-      This profile is generated from three data sources: Claude Code session
-      transcripts (<code>~/.claude/projects/&lt;project&gt;/*.jsonl</code>), local git
-      activity (commits, worktree mtimes, reflog), and GitLab events (MR notes,
-      review requests, @-mentions, todos via <code>glab api</code>). All three are merged
-      into a per-day timestamped event fabric and reduced into the four state classes
-      (Driving / Waiting / Ready / Blocked) for each Claude session, and the three
+      This profile is generated from local coding-agent session transcripts
+      (e.g. <code>~/.claude/projects/&lt;project&gt;/*.jsonl</code>). Events are
+      merged into a per-day timestamped event fabric and reduced into the three
       axes (CODL / Interruption Index / Closure Deficit) shown above. Work-hours
       windows are auto-detected from the 10th–90th percentiles of user-message
-      timestamps per weekday, with optional override via the skill config file.
+      timestamps, with optional override via the config file.
     </p>
 
     <h2 style="font-size:14px; margin-top:18px">Research basis</h2>

@@ -183,7 +183,7 @@ Key references:
 - Mark, Gudith & Klocke (2008); Leroy (2009) — interruption cost framework
 - Monk, Trafton & Boehm-Davis (2008); Altmann & Trafton (2002); Parnin &
   Rugaber (2011); Sonnentag & Fritz (2007) → Closure Deficit (resumption load:
-  parked sessions reloaded cold, scored by gap length — no git needed)
+  parked sessions reloaded cold, scored by gap length)
 - McEwen (1998) — allostatic load → sustained-overload recommendation
 - Yerkes & Dodson (1908); Csíkszentmihályi (1990) — optimum-load target line
 
