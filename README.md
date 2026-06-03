@@ -34,7 +34,7 @@ argument and every citation are in the [paper](paper/ai-code-cognitive-stress-pa
 ### How it tackles the problem
 
 <p align="center">
-  <img src="docs/screenshots/pipeline.svg" alt="Pipeline: LLM coding-tool session logs → ingest typed events → aggregate per-day (cached) → metrics (CODL · interruption · closure) → composite 0–100 vs your personal optimum → HTML report and live widgets (tkinter + KDE Plasma)" width="100%">
+  <img src="docs/screenshots/pipeline.svg" alt="Pipeline: LLM coding-tool session logs → ingest typed events → aggregate per-day (cached) → metrics (CODL · interruption · closure) → composite 0–100 vs your personal optimum → HTML report and a live KDE Plasma widget" width="100%">
 </p>
 
 The whole pipeline runs locally — no network, no telemetry, nothing leaves the
@@ -76,8 +76,8 @@ just works:
 python -m stress_levels --year 2026 --open
 ```
 
-Or **with [uv](https://docs.astral.sh/uv/)** (auto-provisions a Python in range,
-tkinter included, if you don't already have one):
+Or **with [uv](https://docs.astral.sh/uv/)** (auto-provisions a Python in range
+if you don't already have one):
 
 ```bash
 uv run python -m stress_levels --year 2026 --open        # run from the working tree
@@ -99,31 +99,17 @@ Metrics are always recomputed from it, so algorithm changes apply on every run;
 `--rebuild-cache` is only needed after the ingest/aggregate layer changes or to
 force a clean rebuild.
 
-### Live desktop widget
+### Live desktop widget (KDE Plasma 6)
 
-An always-on-top window that tracks **today** live. A compact header — the
-composite **/ 100**, a one-word read on the level (*Chill* / *Heating up* /
-*Cooked*), and a small intraday **score-progression sparkline** drawn as a
-severity gradient — sits above the full daily view from the HTML drill-down: the
+A native Plasma 6 desktop/panel widget that tracks **today** live, themed with
+Kirigami so it matches your Plasma look. A compact header — the composite
+**/ 100**, a one-word read on the level (*Chill* / *Heating up* / *Cooked*),
+and a small intraday **score-progression sparkline** drawn as a severity
+gradient — sits above the full daily view from the HTML drill-down: the
 per-hour concurrency chart and the three axis tiles with zone range bars
-(baseline / optimum / you markers, severity-coloured values) and collapsible
-methodology. Only today is recomputed each tick (past days are cached); the
-window sizes to fit everything — no scrolling:
-
-```bash
-aicogstress --widget                 # refresh every 60s
-aicogstress --widget --refresh 15    # faster
-```
-
-Built on stdlib **tkinter**; on Linux you may need the system package
-`python3-tk` (uv-provisioned Python already includes it). Run it from a desktop
-session.
-
-### KDE Plasma widget (Plasma 6)
-
-A native Plasma 6 desktop/panel widget showing that **same daily view**, themed
-with Kirigami so it matches your Plasma look. It reads its data by running
-`aicogstress --emit-json` on a timer — local-only, no network:
+(baseline / optimum / you markers, severity-coloured values). It reads its
+data by running `aicogstress --emit-json` on a timer — local-only, no network.
+Only today is recomputed each tick (past days are cached):
 
 ```bash
 python install.py --plasmoid                  # install the widget package
@@ -140,12 +126,12 @@ settings. Remove it with `python install.py --uninstall --plasmoid`. After
 updating the widget, restart plasmashell so it drops the cached version
 (`kquitapp6 plasmashell && kstart plasmashell`).
 
-All three surfaces — HTML report, tkinter widget, and Plasma widget — render
-from one shared model (`stress_levels/dayview.py`), so they can't drift.
+Both surfaces — the HTML report and the Plasma widget — render from one shared
+model (`stress_levels/dayview.py`), so they can't drift.
 
 > `python install.py` (the agent-install path above) also registers the chat
 > *skill* so you can just ask "show me my stress profile" — separate from, and
-> in addition to, the CLI and widgets.
+> in addition to, the CLI and the widget.
 
 ---
 

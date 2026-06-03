@@ -95,17 +95,6 @@ def _build_parser() -> argparse.ArgumentParser:
         help="After writing the report, open it in the default browser.",
     )
     parser.add_argument(
-        "--widget", action="store_true",
-        help="Launch a small always-on-top desktop widget showing TODAY's "
-             "live stress (the 3 axes + composite vs your optimum). Ignores "
-             "the date-span flags; reuses --baseline-days and --source. "
-             "Needs tkinter (python3-tk on Linux).",
-    )
-    parser.add_argument(
-        "--refresh", type=int, default=60, metavar="SECONDS",
-        help="Widget refresh interval in seconds (default: 60, min: 10).",
-    )
-    parser.add_argument(
         "--emit-json", action="store_true",
         help="Print TODAY's full daily view (the same data the HTML day "
              "drill-down shows) as JSON to stdout and exit. Used by the KDE "
@@ -247,23 +236,11 @@ def main(argv: list[str] | None = None) -> int:
         dedup.append(s)
     sources = dedup
 
-    # Widget mode: live always-on-top window for today. Ignores the date span
-    # and the report pipeline entirely. tkinter is imported lazily inside
-    # run_widget so non-widget runs never load it.
-    if args.widget:
-        from .widget import run_widget
-        return run_widget(
-            baseline_days=args.baseline_days,
-            sources=sources,
-            refresh_seconds=args.refresh,
-        )
-
     # Emit-JSON mode: print today's full daily view to stdout for an external
-    # display (the KDE Plasma widget). Like --widget it ignores the date span
-    # and the report pipeline. Only JSON goes to stdout; diagnostics to stderr.
+    # display (the KDE Plasma widget). Ignores the date span and the report
+    # pipeline. Only JSON goes to stdout; diagnostics to stderr.
     if args.emit_json:
-        from .dayview import dayview_to_dict
-        from .widget import compute_today_dayview
+        from .dayview import compute_today_dayview, dayview_to_dict
         view = compute_today_dayview(
             baseline_days=args.baseline_days, sources=sources,
         )

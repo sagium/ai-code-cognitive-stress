@@ -413,18 +413,8 @@ def test_main_dedupes_repeated_sources(tmp_path, monkeypatch, capsys):
     assert line.count("claude-code") == 1
 
 
-def test_main_widget_mode_invokes_run_widget(monkeypatch):
-    import stress_levels.widget as widget_mod
-    calls: dict = {}
-    monkeypatch.setattr(widget_mod, "run_widget", lambda **kw: calls.update(kw) or 0)
-    rc = main(["--widget", "--refresh", "15", "--baseline-days", "20"])
-    assert rc == 0
-    assert calls["refresh_seconds"] == 15
-    assert calls["baseline_days"] == 20
-
-
 def test_main_emit_json_prints_dayview(monkeypatch, capsys):
-    import stress_levels.widget as widget_mod
+    import stress_levels.dayview as dayview_mod
     from stress_levels.dayview import build_dayview
     from stress_levels.metrics import DayMetrics, StressProfile
 
@@ -436,7 +426,7 @@ def test_main_emit_json_prints_dayview(monkeypatch, capsys):
     dv = build_dayview(
         DayMetrics(day=date(2026, 5, 29), composite=10.0), None, prof, timezone.utc,
     )
-    monkeypatch.setattr(widget_mod, "compute_today_dayview", lambda **kw: dv)
+    monkeypatch.setattr(dayview_mod, "compute_today_dayview", lambda **kw: dv)
     rc = main(["--emit-json"])
     assert rc == 0
     payload = json.loads(capsys.readouterr().out)

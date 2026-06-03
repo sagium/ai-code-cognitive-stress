@@ -1,8 +1,9 @@
 """Shared scale/zone/colour definitions for the three stress axes.
 
 Single source of truth for the visual + threshold logic used by BOTH the HTML
-report (render.py) and the live desktop widget (widget.py), so the two can
-never drift. UI-agnostic: no HTML, no tkinter, no metrics/render imports.
+report (render.py) and the KDE Plasma widget (via dayview.py / --emit-json),
+so the two can never drift. UI-agnostic: no HTML, no QML, no metrics/render
+imports.
 
 Zones: list of (upper_bound, status_class, label). A value falls in the first
 zone whose upper_bound it does not exceed. status_class ∈

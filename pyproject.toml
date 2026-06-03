@@ -63,9 +63,7 @@ branch = true
 [tool.coverage.report]
 show_missing = true
 # Regression floor. CI sits at ~93.5% across the 3.10–3.14 matrix; 90 leaves a
-# safe margin. The tkinter rendering in widget.py is `# pragma: no cover` (needs
-# a live display — exercised manually, see tests/test_widget.py); the remaining
-# gaps are defensive filesystem-error handlers.
+# safe margin. The remaining gaps are defensive filesystem-error handlers.
 fail_under = 90
 exclude_also = [
     "if __name__ == .__main__.:",

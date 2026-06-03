@@ -59,14 +59,13 @@ alternative design).
 ```
 ai-code-cognitive-stress/
 ├── stress_levels/              # the package (stdlib-only at runtime)
-│   ├── __main__.py             # CLI entry point (--year/--month/--day/--widget/--emit-json …)
+│   ├── __main__.py             # CLI entry point (--year/--month/--day/--emit-json …)
 │   ├── ingest.py               # session logs → typed events
 │   ├── aggregate.py            # per-day reduction + mtime-keyed disk cache
 │   ├── metrics.py              # the three axes, work-hours detection, optimum, composite
-│   ├── scales.py               # shared zones / colours / status (report + widgets)
-│   ├── dayview.py              # canonical daily-view model (report + both widgets)
+│   ├── scales.py               # shared zones / colours / status (report + widget)
+│   ├── dayview.py              # canonical daily-view model + compute_today_dayview (report + widget)
 │   ├── render.py               # self-contained HTML report builder
-│   ├── widget.py               # live tkinter daily-view widget + compute_today_dayview
 │   ├── serialize.py            # JSON sibling for the chat skill
 │   ├── research_export.py      # anonymized full-year export (local file; manual upload)
 │   ├── calibrate.py            # maintainer: pool exports → suggest scoring (local-only, unsupervised)

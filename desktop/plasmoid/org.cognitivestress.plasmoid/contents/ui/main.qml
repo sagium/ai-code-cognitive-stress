@@ -2,7 +2,7 @@
  * Cognitive Stress — KDE Plasma 6 widget.
  *
  * Renders TODAY's full daily view — the same data and format as the HTML day
- * drill-down and the tkinter widget — produced by `aicogstress --emit-json` (schema
+ * drill-down — produced by `aicogstress --emit-json` (schema
  * ai-code-cognitive-stress.dayview.v1). Shows the composite, work window, the
  * per-hour concurrency chart, and the three axis tiles with zone range bars
  * (baseline / optimum / you markers + boundary ticks) and collapsible

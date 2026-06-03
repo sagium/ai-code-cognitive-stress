@@ -10,9 +10,9 @@ the widget from drifting — the same role `scales.py` plays for zones/colours.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, time, timezone, tzinfo
+from datetime import date, datetime, time, timedelta, timezone, tzinfo
 
-from .aggregate import DayAggregate
+from .aggregate import DayAggregate, get_day_aggregates
 from .metrics import (
     CODL_NORMALISATION_CEILING,
     OFF_HOURS_LOAD_CEILING_MIN,
@@ -20,6 +20,7 @@ from .metrics import (
     DayMetrics,
     StressProfile,
     WorkWindow as _MetricsWorkWindow,
+    build_profile,
     per_day_metrics,
 )
 from .scales import (
@@ -237,7 +238,7 @@ class DayView:
     axes: list[AxisTile]
     off_hours_minutes: int      # engaged minutes outside the work window
     # Non-empty when off-hours work is contributing meaningfully to the composite
-    # (≥ 15 min, ≥ ~5 pts). Rendered as an amber nag banner by both widgets so
+    # (≥ 15 min, ≥ ~5 pts). Rendered as an amber nag banner by the widget so
     # the user understands why the score just jumped. Empty → no banner.
     off_hours_nag: str
 
@@ -495,3 +496,36 @@ def dayview_to_dict(dv: DayView) -> dict:
         "off_hours_minutes": dv.off_hours_minutes,
         "off_hours_nag": dv.off_hours_nag,
     }
+
+
+# ---------------------------------------------------------------------------
+# Live data layer — TODAY's daily view, recomputed on demand. This is what
+# `aicogstress --emit-json` serves to the KDE Plasma widget (and any other
+# external display). Pure data: no UI dependency, unit-tested headlessly.
+
+def _local_tz() -> tzinfo:
+    return datetime.now().astimezone().tzinfo or timezone.utc
+
+
+def compute_today_dayview(
+    baseline_days: int = 30,
+    sources=None,
+    projects_dir=None,
+    cache_dir=None,
+    now: datetime | None = None,
+) -> DayView:
+    """Recompute today's full daily view. Reads only today's session files live
+    (past days come from the on-disk cache). `now` is injectable for tests."""
+    tz = _local_tz()
+    today = (now or datetime.now(tz)).astimezone(tz).date()
+    since = today - timedelta(days=baseline_days)
+    aggregates, _ = get_day_aggregates(
+        since, today,
+        projects_dir=projects_dir, cache_dir=cache_dir,
+        sources=sources, local_tz=tz, now=now,
+    )
+    profile = build_profile(
+        aggregates, baseline_days=baseline_days, local_tz=tz,
+    )
+    metrics = profile.days.get(today) or DayMetrics(day=today)
+    return build_dayview(metrics, aggregates.get(today), profile, tz)

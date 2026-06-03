@@ -804,7 +804,7 @@ def _render_axis_tiles(metrics: DayMetrics, profile: StressProfile) -> str:
 
 
 # Axis copy, zones, baselines, and the daily-view model live in dayview.py /
-# scales.py — the single source of truth shared with the tkinter + KDE widgets.
+# scales.py — the single source of truth shared with the KDE widget.
 
 
 def _render_axis_tile(

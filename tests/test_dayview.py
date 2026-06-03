@@ -1,5 +1,5 @@
 """Tests for the shared daily-view model (dayview.py) consumed by the HTML
-report, the tkinter widget, and the KDE Plasma widget."""
+report and the KDE Plasma widget."""
 
 from __future__ import annotations
 
@@ -9,8 +9,11 @@ from datetime import date, datetime, timezone
 from stress_levels.aggregate import DayAggregate, StreamDayActivity
 from stress_levels.dayview import (
     AXES,
+    DayView,
+    _local_tz,
     build_axis_tile,
     build_dayview,
+    compute_today_dayview,
     dayview_to_dict,
     hour_counts,
     personal_baseline,
@@ -206,3 +209,52 @@ def test_dayview_to_dict_json_round_trip():
     assert d["axes"][0]["color"].startswith("#")
     assert d["axes"][0]["boundary_ticks"][0]["label"] == "1.5"
     assert len(d["hours"]) == 24
+
+
+# --- compute_today_dayview (live data layer for --emit-json) -----------------
+
+def test_compute_today_dayview_empty_projects_is_no_activity(tmp_path):
+    now = datetime(2026, 5, 29, 12, 0, tzinfo=timezone.utc)
+    expected_day = now.astimezone(_local_tz()).date()
+
+    projects = tmp_path / "projects"
+    projects.mkdir()
+    dv = compute_today_dayview(
+        baseline_days=30, projects_dir=projects,
+        cache_dir=tmp_path / "cache", now=now,
+    )
+    assert isinstance(dv, DayView)
+    assert dv.day == expected_day
+    assert dv.has_activity is False
+    assert [a.name for a in dv.axes] == ["CODL", "Interruption Index", "Closure Deficit"]
+
+
+def test_compute_today_dayview_reads_today_session(tmp_path):
+    """A session with activity 'today' yields a day view for the right day."""
+    now = datetime(2026, 5, 29, 12, 0, tzinfo=timezone.utc)
+    tz = _local_tz()
+    today = now.astimezone(tz).date()
+
+    proj = tmp_path / "projects" / "-home-test"
+    proj.mkdir(parents=True)
+    midday_local = datetime(today.year, today.month, today.day, 12, 0, tzinfo=tz)
+    recs = [
+        {"type": "user", "sessionId": "s1",
+         "timestamp": midday_local.astimezone(timezone.utc).isoformat(),
+         "cwd": "/x", "gitBranch": "main",
+         "message": {"role": "user", "content": [{"type": "text", "text": "hi"}]}},
+        {"type": "assistant", "sessionId": "s1",
+         "timestamp": midday_local.astimezone(timezone.utc).isoformat(),
+         "cwd": "/x", "gitBranch": "main",
+         "message": {"role": "assistant", "content": [{"type": "text", "text": "yo"}]}},
+    ]
+    (proj / "s1.jsonl").write_text(
+        "\n".join(json.dumps(r) for r in recs) + "\n", encoding="utf-8",
+    )
+    dv = compute_today_dayview(
+        baseline_days=30, projects_dir=tmp_path / "projects",
+        cache_dir=tmp_path / "cache", now=now,
+    )
+    assert dv.day == today
+    assert len(dv.axes) == 3
+    assert len(dv.hours) == 24
