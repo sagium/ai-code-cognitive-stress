@@ -313,4 +313,4 @@ coding tools read.
 
 ## License
 
-[MIT](LICENSE) © 2026 Marinos Prevenios. Private by design.
+[MIT](LICENSE) © 2026 Marinos Prevenios.
