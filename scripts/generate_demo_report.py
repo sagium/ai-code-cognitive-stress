@@ -4,12 +4,18 @@ This bypasses the ingest pipeline entirely — no real session data is touched �
 and writes a deterministic demo report at /tmp/demo-report.html that the
 screenshot-capture step uses to refresh docs/screenshots/.
 
+With `--dayview-json PATH` it instead writes one representative day as
+dayview.v1 JSON — the same payload `aicogstress --emit-json` produces — for
+refreshing the desktop-widget screenshots without exposing real activity.
+
 Seeded random so the same shape comes back every run. Tweak the constants
 near the top of the file if you want a different visual.
 """
 
 from __future__ import annotations
 
+import argparse
+import json
 import random
 import sys
 from datetime import date, datetime, time, timedelta, timezone
@@ -176,7 +182,25 @@ def _build_aggregate(d: date, m: DayMetrics, rng: random.Random) -> DayAggregate
             tool_result_count=int(duration_min / 15),
             tool_error_count=int(rng.random() < 0.3),
             user_msg_timestamps=msg_ts,
-            branches=("main",),
+        ))
+    # Days with an off-hours toll get a matching evening session, so the
+    # per-hour chart shows the bars outside the work window that the
+    # off-hours nag is talking about.
+    if m.off_hours_minutes:
+        start = datetime(d.year, d.month, d.day, 20, rng.choice([0, 15, 30]),
+                         tzinfo=timezone.utc)
+        end = start + timedelta(minutes=m.off_hours_minutes)
+        n_msgs = max(2, m.off_hours_minutes // 20)
+        spacing = (end - start).total_seconds() / n_msgs
+        streams.append(StreamDayActivity(
+            stream_id=f"s-{d}-offhours", project="-home-demo-project",
+            first_ts=start, last_ts=end,
+            user_msg_count=n_msgs, assistant_msg_count=n_msgs * 2,
+            tool_use_count=max(1, m.off_hours_minutes // 25),
+            tool_result_count=max(1, m.off_hours_minutes // 25),
+            user_msg_timestamps=tuple(
+                start + timedelta(seconds=spacing * j) for j in range(n_msgs)
+            ),
         ))
     # Synthesise in-window idle gaps (resumes) consistent with the day's target
     # closure_deficit, so the day-view recomputation matches the headline. The
@@ -206,11 +230,11 @@ def _with_resume_gaps(s: StreamDayActivity,
                       gaps: tuple[tuple[datetime, int], ...]) -> StreamDayActivity:
     """Return a copy of a (frozen, slotted) StreamDayActivity with resume_gaps set."""
     return StreamDayActivity(
-        stream_id=s.stream_id, project=s.project, cwd=s.cwd,
+        stream_id=s.stream_id, project=s.project,
         first_ts=s.first_ts, last_ts=s.last_ts,
         user_msg_count=s.user_msg_count, assistant_msg_count=s.assistant_msg_count,
         tool_use_count=s.tool_use_count, tool_result_count=s.tool_result_count,
-        tool_error_count=s.tool_error_count, branches=s.branches,
+        tool_error_count=s.tool_error_count,
         user_msg_timestamps=s.user_msg_timestamps, resume_gaps=gaps,
     )
 
@@ -262,7 +286,80 @@ def build_profile(year: int) -> tuple[StressProfile, dict[date, DayAggregate]]:
     return profile, aggregates
 
 
+# The day shown in the widget screenshots — a fixed mid-March Wednesday.
+WIDGET_DEMO_DAY = date(YEAR, 3, 11)
+
+
+def _demo_widget_aggregate(d: date) -> DayAggregate:
+    """Hand-crafted single day for the widget screenshot: four overlapping
+    midday streams, scattered tool errors, a couple of cold resumes, and an
+    evening off-hours session — so every widget feature is visible (chart,
+    varied axis zones, off-hours nag). Its metrics are recomputed through the
+    real pipeline (per_day_metrics), so the headline, axes, sparkline, and
+    nag agree by construction — the year generator above only makes
+    aggregates *statistically* consistent with its synthetic metrics."""
+    def ts(h: int, mnt: int) -> datetime:
+        return datetime(d.year, d.month, d.day, h, mnt, tzinfo=timezone.utc)
+
+    def stream(i, start, end, every_min, errors=0, gaps=()):
+        n = max(2, int((end - start).total_seconds() // (every_min * 60)))
+        return StreamDayActivity(
+            stream_id=f"s-demo-{i}", project="-home-demo-project",
+            first_ts=start, last_ts=end,
+            user_msg_count=n, assistant_msg_count=n * 2,
+            tool_use_count=n * 2, tool_result_count=n * 2,
+            tool_error_count=errors,
+            user_msg_timestamps=tuple(
+                start + timedelta(minutes=every_min * j) for j in range(n)
+            ),
+            resume_gaps=gaps,
+        )
+
+    streams = (
+        stream(1, ts(9, 30), ts(17, 30), 14, errors=10,
+               gaps=((ts(13, 30), 65 * 60),)),
+        stream(2, ts(10, 0), ts(14, 30), 9, errors=7),
+        stream(3, ts(10, 30), ts(15, 30), 11, errors=4,
+               gaps=((ts(14, 45), 40 * 60),)),
+        stream(4, ts(11, 30), ts(14, 0), 8),
+        stream(5, ts(15, 0), ts(17, 15), 10, errors=2,
+               gaps=((ts(16, 20), 50 * 60),)),
+        stream(6, ts(19, 45), ts(21, 0), 9),  # off-hours evening session
+    )
+    return DayAggregate(day=d, streams=streams, peak_concurrent_streams=4)
+
+
+def write_dayview_json(path: Path) -> int:
+    from stress_levels.dayview import build_dayview, dayview_to_dict
+    from stress_levels.metrics import per_day_metrics
+
+    profile, _ = build_profile(YEAR)
+    day = WIDGET_DEMO_DAY
+    agg = _demo_widget_aggregate(day)
+    m = per_day_metrics(agg, profile.work_windows[day.weekday()], timezone.utc)
+    view = build_dayview(m, agg, profile, timezone.utc)
+    path.write_text(
+        json.dumps(dayview_to_dict(view), default=str, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    print(f"wrote {path}")
+    print(f"  day:        {day} (composite {m.composite:.0f}, "
+          f"peak {m.codl_peak} streams, off-hours {m.off_hours_minutes} min)")
+    print(f"  nag shown:  {bool(view.off_hours_nag)}")
+    return 0
+
+
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "--dayview-json", metavar="PATH", type=Path,
+        help="Write one representative demo day as dayview.v1 JSON (for the "
+             "widget screenshots) instead of the HTML report.",
+    )
+    args = parser.parse_args()
+    if args.dayview_json:
+        return write_dayview_json(args.dayview_json)
+
     profile, aggregates = build_profile(YEAR)
 
     # Sample Top focus content — what an analyst panel might write after

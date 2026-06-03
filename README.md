@@ -34,7 +34,7 @@ argument and every citation are in the [paper](paper/ai-code-cognitive-stress-pa
 ### How it tackles the problem
 
 <p align="center">
-  <img src="docs/screenshots/pipeline.svg" alt="Pipeline: LLM coding-tool session logs → ingest typed events → aggregate per-day (cached) → metrics (CODL · interruption · closure) → composite 0–100 vs your personal optimum → HTML report and a live KDE Plasma widget" width="100%">
+  <img src="docs/screenshots/pipeline.svg" alt="Pipeline: LLM coding-tool session logs → ingest typed events → aggregate per-day (cached) → metrics (CODL · interruption · closure) → composite 0–100 vs your personal optimum → HTML report and live desktop widgets (KDE Plasma + macOS)" width="100%">
 </p>
 
 The whole pipeline runs locally — no network, no telemetry, nothing leaves the
@@ -99,17 +99,24 @@ Metrics are always recomputed from it, so algorithm changes apply on every run;
 `--rebuild-cache` is only needed after the ingest/aggregate layer changes or to
 force a clean rebuild.
 
-### Live desktop widget (KDE Plasma 6)
+### Live desktop widgets (KDE Plasma 6 · macOS)
 
-A native Plasma 6 desktop/panel widget that tracks **today** live, themed with
-Kirigami so it matches your Plasma look. A compact header — the composite
+A desktop widget that tracks **today** live. A compact header — the composite
 **/ 100**, a one-word read on the level (*Chill* / *Heating up* / *Cooked*),
 and a small intraday **score-progression sparkline** drawn as a severity
 gradient — sits above the full daily view from the HTML drill-down: the
 per-hour concurrency chart and the three axis tiles with zone range bars
-(baseline / optimum / you markers, severity-coloured values). It reads its
-data by running `aicogstress --emit-json` on a timer — local-only, no network.
-Only today is recomputed each tick (past days are cached):
+(baseline / optimum / you markers, severity-coloured values). Both widgets
+read their data by running `aicogstress --emit-json` on a timer — local-only,
+no network. Only today is recomputed each tick (past days are cached).
+
+<p align="center">
+  <img src="docs/screenshots/ubersicht-widget.png" width="430"
+       alt="The macOS Übersicht widget on a desktop: glass card with the composite score 55 'Cooked', an off-hours nag banner, the per-hour concurrency chart with an evening session outside the shaded work window, and the three axis tiles with zone range bars (synthetic demo day)">
+</p>
+
+**KDE Plasma 6** — a native desktop/panel widget, themed with Kirigami so it
+matches your Plasma look:
 
 ```bash
 python install.py --plasmoid                  # install the widget package
@@ -126,12 +133,26 @@ settings. Remove it with `python install.py --uninstall --plasmoid`. After
 updating the widget, restart plasmashell so it drops the cached version
 (`kquitapp6 plasmashell && kstart plasmashell`).
 
-Both surfaces — the HTML report and the Plasma widget — render from one shared
-model (`stress_levels/dayview.py`), so they can't drift.
+**macOS** — an [Übersicht](https://tracesof.net/uebersicht/) widget (pictured
+above): a translucent glass card over your wallpaper, in system SF Pro:
+
+```bash
+python install.py --ubersicht    # symlink into Übersicht's widgets directory
+# or drag desktop/ubersicht/cognitive-stress.jsx into
+# ~/Library/Application Support/Übersicht/widgets/ yourself
+```
+
+If the score stays blank, set the absolute path to `aicogstress` in the file's
+`command` line. Remove it with `python install.py --uninstall --ubersicht`.
+Not on a Mac? `desktop/ubersicht/preview.html` renders the widget's own code
+in any browser (instructions inside) — handy for hacking on it from Linux.
+
+All three surfaces — the HTML report and both desktop widgets — render from
+one shared model (`stress_levels/dayview.py`), so they can't drift.
 
 > `python install.py` (the agent-install path above) also registers the chat
 > *skill* so you can just ask "show me my stress profile" — separate from, and
-> in addition to, the CLI and the widget.
+> in addition to, the CLI and the widgets.
 
 ---
 

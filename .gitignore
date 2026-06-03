@@ -51,6 +51,12 @@ stress-profile*.html
 stress-profile*.json
 stress-levels-research-*.json
 calibration-report*.json
+# Widget-preview data (generated next to desktop/ubersicht/preview.html; may
+# contain your own activity)
+desktop/ubersicht/dayview.json
 
 # Logs
 *.log
+
+# Playwright MCP scratch dir (screenshots, console logs)
+.playwright-mcp/

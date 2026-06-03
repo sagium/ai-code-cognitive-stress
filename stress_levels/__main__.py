@@ -97,10 +97,11 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--emit-json", action="store_true",
         help="Print TODAY's full daily view (the same data the HTML day "
-             "drill-down shows) as JSON to stdout and exit. Used by the KDE "
-             "Plasma widget and usable by any external display. Ignores the "
-             "date-span flags; reuses --baseline-days and --source. "
-             "Local-only — reads local data, writes nothing, no network.",
+             "drill-down shows) as JSON to stdout and exit. Used by the "
+             "desktop widgets (KDE Plasma, macOS Übersicht) and usable by any "
+             "external display. Ignores the date-span flags; reuses "
+             "--baseline-days and --source. Local-only — reads local data, "
+             "writes nothing, no network.",
     )
     parser.add_argument(
         "--rebuild-cache", action="store_true",
@@ -237,7 +238,7 @@ def main(argv: list[str] | None = None) -> int:
     sources = dedup
 
     # Emit-JSON mode: print today's full daily view to stdout for an external
-    # display (the KDE Plasma widget). Ignores the date span and the report
+    # display (the desktop widgets). Ignores the date span and the report
     # pipeline. Only JSON goes to stdout; diagnostics to stderr.
     if args.emit_json:
         from .dayview import compute_today_dayview, dayview_to_dict

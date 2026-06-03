@@ -1,10 +1,12 @@
 """Canonical daily-view model — the single source of truth for the per-day
-drill-down shown in BOTH the HTML report and the KDE Plasma widget.
+drill-down shown in the HTML report and BOTH desktop widgets (KDE Plasma,
+macOS Übersicht).
 
 UI-agnostic: plain text only (Unicode, no HTML entities, no SVG, no QML).
 `render.py` renders this to HTML/SVG; `dayview_to_dict` serialises it for the
-plasmoid (`aicogstress --emit-json`). Sharing this module is what keeps the report and
-the widget from drifting — the same role `scales.py` plays for zones/colours.
+widgets (`aicogstress --emit-json`). Sharing this module is what keeps the
+report and the widgets from drifting — the same role `scales.py` plays for
+zones/colours.
 """
 
 from __future__ import annotations
@@ -440,7 +442,7 @@ def build_dayview(
 
 
 # ---------------------------------------------------------------------------
-# JSON serialisation (consumed by the KDE Plasma widget)
+# JSON serialisation (consumed by the desktop widgets)
 
 def dayview_to_dict(dv: DayView) -> dict:
     """Serialise a DayView to a JSON-friendly dict. Colours and 0..1 fractions
@@ -500,7 +502,7 @@ def dayview_to_dict(dv: DayView) -> dict:
 
 # ---------------------------------------------------------------------------
 # Live data layer — TODAY's daily view, recomputed on demand. This is what
-# `aicogstress --emit-json` serves to the KDE Plasma widget (and any other
+# `aicogstress --emit-json` serves to the desktop widgets (and any other
 # external display). Pure data: no UI dependency, unit-tested headlessly.
 
 def _local_tz() -> tzinfo:

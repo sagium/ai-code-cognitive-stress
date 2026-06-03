@@ -28,6 +28,14 @@ PLASMOID_DEST = (
     Path.home() / ".local" / "share" / "plasma" / "plasmoids" / PLASMOID_ID
 )
 
+# macOS Übersicht desktop widget (optional, --ubersicht). A single JSX file;
+# installs into Übersicht's widgets directory.
+UBERSICHT_SRC = REPO_DIR / "desktop" / "ubersicht" / "cognitive-stress.jsx"
+UBERSICHT_DEST = (
+    Path.home() / "Library" / "Application Support" / "Übersicht" / "widgets"
+    / "cognitive-stress.jsx"
+)
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -54,6 +62,14 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Also install the KDE Plasma 6 desktop widget (with --uninstall, "
             "remove it). Linux/KDE only — silently skipped on other platforms."
+        ),
+    )
+    parser.add_argument(
+        "--ubersicht", action="store_true",
+        help=(
+            "Also install the macOS Übersicht desktop widget (with "
+            "--uninstall, remove it). macOS only — silently skipped on other "
+            "platforms; needs Übersicht (tracesof.net/uebersicht)."
         ),
     )
     return parser.parse_args()
@@ -255,16 +271,87 @@ def uninstall_plasmoid() -> int:
     return 0
 
 
+# ---------------------------------------------------------------------------
+# macOS Übersicht widget (optional)
+
+def install_ubersicht() -> int:
+    """Install the Übersicht widget: symlink the JSX into Übersicht's widgets
+    directory (so `git pull` updates it live), falling back to a copy. Best-
+    effort and additive: a failure here never blocks the skill."""
+    if sys.platform != "darwin":
+        print("Übersicht widget: skipped (macOS only).")
+        return 0
+    if not UBERSICHT_SRC.is_file():
+        print(f"Übersicht widget: source not found at {UBERSICHT_SRC}", file=sys.stderr)
+        return 1
+    if not UBERSICHT_DEST.parent.parent.is_dir():
+        print(
+            "Übersicht widget: Übersicht doesn't look installed "
+            f"(no {UBERSICHT_DEST.parent.parent}). Get it from "
+            "https://tracesof.net/uebersicht/ first.",
+            file=sys.stderr,
+        )
+        return 1
+    UBERSICHT_DEST.parent.mkdir(parents=True, exist_ok=True)
+    if UBERSICHT_DEST.is_symlink():
+        if UBERSICHT_DEST.resolve(strict=False) == UBERSICHT_SRC.resolve():
+            print(f"Übersicht widget: already linked ({UBERSICHT_DEST}).")
+            return 0
+        print(
+            f"Übersicht widget: {UBERSICHT_DEST} already exists and points "
+            "elsewhere; remove it to reinstall.",
+            file=sys.stderr,
+        )
+        return 1
+    if UBERSICHT_DEST.exists():
+        print(
+            f"Übersicht widget: {UBERSICHT_DEST} already exists; "
+            "remove it to reinstall.",
+            file=sys.stderr,
+        )
+        return 1
+    try:
+        UBERSICHT_DEST.symlink_to(UBERSICHT_SRC)
+        print(f"Übersicht widget: linked {UBERSICHT_DEST} -> {UBERSICHT_SRC}")
+    except OSError:
+        shutil.copy2(UBERSICHT_SRC, UBERSICHT_DEST)
+        print(f"Übersicht widget: copied to {UBERSICHT_DEST}")
+    print(
+        "  Übersicht picks it up automatically (refresh from its menu-bar "
+        "icon if not).\n"
+        "  The widget runs `aicogstress --emit-json` on a timer; if the score "
+        "stays blank,\n"
+        "  set the absolute path in the file's `command` line "
+        "(`command -v aicogstress`)."
+    )
+    return 0
+
+
+def uninstall_ubersicht() -> int:
+    if sys.platform != "darwin":
+        return 0
+    if UBERSICHT_DEST.is_symlink() or UBERSICHT_DEST.is_file():
+        UBERSICHT_DEST.unlink()
+        print(f"Übersicht widget: removed {UBERSICHT_DEST}.")
+        return 0
+    print("Übersicht widget: nothing to remove.")
+    return 0
+
+
 def main() -> int:
     args = parse_args()
     if args.uninstall:
         rc = uninstall(args.target)
         if args.plasmoid:
             rc = uninstall_plasmoid() or rc
+        if args.ubersicht:
+            rc = uninstall_ubersicht() or rc
         return rc
     rc = install(args.target, force_copy=args.copy)
     if args.plasmoid:
         rc = install_plasmoid() or rc
+    if args.ubersicht:
+        rc = install_ubersicht() or rc
     return rc
 
 

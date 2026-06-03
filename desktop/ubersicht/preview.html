@@ -1,0 +1,92 @@
+<!doctype html>
+<!--
+  Browser preview of the Übersicht widget — works on any OS, no Mac needed.
+
+  It loads cognitive-stress.jsx and executes everything above its
+  "Übersicht exports" marker (which is plain JS by construction), so what you
+  see here IS the widget's own rendering code — no duplicated markup to drift.
+  The simulated macOS desktop (wallpaper, grain) and the entry animation are
+  the only preview-side additions; on a real Mac the glass sits over your
+  actual wallpaper and uses SF Pro.
+
+  Run from this directory:
+    aicogstress --emit-json > dayview.json   # your live data (or use
+                                             # scripts/generate_demo_report.py
+                                             # --dayview-json dayview.json)
+    python3 -m http.server 8731              # file:// can't fetch; serve it
+    # open http://localhost:8731/preview.html
+
+  Local-only: no webfonts, no external requests — system fonts throughout.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Cognitive Stress — widget preview</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    display: grid; place-items: center; overflow: hidden;
+    background: /* "kiln & moss" — a dusk wallpaper in the project's palette */
+      radial-gradient(120% 90% at 12% 95%, rgba(176, 74, 58, .42) 0%, transparent 55%),
+      radial-gradient(110% 80% at 88% 4%,  rgba(108, 154, 139, .38) 0%, transparent 52%),
+      radial-gradient(70% 55% at 70% 80%,  rgba(197, 180, 138, .14) 0%, transparent 60%),
+      linear-gradient(165deg, #181b18 0%, #121511 38%, #1a1410 100%);
+  }
+  body::before { /* film grain */
+    content: ""; position: fixed; inset: 0; pointer-events: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='.55'/%3E%3C/svg%3E");
+    opacity: .05; mix-blend-mode: overlay;
+  }
+  body::after { /* vignette */
+    content: ""; position: fixed; inset: 0; pointer-events: none;
+    background: radial-gradient(120% 120% at 50% 45%, transparent 55%, rgba(0,0,0,.45) 100%);
+  }
+  .cogstress { animation: rise .7s cubic-bezier(.2, .9, .25, 1) both; }
+  @keyframes rise { from { opacity: 0; transform: translateY(14px) scale(.985); } }
+  .hint {
+    max-width: 420px; padding: 18px 22px; border-radius: 16px;
+    font: 13px/1.6 ui-monospace, monospace; color: rgba(245,243,237,.85);
+    background: rgba(24, 26, 23, .6); border: 1px solid rgba(255,255,255,.12);
+    white-space: pre-wrap;
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+(async () => {
+  const root = document.getElementById("root");
+  const hint = (msg) => { root.innerHTML = `<div class="hint">${msg}</div>`; };
+
+  let head;
+  try {
+    const src = await (await fetch("cognitive-stress.jsx")).text();
+    head = src.split("// ── Übersicht exports")[0];
+  } catch (e) {
+    return hint("Could not load cognitive-stress.jsx.\n" +
+      "Serve this directory over HTTP:\n  python3 -m http.server 8731");
+  }
+  // The head is plain JS by construction (the JSX lives below the marker).
+  const widget = new Function(head + "; return { CSS, renderWidget };")();
+
+  let dv;
+  try {
+    const resp = await fetch("dayview.json");
+    if (!resp.ok) throw new Error(resp.status);
+    dv = await resp.json();
+  } catch (e) {
+    return hint("No dayview.json found next to this file.\nGenerate one:\n" +
+      "  aicogstress --emit-json &gt; dayview.json\n" +
+      "or, for the deterministic demo day:\n" +
+      "  python3 ../../scripts/generate_demo_report.py --dayview-json dayview.json");
+  }
+
+  const style = document.createElement("style");
+  style.textContent = widget.CSS;
+  document.head.appendChild(style);
+  root.innerHTML = `<div class="cogstress">${widget.renderWidget(dv)}</div>`;
+})();
+</script>
+</body>
+</html>

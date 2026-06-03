@@ -63,8 +63,8 @@ ai-code-cognitive-stress/
 │   ├── ingest.py               # session logs → typed events
 │   ├── aggregate.py            # per-day reduction + mtime-keyed disk cache
 │   ├── metrics.py              # the three axes, work-hours detection, optimum, composite
-│   ├── scales.py               # shared zones / colours / status (report + widget)
-│   ├── dayview.py              # canonical daily-view model + compute_today_dayview (report + widget)
+│   ├── scales.py               # shared zones / colours / status (report + widgets)
+│   ├── dayview.py              # canonical daily-view model + compute_today_dayview (report + widgets)
 │   ├── render.py               # self-contained HTML report builder
 │   ├── serialize.py            # JSON sibling for the chat skill
 │   ├── research_export.py      # anonymized full-year export (local file; manual upload)
@@ -79,6 +79,7 @@ ai-code-cognitive-stress/
 ├── docs/screenshots/           # images in the README
 ├── templates/report.html       # original static design mockup (not used at runtime)
 ├── desktop/plasmoid/            # KDE Plasma 6 widget (QML/JSON; fed by `aicogstress --emit-json`)
+├── desktop/ubersicht/           # macOS Übersicht widget (JSX; same feed) + browser preview harness
 ├── SKILL.md  ·  AGENTS.md       # chat-skill definition · this file (rules + layout)
 ├── pyproject.toml               # packaging (hatchling) + console scripts
 └── LICENSE                      # MIT
