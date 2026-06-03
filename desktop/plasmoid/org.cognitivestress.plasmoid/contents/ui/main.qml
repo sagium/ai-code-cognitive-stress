@@ -48,6 +48,27 @@ PlasmoidItem {
     readonly property string compositeColor: cardAttr("data-composite-color")
     readonly property bool hasActivity: cardAttr("data-has-activity") === "true"
 
+    // The card draws its own glass chrome — never wrap it in the Plasma
+    // background frame (which would also pad the widget beyond the card).
+    Plasmoid.backgroundHints: PlasmaCore.Types.NoBackground
+
+    // Inline on the desktop, the containment sizes the applet from THIS
+    // item's layout hints (the full representation's own hints only govern
+    // the panel popup) — so mirror the card's exact size up here, with
+    // min = preferred = max, and the applet can be neither larger nor
+    // smaller than the card. In a panel the compact representation rules;
+    // leave the hints unconstrained there.
+    readonly property bool inPanel: (Plasmoid.formFactor === PlasmaCore.Types.Horizontal
+                                     || Plasmoid.formFactor === PlasmaCore.Types.Vertical)
+    property real fullW: Kirigami.Units.gridUnit
+    property real fullH: Kirigami.Units.gridUnit
+    Layout.minimumWidth: inPanel ? 0 : fullW
+    Layout.preferredWidth: inPanel ? -1 : fullW
+    Layout.maximumWidth: inPanel ? Number.POSITIVE_INFINITY : fullW
+    Layout.minimumHeight: inPanel ? 0 : fullH
+    Layout.preferredHeight: inPanel ? -1 : fullH
+    Layout.maximumHeight: inPanel ? Number.POSITIVE_INFINITY : fullH
+
     // This is a desktop widget: show the full card inline. In a panel
     // (Horizontal/Vertical form factor) fall back to the compact composite
     // score, which expands to the full view on click.
@@ -112,12 +133,35 @@ PlasmoidItem {
 
     // --- full representation: the card in a web view -------------------------
     fullRepresentation: ColumnLayout {
+        id: fullView
         spacing: 0
+
+        // The plasmoid hugs the card EXACTLY: min = preferred = max on both
+        // axes (the implicit size is the visible children's — the card view
+        // sized to its measured content, plus the error banner if shown), so
+        // the containment can neither stretch nor shrink it. There is no
+        // shadow margin to reserve: the card's CSS box-shadow doesn't affect
+        // layout and falls outside the view either way. Floored at a gridUnit
+        // so the applet never collapses to 0×0 (and stays grabbable) in the
+        // instant before the first card arrives and is measured.
+        readonly property real exactWidth: Math.max(implicitWidth, Kirigami.Units.gridUnit)
+        readonly property real exactHeight: Math.max(implicitHeight, Kirigami.Units.gridUnit)
+        Layout.minimumWidth: exactWidth
+        Layout.preferredWidth: exactWidth
+        Layout.maximumWidth: exactWidth
+        Layout.minimumHeight: exactHeight
+        Layout.preferredHeight: exactHeight
+        Layout.maximumHeight: exactHeight
+
+        // …and mirror it to the root item, which is what the desktop
+        // containment actually reads (see the hints on PlasmoidItem).
+        onExactWidthChanged: root.fullW = exactWidth
+        onExactHeightChanged: root.fullH = exactHeight
+        Component.onCompleted: { root.fullW = exactWidth; root.fullH = exactHeight }
 
         // Error banner — shown instead of (or before the first) card.
         PlasmaComponents.Label {
-            Layout.fillWidth: true
-            Layout.margins: Kirigami.Units.smallSpacing
+            Layout.preferredWidth: cardView.cardWidth
             Layout.maximumWidth: cardView.cardWidth
             visible: root.errorText.length > 0
             wrapMode: Text.WordWrap
@@ -129,14 +173,18 @@ PlasmoidItem {
             id: cardView
 
             // The card is fixed-width (widget_card.CARD_WIDTH); height follows
-            // the content, measured after each load.
+            // the content, measured from the page after each load so the view
+            // is exactly as tall as the card — no scrolling, no dead space.
             readonly property int cardWidth: 384
-            property int cardHeight: Kirigami.Units.gridUnit * 30
+            property int cardHeight: 0
 
             Layout.preferredWidth: cardWidth
             Layout.minimumWidth: cardWidth
+            Layout.maximumWidth: cardWidth
             Layout.preferredHeight: cardHeight
-            visible: root.cardHtml.length > 0
+            Layout.minimumHeight: cardHeight
+            Layout.maximumHeight: cardHeight
+            visible: root.cardHtml.length > 0 && cardHeight > 0
 
             backgroundColor: "transparent"
             settings.showScrollBars: false
@@ -157,11 +205,15 @@ PlasmoidItem {
 
             onLoadingChanged: function (loadingInfo) {
                 if (loadingInfo.status === WebEngineView.LoadSucceededStatus) {
-                    // Size the widget to the card so nothing scrolls.
-                    runJavaScript("document.body.scrollHeight", function (h) {
-                        if (h && h > 0)
-                            cardView.cardHeight = h;
-                    });
+                    // Size the view to the card itself (ceil of its border-box;
+                    // the card has no margins) so the widget is exactly as tall
+                    // as the card — nothing scrolls, no dead space.
+                    runJavaScript(
+                        "Math.ceil(document.querySelector('.cogstress').getBoundingClientRect().height)",
+                        function (h) {
+                            if (h && h > 0)
+                                cardView.cardHeight = h;
+                        });
                 }
             }
         }
