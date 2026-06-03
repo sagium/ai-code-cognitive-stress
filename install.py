@@ -33,6 +33,7 @@ junction point (NTFS-only, dir-only symlink with no admin requirement).
 from __future__ import annotations
 
 import argparse
+import datetime
 import os
 import shutil
 import subprocess
@@ -658,10 +659,14 @@ def main() -> int:
     if full:
         _step("First computation")
         first_computation()
+        today = datetime.date.today()
         print(
             "\nDone. Try it:\n"
             '  · ask your agent: "show me my stress profile"\n'
-            "  · or run: aicogstress --open"
+            f"  · or run: aicogstress --year {today.year} --open   "
+            "(full year)\n"
+            f"  ·         aicogstress --day {today.isoformat()} --open  "
+            "(just today)"
         )
     return rc
 
