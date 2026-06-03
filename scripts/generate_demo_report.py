@@ -47,7 +47,7 @@ WEEKEND_OFFHOURS_PROB = 0.06         # rare weekend incursions
 PEAK_WEEKS_PER_YEAR = 4              # spikes scattered across the year
 
 # Realistic distributions for a moderate-load knowledge worker who uses
-# Claude every day but not always intensely.
+# coding agents every day but not always intensely.
 CODL_AVG_MEAN = 1.4
 CODL_AVG_SIGMA = 0.35
 INTERRUPTION_RATE_SHAPE = 2.0        # gamma shape — k
@@ -401,7 +401,7 @@ def main() -> int:
         "and the longer a loop sits the more it costs to resume (Monk et al. "
         "2008). CODL peaks stayed within working-memory capacity (Cowan 2001), "
         "so the load is from re-entering stale context, not parallelism.\n\n"
-        "- **Cut weekend Claude work.** "
+        "- **Cut weekend agent work.** "
         "Several Saturdays this year logged 2+ hours of off-hours activity. "
         "Detachment failure on weekends compounds the work-week load rather "
         "than relieving it (Sonnentag 2010); even one heavy Saturday erodes "

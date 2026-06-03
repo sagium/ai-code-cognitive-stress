@@ -86,7 +86,7 @@ def test_status_for_count_bands():
 
 def test_color_for_composite_zero_is_neutral():
     profile = StressProfile()
-    assert _color_for_composite(0, profile) == "#efece5"
+    assert _color_for_composite(0, profile) == "#2a2c27"
 
 
 def test_color_for_composite_increasing_score_warms_palette():
@@ -116,10 +116,10 @@ def test_heatmap_day_cell_with_metrics_includes_value_and_background():
     assert "background:" in cell
 
 
-def test_heatmap_day_cell_high_score_uses_white_text():
+def test_heatmap_day_cell_high_score_uses_light_red_text():
     metrics = DayMetrics(day=date(2026, 5, 15), composite=85.0)
     cell = _heatmap_day_cell(date(2026, 5, 15), metrics, StressProfile())
-    assert "#fff" in cell
+    assert "#d98c80" in cell
 
 
 # ---------------------------------------------------------------------------

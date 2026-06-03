@@ -12,7 +12,10 @@ zone whose upper_bound it does not exceed. status_class ∈
 
 from __future__ import annotations
 
-# Named palette (mirrors the report's CSS custom properties).
+# Named palette. Only good/warn/bad/ink_faint are consumed (composite
+# colours); they must stay plain hex — the Plasma panel parses the widget
+# card's data-composite-color attribute as a QML color, which can't read
+# CSS rgba() strings. The report's dark-glass CSS lives in render.py.
 PALETTE = {
     "bg": "#fafaf7",
     "panel": "#ffffff",

@@ -5,10 +5,11 @@ no JS, opens identically online or offline. Each metric carries its
 technique + research basis + caveat inline, per the project's
 "surface-technique" design principle.
 
-This is the v1 renderer. It produces a clean, scannable report with the same
-information architecture as the mockup at `templates/report.html`, but the
-visual treatment is intentionally plainer until the data pipeline has shaken
-out. The mockup remains as the aspirational design target.
+The visual treatment is the same dark-glass theme as the desktop widget card
+(`widget_card.py`): the font stacks are imported from there, and the palette
+constants below mirror its rgba ink/rule values, so the report and the widgets
+read as one product. (`templates/report.html` is the original light-theme
+mockup, kept for the information architecture only.)
 """
 
 from __future__ import annotations
@@ -30,8 +31,19 @@ from .scales import (
     composite_status,
     zone_color,
 )
+from .widget_card import FONT_MONO, FONT_UI
 
 CALIBRATING_LABEL = "calibrating"
+
+# Dark-glass ink palette, mirroring widget_card.py. SVG presentation
+# attributes can't resolve CSS custom properties, so the inline-SVG builders
+# below use these Python constants instead of var(--…).
+_INK = "rgba(245,243,237,.92)"
+_INK_SOFT = "rgba(245,243,237,.60)"
+_INK_FAINT = "rgba(245,243,237,.38)"
+_GRID = "rgba(255,255,255,.07)"        # chart grid lines
+_AXIS = "rgba(255,255,255,.22)"        # chart axis lines
+_OPTIMUM = "#efe9da"                   # optimum marker (cream, as in the card)
 
 
 def report(
@@ -220,7 +232,7 @@ def _year_sparkline(profile: StressProfile, year: int) -> str:
     """Continuous line through every active workday's composite, plotted at
     its calendar position across the year. The line is stroked with a
     vertical gradient matching the heatmap palette, so its color at any
-    height implicitly encodes the composite zone (low = blue-green,
+    height implicitly encodes the composite zone (low = good green,
     high = red). The dashed horizontal line marks the user's typical-day
     composite (p50) — a health reference."""
     width, height = 1100, 80
@@ -262,13 +274,13 @@ def _year_sparkline(profile: StressProfile, year: int) -> str:
         gradient = """
 <defs>
   <linearGradient id="sparkline-grad" x1="0" y1="100%" x2="0" y2="0%">
-    <stop offset="0%"  stop-color="#b0c4d4"/>
-    <stop offset="20%" stop-color="#cfd8d2"/>
-    <stop offset="40%" stop-color="#c9d4cd"/>
-    <stop offset="55%" stop-color="#d4c897"/>
-    <stop offset="65%" stop-color="#d8be7e"/>
-    <stop offset="75%" stop-color="#d29c5e"/>
-    <stop offset="85%" stop-color="#cd8a4f"/>
+    <stop offset="0%"  stop-color="#6c9a8b"/>
+    <stop offset="20%" stop-color="#6c9a8b"/>
+    <stop offset="40%" stop-color="#9cab76"/>
+    <stop offset="55%" stop-color="#cfbb62"/>
+    <stop offset="65%" stop-color="#d6a75c"/>
+    <stop offset="75%" stop-color="#d99058"/>
+    <stop offset="85%" stop-color="#c66f49"/>
     <stop offset="100%" stop-color="#b04a3a"/>
   </linearGradient>
 </defs>
@@ -277,7 +289,8 @@ def _year_sparkline(profile: StressProfile, year: int) -> str:
             gradient
             + f'<polyline points="{polyline_pts}" fill="none" '
             f'stroke="url(#sparkline-grad)" stroke-width="2" '
-            f'stroke-linejoin="round" stroke-linecap="round"/>'
+            f'stroke-linejoin="round" stroke-linecap="round" '
+            f'style="filter: drop-shadow(0 0 5px rgba(216,190,126,.30))"/>'
         )
         # Small dots at each data point so individual workdays are
         # identifiable even when adjacent (and hoverable for the tooltip).
@@ -285,7 +298,7 @@ def _year_sparkline(profile: StressProfile, year: int) -> str:
             f'<circle cx="{((d - date(year, 1, 1)).days * day_w):.2f}" '
             f'cy="{_y_for(c):.2f}" r="2.5" '
             f'fill="{_color_for_composite(c, profile)}" '
-            f'stroke="#fafaf7" stroke-width="0.6">'
+            f'stroke="#1a1c19" stroke-width="0.6">'
             f'<title>{d.strftime("%a %d %b")}: composite {c:.0f}</title>'
             f'</circle>'
             for d, c in points
@@ -298,21 +311,21 @@ def _year_sparkline(profile: StressProfile, year: int) -> str:
         today_x = (today - date(year, 1, 1)).days * day_w
         today_marker = (
             f'<line x1="{today_x:.2f}" y1="{pad_top}" x2="{today_x:.2f}" '
-            f'y2="{height - pad_bot}" stroke="#1f2024" stroke-width="0.6" '
+            f'y2="{height - pad_bot}" stroke="#f5f3ed" stroke-width="0.6" '
             f'opacity="0.35"/>'
         )
 
     # Month tick labels under the strip.
     month_ticks = "".join(
         f'<text x="{((date(year, m_idx + 1, 1) - date(year, 1, 1)).days * day_w):.1f}" '
-        f'y="{height - 1}" font-size="8" fill="#8a8d96">'
+        f"y=\"{height - 1}\" font-size=\"8\" font-family='{FONT_MONO}' fill=\"{_INK_FAINT}\">"
         f'{date(year, m_idx + 1, 1).strftime("%b")}</text>'
         for m_idx in (0, 2, 5, 8, 11)
     )
 
     return f"""
 <svg class="year-sparkline" viewBox="0 0 {width} {height}" preserveAspectRatio="none">
-  <rect x="0" y="{pad_top}" width="{width}" height="{plot_h}" fill="#fafaf7" opacity="0.5"/>
+  <rect x="0" y="{pad_top}" width="{width}" height="{plot_h}" fill="rgba(255,255,255,.03)"/>
   <line x1="0" y1="{reference_y:.1f}" x2="{width}" y2="{reference_y:.1f}"
         stroke="#6c9a8b" stroke-width="1.4" stroke-dasharray="4 3" opacity="0.85"/>
   <text x="{width - 4}" y="{reference_y - 3:.1f}" text-anchor="end" font-size="9" fill="#6c9a8b">{reference_label}</text>
@@ -491,12 +504,17 @@ def _heatmap_day_cell(day: date, metrics: DayMetrics | None, profile: StressProf
     if metrics is None or (metrics.composite == 0 and metrics.off_hours_minutes == 0):
         return f'<div class="cell zero"><span class="day-num">{day.day}</span></div>'
 
-    # Any day with non-zero composite → linked drill-down, colored by score.
+    # Any day with non-zero composite → linked drill-down, tinted by score
+    # the way the widget card tints its pills: translucent fill + border in
+    # the ramp colour, with the ramp colour itself as the ink. Solid pastel
+    # fills would glare on the dark glass page. The deep-red high band gets
+    # a lighter red ink (the card's error tone) for legibility.
     color = _color_for_composite(metrics.composite, profile)
-    text_color = "#fff" if metrics.composite >= 75 else "inherit"
+    text_color = "#d98c80" if metrics.composite >= 75 else color
     return (
         f'<a class="cell" href="#day-{day.isoformat()}" '
-        f'style="background:{color};color:{text_color}">'
+        f'style="background:{color}26;border:1px solid {color}59;'
+        f'color:{text_color}">'
         f'<span class="day-num">{day.day}</span>'
         f'<span class="day-val">{metrics.composite:.0f}</span>'
         f'</a>'
@@ -706,7 +724,8 @@ def _render_day_chart(day: date, agg: DayAggregate, metrics: DayMetrics) -> str:
             work_band = (
                 f'<rect x="{wx1:.1f}" y="{m_top}" '
                 f'width="{wx2 - wx1:.1f}" height="{plot_h}" '
-                f'fill="#6c9a8b" opacity="0.10"/>'
+                f'fill="rgba(108,154,139,.10)" stroke="rgba(108,154,139,.18)" '
+                f'stroke-width="0.5" rx="3"/>'
             )
             work_window_legend = (
                 f' &middot; <tspan fill="#6c9a8b" font-weight="600">'
@@ -721,16 +740,16 @@ def _render_day_chart(day: date, agg: DayAggregate, metrics: DayMetrics) -> str:
         y_axis_parts.append(
             f'<line x1="{m_left}" y1="{y:.1f}" '
             f'x2="{m_left + plot_w}" y2="{y:.1f}" '
-            f'stroke="#e6e4dd" stroke-width="1"/>'
+            f'stroke="{_GRID}" stroke-width="1"/>'
         )
         y_axis_parts.append(
-            f'<text x="{m_left - 6}" y="{y + 3:.1f}" '
-            f'font-size="10" text-anchor="end" fill="#8a8d96">{i}</text>'
+            f'<text x="{m_left - 6}" y="{y + 3:.1f}" font-size="10" '
+            f"text-anchor=\"end\" font-family='{FONT_MONO}' fill=\"{_INK_FAINT}\">{i}</text>"
         )
     # Y-axis label
     y_axis_parts.append(
         f'<text transform="rotate(-90)" x="{-(m_top + plot_h / 2):.1f}" '
-        f'y="14" font-size="10" text-anchor="middle" fill="#8a8d96">'
+        f'y="14" font-size="10" text-anchor="middle" fill="{_INK_FAINT}">'
         f'concurrent sessions</text>'
     )
 
@@ -743,37 +762,40 @@ def _render_day_chart(day: date, agg: DayAggregate, metrics: DayMetrics) -> str:
         x = m_left + h * bar_w + bar_w * 0.08
         y = m_top + plot_h - bar_px
         w = bar_w * 0.84
+        col = codl_count_color(c)
         bars.append(
             f'<rect x="{x:.1f}" y="{y:.1f}" width="{w:.1f}" '
-            f'height="{bar_px:.1f}" fill="{codl_count_color(c)}" '
-            f'opacity="0.85" rx="2"/>'
+            f'height="{bar_px:.1f}" fill="{col}" opacity="0.88" rx="2.5" '
+            f'style="filter: drop-shadow(0 0 7px {col}55)"/>'
         )
         bars.append(
             f'<text x="{x + w / 2:.1f}" y="{y - 4:.1f}" font-size="10" '
-            f'text-anchor="middle" fill="#1f2024" font-weight="600">{c}</text>'
+            f"text-anchor=\"middle\" font-family='{FONT_MONO}' "
+            f'fill="rgba(245,243,237,.85)" font-weight="700">{c}</text>'
         )
 
     # X-axis labels (every 3 hours).
     x_labels = "".join(
         f'<text x="{m_left + h * bar_w:.1f}" y="{m_top + plot_h + 16}" '
-        f'font-size="10" text-anchor="middle" fill="#8a8d96">{h:02d}</text>'
+        f"font-size=\"10\" text-anchor=\"middle\" font-family='{FONT_MONO}' "
+        f'fill="{_INK_FAINT}">{h:02d}</text>'
         for h in range(0, 25, 3)
     )
     x_caption = (
         f'<text x="{m_left + plot_w / 2:.1f}" y="{chart_h - 6}" '
-        f'font-size="10" text-anchor="middle" fill="#8a8d96">'
+        f'font-size="10" text-anchor="middle" fill="{_INK_FAINT}">'
         f'hour of day (local)</text>'
     )
     x_axis_line = (
         f'<line x1="{m_left}" y1="{m_top + plot_h}" '
         f'x2="{m_left + plot_w}" y2="{m_top + plot_h}" '
-        f'stroke="#5a5d66" stroke-width="1"/>'
+        f'stroke="{_AXIS}" stroke-width="1"/>'
     )
 
     title = (
         f'<text x="{m_left}" y="22" font-size="13" font-weight="600" '
-        f'fill="#1f2024">Concurrent agent sessions per hour</text>'
-        f'<text x="{m_left}" y="42" font-size="11" fill="#5a5d66">'
+        f'fill="{_INK}">Concurrent agent sessions per hour</text>'
+        f'<text x="{m_left}" y="42" font-size="11" fill="{_INK_SOFT}">'
         f'Bucketed by local hour &middot; peak {max_count} simultaneous'
         f'{work_window_legend}'
         f'</text>'
@@ -909,15 +931,15 @@ def _render_range_bar(
         segments.append(
             f'<rect x="{x1:.1f}" y="{bar_y}" width="{x2 - x1:.1f}" '
             f'height="{bar_h}" fill="{zone_color(status_class)}" '
-            f'opacity="0.6"/>'
+            f'opacity="0.8"/>'
         )
         # Tick under bar at the upper boundary (except the very last).
         if capped_upper < range_max:
             tx = _x(capped_upper)
             tick_label = f"{capped_upper:g}"
             boundary_ticks.append(
-                f'<text x="{tx:.1f}" y="54" font-size="9" '
-                f'text-anchor="middle" fill="#8a8d96">{tick_label}</text>'
+                f'<text x="{tx:.1f}" y="54" font-size="9" text-anchor="middle" '
+                f"font-family='{FONT_MONO}' fill=\"{_INK_FAINT}\">{tick_label}</text>"
             )
         prev_upper = capped_upper
         if prev_upper >= range_max:
@@ -926,9 +948,9 @@ def _render_range_bar(
     # Endpoint labels (0 and max) — always shown for context.
     end_labels = (
         f'<text x="{pad}" y="54" font-size="9" text-anchor="start" '
-        f'fill="#8a8d96">0</text>'
+        f"font-family='{FONT_MONO}' fill=\"{_INK_FAINT}\">0</text>"
         f'<text x="{width - pad}" y="54" font-size="9" text-anchor="end" '
-        f'fill="#8a8d96">{range_max:g}</text>'
+        f"font-family='{FONT_MONO}' fill=\"{_INK_FAINT}\">{range_max:g}</text>"
     )
 
     # Reference markers (baseline, optimum) — drawn above the bar.
@@ -937,19 +959,21 @@ def _render_range_bar(
         bx = _x(baseline)
         extras.append(
             f'<line x1="{bx:.1f}" y1="{bar_y - 4}" x2="{bx:.1f}" '
-            f'y2="{bar_y + bar_h + 4}" stroke="#5a5d66" stroke-width="1.2" '
-            f'stroke-dasharray="2 2"/>'
+            f'y2="{bar_y + bar_h + 4}" stroke="rgba(245,243,237,.40)" '
+            f'stroke-width="1.2" stroke-dasharray="2 2"/>'
             f'<text x="{bx:.1f}" y="10" font-size="9" '
-            f'text-anchor="{_anchor(bx)}" fill="#5a5d66">{baseline_label}</text>'
+            f"text-anchor=\"{_anchor(bx)}\" font-family='{FONT_MONO}' "
+            f'fill="rgba(245,243,237,.50)">{baseline_label}</text>'
         )
     if optimum is not None and optimum > 0 and optimum <= range_max:
         ox = _x(optimum)
         extras.append(
             f'<line x1="{ox:.1f}" y1="{bar_y - 4}" x2="{ox:.1f}" '
-            f'y2="{bar_y + bar_h + 4}" stroke="#355070" stroke-width="1.2" '
-            f'stroke-dasharray="3 3"/>'
+            f'y2="{bar_y + bar_h + 4}" stroke="{_OPTIMUM}" stroke-width="1.2" '
+            f'stroke-dasharray="3 3" opacity="0.8"/>'
             f'<text x="{ox:.1f}" y="22" font-size="9" '
-            f'text-anchor="{_anchor(ox)}" fill="#355070">{optimum_label}</text>'
+            f"text-anchor=\"{_anchor(ox)}\" font-family='{FONT_MONO}' "
+            f'fill="{_OPTIMUM}">{optimum_label}</text>'
         )
 
     # User marker — the dominant element. Draw last so it sits on top. When the
@@ -964,15 +988,16 @@ def _render_range_bar(
             user_label = f"you {value:.2f} ▶"
         user_marker = (
             f'<line x1="{user_x:.1f}" y1="{bar_y - 8}" x2="{user_x:.1f}" '
-            f'y2="{bar_y + bar_h + 8}" stroke="#1f2024" stroke-width="2.5"/>'
+            f'y2="{bar_y + bar_h + 8}" stroke="#fff" stroke-width="2" '
+            f'style="filter: drop-shadow(0 0 4px rgba(255,255,255,.6))"/>'
             f'<text x="{user_x:.1f}" y="68" font-size="10" '
-            f'text-anchor="{_anchor(user_x)}" fill="#1f2024" '
-            f'font-weight="600">{user_label}</text>'
+            f"text-anchor=\"{_anchor(user_x)}\" font-family='{FONT_MONO}' "
+            f'fill="{_INK}" font-weight="700">{user_label}</text>'
         )
     else:
         user_marker = (
             f'<text x="{width / 2:.1f}" y="68" font-size="10" '
-            f'text-anchor="middle" fill="#8a8d96" font-style="italic">'
+            f'text-anchor="middle" fill="{_INK_FAINT}" font-style="italic">'
             f'not measured this day</text>'
         )
 
@@ -1035,8 +1060,8 @@ def _render_methodology(profile: StressProfile, stats: AggregateStats | None) ->
     <div class="methodology-body">
       <p>
         Generated by ai-code-cognitive-stress {escape(__version__)}. Inputs:
-        local agent-coding session transcripts (Claude Code, Codex CLI, Aider,
-    and any source plugins configured via `--source`).
+        local agent-coding session transcripts (whichever source adapters
+        are configured via `--source`).
         All processing is local; nothing leaves the machine.
         {tz_note}
       </p>
@@ -1104,15 +1129,19 @@ def _status_for_count(n: int, thresholds: list[int]) -> str:
 
 
 def _color_for_composite(score: float, profile: StressProfile) -> str:
+    """Composite heat ramp: green → yellow → orange → red, anchored on the
+    widget card's zone colours (scales.ZONE_COLORS: green/orange/red) with a
+    yellow midpoint and blended in-between steps — so the heatmap, sparkline,
+    and legend speak the same colour language as the card's zone bars."""
     if score <= 0:
-        return "#efece5"
+        return "#2a2c27"  # neutral no-activity tone on the dark page
     bands = [
-        (20, "#cfd8d2"),
-        (40, "#c9d4cd"),
-        (55, "#d4c897"),
-        (65, "#d8be7e"),
-        (75, "#d29c5e"),
-        (85, "#cd8a4f"),
+        (20, "#6c9a8b"),
+        (40, "#9cab76"),
+        (55, "#cfbb62"),
+        (65, "#d6a75c"),
+        (75, "#d99058"),
+        (85, "#c66f49"),
         (100, "#b04a3a"),
     ]
     for top, color in bands:
@@ -1173,12 +1202,12 @@ def _selected_month_style(profile: StressProfile) -> str:
     hover = ",\n  ".join(f"{s}:hover" for s in selectors)
     return (
         f"  {base} {{\n"
-        "    background: var(--panel);\n"
-        "    box-shadow: 0 0 0 1.5px var(--accent), 0 6px 16px -6px rgba(53,80,112,0.35);\n"
+        "    background: rgba(255,255,255,.09);\n"
+        "    box-shadow: 0 0 0 1.5px var(--accent), 0 6px 16px -6px rgba(0,0,0,0.6);\n"
         "  }\n"
         f"  {hover} {{\n"
         "    transform: translateY(-1px);\n"
-        "    box-shadow: 0 0 0 1.5px var(--accent), 0 10px 22px -6px rgba(53,80,112,0.4);\n"
+        "    box-shadow: 0 0 0 1.5px var(--accent), 0 10px 22px -6px rgba(0,0,0,0.65);\n"
         "  }\n"
     )
 
@@ -1203,21 +1232,27 @@ def _wrap_document(title: str, body_html: str, extra_css: str = "") -> str:
 
 _STYLES = """
   :root {
-    --bg: #fafaf7;
-    --panel: #ffffff;
-    --ink: #1f2024;
-    --ink-soft: #5a5d66;
-    --ink-faint: #8a8d96;
-    --rule: #e6e4dd;
-    --accent: #355070;
+    --bg: #161814;
+    --panel: rgba(255, 255, 255, .045);
+    --ink: rgba(245, 243, 237, .92);
+    --ink-soft: rgba(245, 243, 237, .60);
+    --ink-faint: rgba(245, 243, 237, .38);
+    --rule: rgba(255, 255, 255, .085);
+    --edge: rgba(255, 255, 255, .13);
+    --accent: #efe9da;
     --good: #6c9a8b;
     --warn: #d99058;
     --bad: #b04a3a;
   }
   * { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  html, body { margin: 0; padding: 0; color: var(--ink);
+    font-family: __FONT_UI__;
     font-size: 14px; line-height: 1.55; }
+  body { background:
+      radial-gradient(1100px 600px at 12% -8%, rgba(108,154,139,.10), transparent 60%),
+      radial-gradient(900px 520px at 88% 0%, rgba(217,144,88,.07), transparent 55%),
+      linear-gradient(178deg, #1d201c, #131512);
+    background-attachment: fixed; background-color: var(--bg); }
   html { scroll-behavior: smooth; }
   /* Show one month at a time. By default, only `.month-default` (today's
      month if present, else the latest active month) is visible. Clicking
@@ -1240,32 +1275,45 @@ _STYLES = """
   section.day-view:target { display: block; animation: fadein 0.12s ease; }
   @keyframes fadein { from { opacity: 0; } to { opacity: 1; } }
   .day-backdrop { position: absolute; inset: 0; z-index: 0;
-    background: rgba(20, 22, 28, 0.55); cursor: pointer;
-    backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px); }
+    background: rgba(8, 9, 8, 0.60); cursor: pointer;
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
   .day-modal { position: relative; z-index: 1;
     max-width: min(1320px, 92vw);
-    margin: 24px auto; background: var(--bg); padding: 28px 36px 36px;
-    border-radius: 12px;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35),
-                0 4px 12px rgba(0, 0, 0, 0.15); }
+    margin: 24px auto; padding: 28px 36px 36px;
+    background: linear-gradient(178deg, #22241f, #181a17);
+    border: 1px solid var(--edge);
+    border-radius: 24px;
+    box-shadow: 0 36px 80px -24px rgba(0, 0, 0, .70),
+                0 8px 24px -12px rgba(0, 0, 0, .50); }
   .container { max-width: 1100px; margin: 0 auto; padding: 40px 32px 80px; }
-  h1 { font-size: 24px; font-weight: 600; margin: 0 0 4px; }
-  h2 { font-size: 17px; font-weight: 600; margin: 36px 0 14px; }
+  h1 { font-size: 26px; font-weight: 650; letter-spacing: -.025em; margin: 0 0 4px; }
+  h2 { font-size: 17px; font-weight: 650; letter-spacing: -.01em; margin: 36px 0 14px; }
   h3 { font-size: 13px; font-weight: 600; margin: 0 0 6px;
     text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-soft); }
-  .subtitle { color: var(--ink-soft); font-size: 13px; margin: 0; }
+  .subtitle { color: var(--ink-faint); font-size: 11px; margin: 0;
+    font-family: __FONT_MONO__; letter-spacing: .02em; }
   header.report { border-bottom: 1px solid var(--rule); padding-bottom: 20px;
     margin-bottom: 36px; }
-  .panel { background: var(--panel); border: 1px solid var(--rule);
-    border-radius: 8px; padding: 20px 22px;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.04), 0 4px 16px rgba(0,0,0,0.04); }
+  /* Glass panel — the widget card's chrome, page-sized. */
+  .panel { position: relative;
+    background: linear-gradient(178deg, rgba(34, 36, 32, .60), rgba(24, 26, 23, .52));
+    -webkit-backdrop-filter: blur(32px) saturate(150%);
+    backdrop-filter: blur(32px) saturate(150%);
+    border: 1px solid var(--edge);
+    border-radius: 20px; padding: 20px 22px;
+    box-shadow: 0 24px 60px -24px rgba(0,0,0,.60), 0 6px 18px -10px rgba(0,0,0,.45); }
+  .panel::before { /* top inner highlight — the glass edge */
+    content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+    background: linear-gradient(180deg, rgba(255,255,255,.10), transparent 18%);
+    -webkit-mask: linear-gradient(180deg, #000 2%, transparent 30%);
+    mask: linear-gradient(180deg, #000 2%, transparent 30%); }
   /* Agent analysis panel — distinct visual: green left rail, soft tinted
      background, so the reader knows this section is interpretation, not
      raw data. */
-  section.agent-analysis { background: #f3f6f3;
-    border: 1px solid rgba(108,154,139,0.35);
+  section.agent-analysis { background: rgba(108,154,139,.10);
+    border: 1px solid rgba(108,154,139,0.22);
     border-left: 4px solid var(--good);
-    border-radius: 8px; padding: 20px 26px;
+    border-radius: 16px; padding: 20px 26px;
     margin: 8px 0 36px; }
   section.agent-analysis h2 { margin-top: 0; font-size: 17px;
     color: var(--good); }
@@ -1274,8 +1322,8 @@ _STYLES = """
   .agent-analysis-body p { margin: 8px 0; }
   .agent-analysis-body ul { padding-left: 22px; margin: 8px 0; }
   .agent-analysis-body li { margin: 4px 0; }
-  .agent-analysis-body code { background: rgba(0,0,0,0.05);
-    padding: 1px 5px; border-radius: 3px; font-size: 12px; }
+  .agent-analysis-body code { background: rgba(255,255,255,0.08);
+    padding: 1px 5px; border-radius: 4px; font-size: 12px; }
   .agent-analysis-body strong { color: var(--ink); }
   .agent-analysis-body a { color: var(--accent); }
   .panel.empty { padding: 40px; text-align: center; color: var(--ink-soft); }
@@ -1283,36 +1331,39 @@ _STYLES = """
   /* Year overview */
   .year-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px;
     margin-bottom: 14px; }
-  .year-cell { background: #efece5; border-radius: 6px; padding: 12px 10px;
+  .year-cell { background: var(--panel); border: 1px solid var(--rule);
+    border-radius: 14px; padding: 12px 10px;
     border-top: 3px solid var(--rule);
     text-decoration: none; color: inherit; display: block;
-    transition: transform 0.08s ease, box-shadow 0.08s ease; }
-  a.year-cell:hover { transform: translateY(-1px);
-    box-shadow: 0 2px 6px rgba(0,0,0,0.08); cursor: pointer; }
+    transition: transform 0.08s ease, box-shadow 0.08s ease, background 0.08s ease; }
+  a.year-cell:hover { transform: translateY(-1px); background: rgba(255,255,255,.07);
+    box-shadow: 0 6px 16px rgba(0,0,0,0.35); cursor: pointer; }
   a.cell { text-decoration: none; color: inherit; display: block;
     transition: transform 0.08s ease, box-shadow 0.08s ease; }
   a.cell:hover { transform: translateY(-1px);
-    box-shadow: 0 2px 6px rgba(0,0,0,0.1); cursor: pointer; }
+    box-shadow: 0 6px 16px rgba(0,0,0,0.4); cursor: pointer; }
   .year-cell.future { background: transparent; border: 1px dashed var(--rule);
-    color: var(--ink-faint); }
+    border-top-width: 1px; color: var(--ink-faint); }
   .year-cell.status-good { border-top-color: var(--good); }
   .year-cell.status-caution { border-top-color: var(--warn); }
   .year-cell.status-high { border-top-color: var(--bad); }
   .ym-month { font-size: 11px; font-weight: 600; text-transform: uppercase;
     letter-spacing: 0.05em; color: var(--ink-soft); }
-  .ym-value { font-size: 20px; font-weight: 600; margin-top: 2px; }
-  .ym-trend { font-size: 11px; color: var(--ink-soft); margin-top: 2px; }
+  .ym-value { font-size: 20px; font-weight: 650; margin-top: 2px;
+    font-feature-settings: "tnum"; }
+  .ym-trend { font-size: 11px; color: var(--ink-faint); margin-top: 2px; }
   .year-sparkline { height: 60px; width: 100%; margin-top: 10px; }
   /* Summary cards */
   .summary-row { display: grid; grid-template-columns: repeat(4, 1fr);
     gap: 14px; margin-bottom: 18px; }
   .stat-card { background: var(--panel); border: 1px solid var(--rule);
-    border-radius: 8px; padding: 14px 16px; position: relative;
+    border-radius: 16px; padding: 14px 16px; position: relative;
     border-top: 3px solid var(--rule);
     text-decoration: none; color: inherit; display: block;
-    transition: transform 0.08s ease, box-shadow 0.08s ease; }
+    transition: transform 0.08s ease, box-shadow 0.08s ease, background 0.08s ease; }
   a.stat-card:hover { transform: translateY(-1px); cursor: pointer;
-    box-shadow: 0 2px 6px rgba(0,0,0,0.08); }
+    background: rgba(255,255,255,.07);
+    box-shadow: 0 6px 16px rgba(0,0,0,0.35); }
   .stat-card.status-good { border-top-color: var(--good); }
   .stat-card.status-caution { border-top-color: var(--warn); }
   .stat-card.status-high { border-top-color: var(--bad); }
@@ -1321,48 +1372,55 @@ _STYLES = """
     /* Reserve room for the absolutely-positioned status badge so a long
        label (e.g. "AVG COMPOSITE (WORK HOURS)") wraps clear of it. */
     padding-right: 76px; }
-  .stat-card .value { font-size: 22px; font-weight: 600; line-height: 1.1; }
+  .stat-card .value { font-size: 22px; font-weight: 650; line-height: 1.1;
+    font-feature-settings: "tnum"; }
   .stat-card .unit { font-size: 12px; color: var(--ink-soft); margin-left: 4px;
     font-weight: 400; }
   .stat-card .target-note { font-size: 11px; color: var(--ink-faint);
     margin-top: 6px; }
+  /* Status pills — the widget card's advice pill. */
   .stat-card .status-label { position: absolute; top: 12px; right: 14px;
-    font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em;
-    padding: 2px 6px; border-radius: 8px; background: rgba(0,0,0,0.04);
+    font-size: 9px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.12em; padding: 4px 9px 3px; border-radius: 999px;
+    background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.09);
     color: var(--ink-soft); white-space: nowrap; }
-  .stat-card.status-good .status-label { background: rgba(108,154,139,0.15);
-    color: var(--good); }
-  .stat-card.status-caution .status-label { background: rgba(217,144,88,0.18);
-    color: var(--warn); }
-  .stat-card.status-high .status-label { background: rgba(176,74,58,0.15);
-    color: var(--bad); }
+  .stat-card.status-good .status-label { background: rgba(108,154,139,0.13);
+    border-color: rgba(108,154,139,0.20); color: var(--good); }
+  .stat-card.status-caution .status-label { background: rgba(217,144,88,0.13);
+    border-color: rgba(217,144,88,0.20); color: var(--warn); }
+  .stat-card.status-high .status-label { background: rgba(176,74,58,0.16);
+    border-color: rgba(176,74,58,0.26); color: #d98c80; }
   /* Heatmap */
   .heatmap { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
   .dow-label { font-size: 11px; color: var(--ink-faint); text-transform: uppercase;
     letter-spacing: 0.05em; text-align: center; padding-bottom: 6px; }
-  .cell { aspect-ratio: 1.4 / 1; border-radius: 6px; background: #ececec;
+  .cell { aspect-ratio: 1.4 / 1; border-radius: 8px; background: rgba(255,255,255,.03);
     padding: 7px 9px; position: relative; font-size: 11px; }
-  .cell.outside { background: transparent; border: 1px dashed var(--rule); }
-  .cell.zero { background: #efece5; }
+  .cell.outside { background: transparent; border: 1px dashed rgba(255,255,255,.06); }
+  .cell.zero { background: rgba(255,255,255,.03); border: 1px solid var(--rule);
+    color: var(--ink-faint); }
   .cell .day-num { font-weight: 600; font-size: 12px; }
   .cell .day-val { position: absolute; bottom: 7px; right: 9px;
-    font-size: 11px; opacity: 0.7; }
+    font-size: 11px; opacity: 0.75; font-feature-settings: "tnum"; }
   .legend { font-size: 11px; color: var(--ink-soft); margin-top: 14px; }
   .legend-bar { display: inline-block; width: 200px; height: 8px; border-radius: 4px;
-    background: linear-gradient(to right, #cfd8d2, #d8be7e, #d29c5e, #b04a3a);
+    background: linear-gradient(to right, #6c9a8b, #cfbb62, #d99058, #b04a3a);
     vertical-align: middle; margin: 0 8px; }
-  /* Recommendations */
+  /* Recommendations — the widget card's nag/error boxes, expanded. */
   .rec-list { display: grid; gap: 12px; }
-  .rec { border-left: 3px solid var(--warn); background: #fcf7ef;
-    padding: 14px 18px; border-radius: 4px; }
-  .rec-high { border-left-color: var(--bad); background: #fbf2ef; }
+  .rec { border: 1px solid rgba(217,144,88,.22); border-left: 3px solid var(--warn);
+    background: rgba(217,144,88,.10);
+    padding: 14px 18px; border-radius: 12px; }
+  .rec-high { border-color: rgba(176,74,58,.26); border-left-color: var(--bad);
+    background: rgba(176,74,58,.12); }
   .rec-title { font-weight: 600; font-size: 14px; margin-bottom: 4px; }
   .rec-trigger { font-size: 12px; color: var(--ink-soft); margin-bottom: 6px; }
-  .rec-trigger code { background: rgba(0,0,0,0.04); padding: 1px 4px;
-    border-radius: 3px; font-size: 11px; }
+  .rec-trigger code { background: rgba(255,255,255,0.07); padding: 1px 4px;
+    border-radius: 4px; font-size: 11px; }
   .rec-advice { margin: 6px 0 8px; }
   .rec-cite { font-size: 11px; color: var(--ink-faint); font-style: italic; }
-  .disclaimer { padding: 10px 14px; background: #f4f1ea; border-radius: 4px;
+  .disclaimer { padding: 10px 14px; background: rgba(255,255,255,.04);
+    border: 1px solid var(--rule); border-radius: 12px;
     font-size: 12px; color: var(--ink-soft); }
   /* Day view */
   .day-modal h3 { display: flex; justify-content: space-between; align-items: center;
@@ -1371,13 +1429,14 @@ _STYLES = """
     border-bottom: 1px solid var(--rule); }
   .day-modal .close-day { font-size: 22px; line-height: 1;
     color: var(--ink-faint); text-decoration: none; font-weight: 400;
-    width: 32px; height: 32px; border-radius: 6px;
+    width: 32px; height: 32px; border-radius: 8px;
     display: inline-flex; align-items: center; justify-content: center;
     transition: background 0.08s, color 0.08s; }
-  .day-modal .close-day:hover { color: var(--bad); background: var(--rule); }
+  .day-modal .close-day:hover { color: #d98c80; background: rgba(255,255,255,.07); }
   .day-meta { display: flex; justify-content: space-between; align-items: baseline;
     margin-bottom: 6px; }
-  .day-meta .work-window { font-size: 12px; color: var(--ink-soft); }
+  .day-meta .work-window { font-size: 11px; color: var(--ink-faint);
+    font-family: __FONT_MONO__; letter-spacing: .02em; }
   /* Axis tiles use subgrid for cross-tile row alignment so all three
      descriptions / bars / value rows line up even when the description
      text has slightly different lengths. Subgrid is widely supported in
@@ -1387,7 +1446,7 @@ _STYLES = """
     grid-template-rows: auto; margin-top: 22px;
     align-items: start; }
   .tile { background: var(--panel); border: 1px solid var(--rule);
-    border-radius: 8px; padding: 16px 18px;
+    border-radius: 16px; padding: 16px 18px;
     display: grid;
     grid-template-rows: auto auto auto auto auto;
     row-gap: 8px;
@@ -1402,19 +1461,24 @@ _STYLES = """
   .tile-name { font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em;
     color: var(--ink); font-weight: 700; flex: 1 1 auto; min-width: 0;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .tile-status { font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em;
-    padding: 3px 9px; border-radius: 10px; white-space: nowrap; font-weight: 600; }
-  .tile-status.status-good { background: rgba(108,154,139,0.16); color: var(--good); }
-  .tile-status.status-moderate { background: rgba(197,180,138,0.20); color: #8a7a4b; }
-  .tile-status.status-caution { background: rgba(217,144,88,0.18); color: var(--warn); }
-  .tile-status.status-high { background: rgba(176,74,58,0.16); color: var(--bad); }
-  .tile-meaning { font-size: 12px; color: var(--ink); line-height: 1.5;
+  .tile-status { font-size: 9px; text-transform: uppercase; letter-spacing: 0.10em;
+    padding: 4px 9px 3px; border-radius: 999px; white-space: nowrap; font-weight: 700;
+    border: 1px solid transparent; }
+  .tile-status.status-good { background: rgba(108,154,139,0.13);
+    border-color: rgba(108,154,139,0.20); color: var(--good); }
+  .tile-status.status-moderate { background: rgba(197,180,138,0.13);
+    border-color: rgba(197,180,138,0.20); color: #c5b48a; }
+  .tile-status.status-caution { background: rgba(217,144,88,0.13);
+    border-color: rgba(217,144,88,0.20); color: var(--warn); }
+  .tile-status.status-high { background: rgba(176,74,58,0.16);
+    border-color: rgba(176,74,58,0.26); color: #d98c80; }
+  .tile-meaning { font-size: 12px; color: var(--ink-soft); line-height: 1.5;
     margin: 0; min-height: 4.5em; }
   .range-bar { width: 100%; height: auto; max-height: 86px; display: block; }
   .tile-value-row { display: flex; align-items: baseline; gap: 10px;
     padding-top: 10px; border-top: 1px solid var(--rule); }
-  .tile-value { font-size: 22px; font-weight: 600; }
-  .tile-unit { font-size: 12px; color: var(--ink-soft); }
+  .tile-value { font-size: 22px; font-weight: 650; font-feature-settings: "tnum"; }
+  .tile-unit { font-size: 11px; color: var(--ink-faint); }
   .tile-details { font-size: 11px; color: var(--ink-soft); }
   .tile-details summary { cursor: pointer; padding: 4px 0;
     color: var(--ink-faint); user-select: none; }
@@ -1444,5 +1508,5 @@ _STYLES = """
   .cite-list { list-style: none; padding: 0; margin: 12px 0; }
   .cite-list li { padding: 6px 0; border-bottom: 1px solid var(--rule); }
   .cite-list li:last-child { border-bottom: none; }
-  code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11px; }
-"""
+  code { font-family: __FONT_MONO__; font-size: 11px; }
+""".replace("__FONT_UI__", FONT_UI).replace("__FONT_MONO__", FONT_MONO)
