@@ -46,81 +46,44 @@ individually-derived optimum (an inverted-U "flow channel", not a fixed ceiling)
 
 ## Installation
 
-Pure-stdlib Python, **3.10 – 3.14** (including the latest), zero third-party
-dependencies. **Not published to a package index** — you run it straight from a
-clone. The core install is identical on Linux and macOS; only the optional
-desktop widget differs (KDE Plasma vs Übersicht), so each OS gets its own
-step-by-step below.
-
-**The easy path — let your agent install it.** This repo ships as a chat *skill*
-for the LLM coding tools you already use. Open the clone in your agent and ask
-it to install the project — it runs
-`python install.py`, which registers the skill on your machine. **Using it is
-then just talking to your agent**: ask *"show me my stress profile"* or *"how
-loaded was my week?"* and the project skill takes over — it generates the
-report, writes a focused read of your own data, and opens it in your browser.
-No CLI flags to remember.
-
-Prefer to do it by hand? Follow the steps for your OS.
-
-### Linux — step by step
+One command. Pure-stdlib Python ≥ 3.10, zero third-party dependencies,
+**not published to a package index** — you run it straight from a clone:
 
 ```bash
-# 1. Clone and enter the repo
-git clone <repo-url> ai-code-cognitive-stress
-cd ai-code-cognitive-stress
-
-# 2. Register the chat skill (the same thing the agent path above runs)
-python install.py
-
-# 3. Optional — put the `aicogstress` CLI on your PATH with uv
-#    (a system Python ≥ 3.10 can always run it as `python -m stress_levels`)
-uv tool install --from . ai-code-cognitive-stress
-
-# 4. Your first report
-aicogstress --year 2026 --open           # or: python -m stress_levels --year 2026 --open
+git clone https://github.com/sagium/ai-code-cognitive-stress.git
+cd ai-code-cognitive-stress && python install.py
 ```
 
-**5. Optional — the live KDE Plasma 6 desktop widget** (Plasma 6 / Qt 6 only;
-needs the QtWebEngine QML module — the same dependency as KDE's own web-browser
-applet):
+That single command sets up everything:
+
+1. the **chat skill** — so using it is just talking to your agent: ask *"show
+   me my stress profile"* or *"how loaded was my week?"* and it generates the
+   report, writes a focused read of your own data, and opens it in your
+   browser;
+2. the **`aicogstress` CLI** on your PATH (editable via `uv`/`pipx` if you
+   have one, a small stdlib launcher otherwise);
+3. the **live desktop widget** for your OS — KDE Plasma 6 on Linux,
+   [Übersicht](https://tracesof.net/uebersicht/) on macOS;
+4. the **first computation** — your session logs are ingested and today's
+   card rendered, so the widget and report open with data already in place.
+
+Anything missing (Plasma's QtWebEngine QML module, the Übersicht app, …) is
+detected and reported with the exact install command for your distro/OS —
+install it and re-run `python install.py` (every step is idempotent). Remove
+everything again with `python install.py --uninstall`.
+
+Want less? `--skill-only` registers just the chat skill; `--plasmoid` /
+`--ubersicht` (re)install just the widget. The subsections below cover
+driving the CLI yourself; sharing an anonymized export has [its own
+section](#help-calibrate-the-index-optional-anonymous).
+
+### CLI usage
 
 ```bash
-sudo apt install qml6-module-qtwebengine       # Debian/Ubuntu (Arch: sudo pacman -S qt6-webengine)
-python install.py --plasmoid                   # install the widget package
-kquitapp6 plasmashell && kstart plasmashell    # restart Plasma to pick it up
-# then: right-click the desktop or a panel → "Add Widgets…" → "Cognitive Stress"
+aicogstress --year 2026 --open    # or: python -m stress_levels --year 2026 --open
 ```
 
-### macOS — step by step
-
-```bash
-# 1. Clone and enter the repo
-git clone <repo-url> ai-code-cognitive-stress
-cd ai-code-cognitive-stress
-
-# 2. Register the chat skill (the same thing the agent path above runs)
-python3 install.py
-
-# 3. Optional — put the `aicogstress` CLI on your PATH with uv (brew install uv)
-#    (a system Python ≥ 3.10 can always run it as `python3 -m stress_levels`)
-uv tool install --from . ai-code-cognitive-stress
-
-# 4. Your first report
-aicogstress --year 2026 --open           # or: python3 -m stress_levels --year 2026 --open
-```
-
-**5. Optional — the live [Übersicht](https://tracesof.net/uebersicht/) desktop
-widget:**
-
-```bash
-brew install --cask ubersicht    # if you don't have Übersicht yet
-python3 install.py --ubersicht   # symlink the widget into Übersicht's widgets dir
-```
-
-### Other ways to run it
-
-**With [uv](https://docs.astral.sh/uv/)** and no install at all (auto-provisions
+No install at all — **with [uv](https://docs.astral.sh/uv/)** (auto-provisions
 a Python in range if you don't already have one):
 
 ```bash
@@ -162,19 +125,22 @@ other external display.)
 </p>
 
 **KDE Plasma 6** — a desktop/panel widget hosting the card in a web view
-(install: step 5 of the [Linux steps](#linux--step-by-step) above). On the
+(installed by `python install.py`; `--plasmoid` reinstalls just it). On the
 desktop it shows the full card inline (sized to fit, no scrolling); in a panel
 it shows the compact composite score that expands on click. Plasma 6 / Qt 6
-only (Plasma 5 is end-of-life). The package lives in `desktop/plasmoid/` as a
-thin QML shell. If the score stays blank, `aicogstress` isn't on Plasma's
-`PATH`: set the absolute path to `aicogstress` in the widget's settings.
-Remove it with `python install.py --uninstall --plasmoid`. After updating the
-widget, restart plasmashell so it drops the cached version
+only (Plasma 5 is end-of-life); the installer checks for the QtWebEngine QML
+module it needs and prints your distro's install command if it's missing. The
+package lives in `desktop/plasmoid/` as a thin QML shell. If the score stays
+blank, `aicogstress` isn't on Plasma's `PATH`: set the absolute path to
+`aicogstress` in the widget's settings. Remove it with
+`python install.py --uninstall --plasmoid`. After updating the widget, restart
+plasmashell so it drops the cached version
 (`kquitapp6 plasmashell && kstart plasmashell`).
 
 **macOS** — an [Übersicht](https://tracesof.net/uebersicht/) widget (pictured
 above): a translucent glass card over your wallpaper, in system SF Pro
-(install: step 5 of the [macOS steps](#macos--step-by-step) above; or drag
+(installed by `python install.py` when Übersicht is present —
+`brew install --cask ubersicht` first; or drag
 `desktop/ubersicht/cognitive-stress.jsx` into
 `~/Library/Application Support/Übersicht/widgets/` yourself). If the score
 stays blank, set the absolute path to `aicogstress` in the file's `command`
@@ -185,10 +151,6 @@ browser (instructions inside) — handy for hacking on it from Linux.
 All three surfaces — the HTML report and both desktop widgets — render from
 one shared model (`stress_levels/dayview.py`), and the two widgets share one
 renderer on top of it (`stress_levels/widget_card.py`), so they can't drift.
-
-> `python install.py` (the agent-install path above) also registers the chat
-> *skill* so you can just ask "show me my stress profile" — separate from, and
-> in addition to, the CLI and the widgets.
 
 ---
 
