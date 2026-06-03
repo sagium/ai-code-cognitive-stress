@@ -51,7 +51,7 @@ grounded axes---Concurrent Operational Demand Load (CODL), an Interruption
 Index, and a Closure Deficit---each anchored to an established literature
 (working-memory capacity, supervisory-control fan-out, the interruption and
 attention-residue literature, and the Job Demands--Resources model). A central
-refinement weights concurrency by \emph{engagement}: a session counts at full
+design choice weights concurrency by \emph{engagement}: a session counts at full
 load only while actively driven and at a discounted weight while ``cooking'' in
 the background, a distinction we ground in prospective-memory monitoring costs
 and the cognition of unfulfilled goals. We deliberately frame the work as a
@@ -66,8 +66,7 @@ roadmap intended to let the community confirm, calibrate, or refute the index.
 ]
 
 \section{Introduction}
-Large-language-model coding assistants---Claude Code, OpenAI Codex CLI, Aider,
-and others---are routinely run several at a time, or in many concurrent
+Large-language-model coding assistants are routinely run several at a time, or in many concurrent
 sessions of one. The human operator no longer types most of the code; they
 \emph{supervise}: dispatching tasks, context-switching between agents, judging
 partial results, and re-engaging stalled threads. The closest well-studied
@@ -384,8 +383,8 @@ open contexts than working memory comfortably holds),
 \operatorname{clip}\!\Big(\frac{1}{K}\sum_{g\in\mathcal{R}}\sigma(g),\ 0,\ 1\Big).
 \end{equation}
 A value of $0$ is a real, good score---every loop was closed in one sitting---and
-the axis is defined on every active day, requiring no \texttt{git} and no
-configuration. It is \emph{undefined} (omitted as data, not scored) only on a day
+the axis is defined on every active day, requiring no configuration. It is
+\emph{undefined} (omitted as data, not scored) only on a day
 with no activity at all. The thresholds $\tau$, $\Delta$, and $K$ are
 citation-anchored modeling priors, not values fitted to felt load; all three are
 configurable.
@@ -394,11 +393,8 @@ This axis is built from per-session resume \emph{events}, not from the concurren
 time-series $C(t)$, so it is independent of the CODL shape by construction: two
 days with identical $C(t)$ (hence identical $\overline{\mathrm{CODL}}$) receive
 different deficits if one parked-and-reloaded its loops while the other ran them to
-completion in a sitting---information $C(t)$ cannot carry. It also makes the axis
-git-independent, which removes the earlier version's dependence on local commit
-history and its attendant confounds (a shared monorepo's teammate or merge-bot
-commits being read as the operator's closures, and the need to author-scope and
-repository-attribute every commit). The gap is, however, a \emph{proxy} for a
+completion in a sitting---information $C(t)$ cannot carry. The gap is, however,
+a \emph{proxy} for a
 parked loop and not a certainty (\S\ref{sec:threats}): a long \emph{autonomous}
 agent turn is correctly excluded because it is not idle, but stepping away with a
 session still mid-turn is not distinguished from a true suspension. And the
@@ -444,7 +440,7 @@ a deviation from that norm. Like the background weight $\beta$, the magnitude
 ($+30$ points, saturating at $90$ engaged minutes) is an explicit prior, not a
 fitted value (\S\ref{sec:threats}), grounded in disengagement as a recovery
 resource~\cite{sonnentag2007}.
-Equal weights are the explicit \emph{null hypothesis} for this version: we have
+Equal weights are the explicit \emph{null hypothesis}: we have
 no evidence that one axis dominates felt load, and we prefer to state that than
 to fit weights to a single user's data. Replacing equal weights with empirically
 calibrated ones is a primary validation target (\S\ref{sec:validation}).
@@ -460,11 +456,10 @@ We bucket historical workdays by $\overline{\mathrm{CODL}}$ (width $0.5$) and
 score each bucket by closure achieved against off-hours follow-up; the midpoint
 of the best bucket is reported as the operator's individual ``flow channel''
 target, a line on the chart rather than a ceiling. Because the Closure Deficit
-is now independent of concurrency (\S\ref{sec:closure}), this scoring term is no
-longer a function of the very $\overline{\mathrm{CODL}}$ used to form the
-buckets, so the optimum is no longer circular: it asks which load band
-\emph{actually} closed the most loops, rather than rediscovering the load band
-with the least concurrency. It requires at least 14
+is independent of concurrency (\S\ref{sec:closure}), this scoring term is not a
+function of the very $\overline{\mathrm{CODL}}$ used to form the buckets, so
+the optimum is not circular: it asks which load band \emph{actually} closed the
+most loops, rather than rediscovering the load band with the least concurrency. It requires at least 14
 active days to stabilise, below which the report shows ``calibrating.''
 Off-hours activity (on any date) is flagged because sustained load without
 detachment, not peaks, predicts harm~\cite{mcewen1998,sonnentag2007,sonnentag2010}.
@@ -643,7 +638,7 @@ from data is a validation target (\S\ref{sec:validation}).
 dominates; this is almost certainly false in detail. Without calibration against
 a criterion, the composite's absolute scale is arbitrary and only its
 \emph{relative} movement within one person's history is meaningful. The weights
-are now a configuration parameter rather than a hard-coded constant, and the
+are a configuration parameter rather than a hard-coded constant, and the
 implementation includes a population step that suggests data-fitted weights from
 the redundancy among axes across pooled exports (\S\ref{sec:impl}). That step is
 \emph{unsupervised}, however: absent a felt-load criterion it cannot show the
@@ -654,12 +649,8 @@ the placeholder stands until the supervised calibration of \S\ref{sec:validation
 The axis scores \emph{resumption load}: idle gaps in a session's timeline where a
 parked loop was picked back up, weighted by gap length (\S\ref{sec:closure}). This
 makes it independent of concurrency---two days with identical $C(t)$ score
-differently if one reloaded its loops cold and the other did not---and
-git-independent, which removes the earlier git-correlation version's confounds (a
-shared monorepo's teammate or merge-bot commits being read as the operator's
-closures, the author-scoping and per-repository attribution needed to suppress
-that, and the silence of the axis on uncommitted work). It introduces its own
-limitations, which we state plainly. First, the gap is a \emph{proxy}: it is
+differently if one reloaded its loops cold and the other did not. The axis has
+its own limitations, which we state plainly. First, the gap is a \emph{proxy}: it is
 genuine wall-clock dormancy (no event of any kind), so a long \emph{autonomous}
 agent turn is correctly \emph{not} counted as a resume, but the converse failure
 remains---stepping away while a session is mid-turn, or leaving a session idle in
@@ -681,7 +672,7 @@ other way and is worth noting: an agent transcript is itself a strong cue for
 reconstructing a suspended goal~\cite{altmann2002}, so a resumed \emph{agent}
 session may be cheaper to reload than the cue-free laboratory task the curve is
 drawn from---meaning the axis, if anything, may over-state the cost of a resume.
-The axis is now defined on every active day and returns no value only when there
+The axis is defined on every active day and returns no value only when there
 is no activity at all (\S\ref{sec:composite}).
 
 \paragraph{Engagement is interaction-anchored by design.} Foreground is proxied
@@ -712,7 +703,7 @@ across tools without normalization risks systematic bias.
 ($\approx 4$~\cite{cowan2001}) and interruption ceiling ($10$/hour) are
 literature values, not fitted to the population of agent-coding developers, who
 may differ. All reported behaviour is $n{=}1$ and from an author. The reference
-implementation now provides the machinery to move beyond this---an anonymized
+implementation provides the machinery to move beyond this---an anonymized
 per-user export and a population-calibration step that refits the ceilings to
 the pooled distribution (\S\ref{sec:impl})---so what remains is collecting the
 multi-developer sample, each participant running the local-only tool on their
@@ -724,10 +715,11 @@ over-approximation of a stream as alive across $[a_s,b_s]$, and timezone
 handling are all defaults that could materially move scores for shift workers or
 bursty users. Timezone is always the operator's own local zone and the tool is
 single-subject by design, so cross-timezone teams are out of scope rather than a
-threat to this index. The work window is now inferred per operator from the
-$p_{10}$--$p_{90}$ of message hours rather than fixed, which removes the
-hardcoded-band assumption but introduces its own choices---the percentile edges,
-the hour rounding, and the five-date minimum before inference engages---and
+threat to this index. The work window is inferred per operator from the
+$p_{10}$--$p_{90}$ of message hours rather than fixed to a universal band,
+which avoids assuming one schedule fits every operator but introduces its own
+choices---the percentile edges, the hour rounding, and the five-date minimum
+before inference engages---and
 assumes that message timing tracks actual working hours; an operator who works
 silently or messages at odd hours will get a skewed band, and inference falls
 back to the fixed default during cold start. The additive off-hours load that
@@ -808,21 +800,15 @@ predictions that would, if tested, confirm or refute the design.
 A modest multi-developer study with experience sampling---each participant
 running the local-only tool on their own machine, with only the derived per-day
 metrics and subjective ratings pooled for analysis, so no off-machine data path
-is added to the tool---is now supported end-to-end by the released tooling (the
+is added to the tool---is supported end-to-end by the released tooling (the
 anonymized export and the pooled-calibration step, \S\ref{sec:impl}) and is the
 primary outstanding work; running it would address the majority of the threats
 in \S\ref{sec:threats}, in particular the single-subject and borrowed-threshold
-limitations, converting this from a principled instrument into a validated one. The
-Closure Deficit was reworked from a git-commit-correlation measure into a
-git-independent \emph{resumption-load} metric (\S\ref{sec:closure}): it scores idle
-gaps where a parked session is picked back up, weighted by gap length, so it needs
-no commit history, is defined on every active day, and is grounded in the
-task-resumption literature~\cite{monk2008,altmann2002,parnin2011}. This removed the
-tool's last dependence on \texttt{git} entirely (the Interruption Index's former
-reflog ``rework'' term went with it). The remaining closure-side work is
-calibrating the resume threshold, decay horizon, and daily ceiling against felt
-load rather than borrowing them, and better separating a deliberately parked loop
-from an idle foreground session.
+limitations, converting this from a principled instrument into a validated one.
+On the closure side, the outstanding work is calibrating the resume threshold,
+decay horizon, and daily ceiling against felt load rather than borrowing them
+(\S\ref{sec:closure}), and better separating a deliberately parked loop from an
+idle foreground session.
 
 \section{Ethics and Privacy}
 The tool reads proprietary source and potentially secrets; we therefore treat

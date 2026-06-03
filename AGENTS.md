@@ -39,6 +39,21 @@ calibration report. Same invariant — local files in, local report out, no
 network. It only *suggests* a `scoring` config block; it never mutates config or
 the index on its own.
 
+## Paper (`paper/main.tex`) — current state, never a changelog
+
+The paper always describes the method **as it is on this branch** and justifies
+decisions on their own merits. It must not narrate its own revision history —
+no "we dropped/reworked X", "is now", "no longer", "the earlier version" (the
+git log is the changelog). The only place process history belongs is the
+reflexive-loop subsection (`\label{sec:reflexive}`), where the revision loop is
+itself the subject. Apply the `paper-current-state` skill
+(`.claude/skills/paper-current-state/SKILL.md`) on every paper edit, and rebuild
+the tracked PDF (`cd paper && make pdf`) alongside any `.tex` change.
+
+The method does not use `git` data at all — the paper, the code, its comments,
+and the docs must not reference git as a data source (not even as a rejected
+alternative design).
+
 ## Project structure
 
 ```

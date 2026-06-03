@@ -97,8 +97,9 @@ Verdicts:
   the current code/method.
 - **STALE** — was true once but the code/method has since changed (the paper text
   describes a version that no longer exists). The closure axis is a known precedent:
-  it was already reworked to net real `git` closures, and the paragraph/roadmap were
-  updated to match — watch for the same drift elsewhere.
+  it has been reworked more than once (most recently into the git-free
+  resumption-load metric), and the paragraph/roadmap had to be updated to match —
+  watch for the same drift elsewhere.
 - **INACCURATE** — mischaracterizes what the code actually does (wrong mechanism,
   wrong default, wrong scope).
 - **MIS-SCOPED** — real but the severity/scope is over- or under-stated.
@@ -155,6 +156,12 @@ Apply the approved plan in focused commits. Order:
    Implementation) to describe the code as it now is, then **reconcile the §7
    paragraph** — narrow it to the honest residual weakness (or remove it only if the
    fix makes it false) — and sync the §8 prediction/roadmap item. Commit.
+
+   Every paper edit must follow the **`paper-current-state`** skill
+   (`.claude/skills/paper-current-state/SKILL.md`): the paper states the current
+   method and decisions only — never revision narrative ("was reworked", "no
+   longer", "is now") outside the `sec:reflexive` subsection. Run its audit grep
+   before committing.
 
 Follow the repo's commit-message conventions (see `git-commit` skill / global
 rules): tight subject, short why-focused body, **no AI-attribution trailer**, no
