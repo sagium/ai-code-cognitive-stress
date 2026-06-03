@@ -77,6 +77,14 @@ def report(
     )
 
 
+def _today_local() -> date:
+    """Today's date in the system local timezone. Day bucketing is local
+    throughout the pipeline (see aggregate.get_day_aggregates), so every
+    "today" anchor in the report must be local too — the UTC date is
+    yesterday's between local midnight and the UTC day rollover."""
+    return datetime.now().astimezone().date()
+
+
 def _render_agent_analysis(html_fragment: str | None) -> str:
     """Wrap an already-rendered HTML fragment in the focus-panel shell.
 
@@ -149,7 +157,7 @@ def _render_year_overview(profile: StressProfile) -> str:
     """12 monthly cells with the avg composite for that month."""
     if not profile.days:
         return ""
-    today = datetime.now(timezone.utc).date()
+    today = _today_local()
     # Find the year(s) present in the data; if more than one, default to the
     # most recent.
     years = {d.year for d in profile.days}
@@ -305,7 +313,7 @@ def _year_sparkline(profile: StressProfile, year: int) -> str:
         )
 
     # Vertical "today" marker — calendar anchor for the eye.
-    today = datetime.now(timezone.utc).date()
+    today = _today_local()
     today_marker = ""
     if today.year == year:
         today_x = (today - date(year, 1, 1)).days * day_w
@@ -359,7 +367,7 @@ def _render_all_months(
     months = _months_with_activity(profile)
     if not months:
         return _render_no_data_panel("No active days in window")
-    today = now or datetime.now(timezone.utc).date()
+    today = now or _today_local()
     default_month: tuple[int, int] | None = None
     if (today.year, today.month) in months:
         default_month = (today.year, today.month)
@@ -1176,7 +1184,7 @@ def _selected_month_style(profile: StressProfile) -> str:
     months = _months_with_activity(profile)
     if not months:
         return ""
-    today = datetime.now(timezone.utc).date()
+    today = _today_local()
     default_month = (
         (today.year, today.month)
         if (today.year, today.month) in months

@@ -198,10 +198,11 @@ as a cold-start default.
 **Composite (0–100)** is the equal-weighted blend of the three normalised
 axes — the explicit v1 null hypothesis (no evidence yet favours one axis),
 stated as such in the report's methodology footer. Sustained **off-hours
-engagement** — interaction outside your inferred window, not background
-sessions running while you're away — adds up to 30 points on top, saturating
-at 90 engaged minutes: disengagement from work is a recovery resource, and
-off-hours work drains it.
+engagement** — interaction past the end of your inferred window, or
+outlier-early (more than 3 h before its start; an ordinary early start is
+free), not background sessions running while you're away — adds up to 30
+points on top, saturating at 90 engaged minutes: disengagement from work is a
+recovery resource, and off-hours work drains it.
 
 **Personal optimum** is the CODL band where you historically closed the most
 work with the least off-hours follow-up — your individual *flow channel*
@@ -210,7 +211,7 @@ target, not a ceiling. It needs ~14 active workdays to stabilise; below that
 the report shows `calibrating`.
 
 **Recovery & off-hours.** Days that never reach low load, and work that spills
-outside your inferred hours, are flagged — because chronic load *without
+past your inferred hours, are flagged — because chronic load *without
 recovery*, not peaks, is what damages you over time.
 
 ### Honest about what it can't tell you

@@ -174,18 +174,26 @@ WORK_WINDOW_MIN_SAMPLES: int = 5
 
 # Off-hours additive load — an explicit modeling PRIOR (like the
 # background_weight β), not a measured value.  Off-hours INTERACTION outside
-# the work window (nights, early mornings) raises the daily score because
-# disengagement from work is a recovery resource (Sonnentag & Fritz 2007);
-# sustained off-hours work drains it.  Applies additively to the composite
-# so that a day with zero in-window work but real off-hours interaction still
-# scores > 0.  Anchored to USER/AGENT INTERACTION (within grace_seconds of
-# a user message), not stream liveness — a background session running while the
-# human is away does NOT contribute.
+# the work window raises the daily score because disengagement from work is a
+# recovery resource (Sonnentag & Fritz 2007); sustained off-hours work drains
+# it.  Applies additively to the composite so that a day with zero in-window
+# work but real off-hours interaction still scores > 0.  Anchored to
+# USER/AGENT INTERACTION (within grace_seconds of a user message), not stream
+# liveness — a background session running while the human is away does NOT
+# contribute.
+# The boundary is ASYMMETRIC: every engaged minute past the window END counts
+# (failure to disengage is the burnout signal), but an early START is ordinary
+# schedule shift, not overload — minutes before the window start count only
+# when they are more than EARLY_START_GRACE_HOURS earlier than usual.  The
+# grace also keeps genuinely nocturnal work visible: small-hours minutes
+# (e.g. 01:30 against a noon start) sit far beyond any plausible early start
+# and still count.
 # 90 min of off-hours engaged minutes is taken as the ceiling (beyond that,
 # the signal saturates).  30 composite points is audible without dominating
 # the three primary axes on moderate days.
 OFF_HOURS_LOAD_CEILING_MIN: int = 90         # engaged off-hours minutes → max toll
 OFF_HOURS_LOAD_MAX_POINTS: float = 30.0      # composite points added at/above the ceiling
+EARLY_START_GRACE_HOURS: int = 3             # early start ≤ this before window start is free
 
 # Personal optimum derivation — calibration period.
 OPTIMUM_MIN_DAYS_OF_DATA: int = 14
@@ -215,8 +223,14 @@ class DayMetrics:
     closure_deficit: float | None = None  # 0..1 resumption load (severity-summed
                                      # resumes / ceiling); 0 = closed in one sitting.
                                      # None only when the day has no activity at all.
-    off_hours_minutes: int = 0       # engaged minutes outside the work window
-                                     # (interaction-anchored, not stream liveness)
+    off_hours_minutes: int = 0       # engaged minutes past the window end, or
+                                     # outlier-early before its start (beyond the
+                                     # early-start grace); interaction-anchored,
+                                     # not stream liveness
+    # When those minutes happened, as local time-of-day ranges (first–last
+    # engaged minute per contiguous run) — lets displays say *when* the
+    # off-hours work occurred rather than reading as "right now".
+    off_hours_ranges_local: tuple[tuple[time, time], ...] = ()
     composite: float = 0.0           # 0..100
     work_window_local: tuple[time, time] | None = None
 
@@ -406,9 +420,10 @@ def per_day_metrics(
     """Compute the three axes + composite for one day.
 
     Every day is treated identically regardless of what day of the week it
-    falls on. Off-hours interaction (engaged minutes outside the work window)
-    is captured as `off_hours_minutes` and adds an additive load to the
-    composite, whether it occurs on a weekday, Saturday, or Sunday.
+    falls on. Off-hours interaction (engaged minutes past the window end, or
+    more than the early-start grace before its start) is captured as
+    `off_hours_minutes` and adds an additive load to the composite, whether it
+    occurs on a weekday, Saturday, or Sunday.
 
     `prior_last_ts_by_stream` (stream_id → last event ts seen on an EARLIER day)
     lets the Closure Deficit score cross-day resumes. `build_profile` threads it;
@@ -478,12 +493,14 @@ def per_day_metrics(
     # the operator was actively driving a session (within the foreground grace
     # of one of their own messages). Anchored to interaction, not stream
     # liveness: a background job that ran while the human was away contributes
-    # nothing. The inferred window is the norm; engaged interaction outside it
-    # is the off-hours abuse.
-    off_hours_minutes = _off_hours_engaged_minutes(
+    # nothing. The inferred window is the norm; engaged interaction PAST its
+    # end — or outlier-early, beyond the early-start grace before its start —
+    # is the off-hours load.
+    off_hours_instants = _off_hours_engaged_instants(
         agg.streams, window_start_utc, window_end_utc,
         grace_seconds=foreground_grace_minutes * 60,
     )
+    off_hours_minutes = len(off_hours_instants)
 
     # Additive off-hours toll: off-hours interaction always counts, even when
     # the in-window base is zero (a day worked entirely outside the window).
@@ -504,6 +521,7 @@ def per_day_metrics(
             round(closure_deficit, 3) if closure_deficit is not None else None
         ),
         off_hours_minutes=off_hours_minutes,
+        off_hours_ranges_local=_off_hours_local_ranges(off_hours_instants, local_tz),
         composite=round(composite, 1),
         work_window_local=(work_window.start, work_window.end),
     )
@@ -730,23 +748,31 @@ def _off_hours_load_points(off_hours_minutes: int) -> float:
     )
 
 
-def _off_hours_engaged_minutes(
+def _off_hours_engaged_instants(
     streams: Iterable[StreamDayActivity],
     window_start_utc: datetime,
     window_end_utc: datetime,
     grace_seconds: float,
-) -> int:
+    early_start_grace_hours: int = EARLY_START_GRACE_HOURS,
+) -> list[datetime]:
     """Distinct 1-minute instants OUTSIDE the work window during which the
     operator was engaged — i.e. within ``grace_seconds`` after one of their own
     messages (the same foreground notion as ``_stream_weight_at``).
 
+    The boundary is asymmetric (see the EARLY_START_GRACE_HOURS prior): every
+    minute at/after the window end counts, but minutes before the window start
+    count only when they fall more than ``early_start_grace_hours`` before it —
+    an early start within the grace is schedule shift, not off-hours load.
+
     Interaction-anchored: driven purely by ``user_msg_timestamps``, so a
     background session alive off-hours with no user messages contributes
     nothing. Overlapping grace windows are de-duplicated via a set of
-    minute-floored instants.
+    minute-floored instants. Returns the instants sorted (UTC); ``len()``
+    of the result is the off-hours minute count.
     """
     grace = timedelta(seconds=grace_seconds)
     minute = timedelta(minutes=1)
+    early_cutoff_utc = window_start_utc - timedelta(hours=early_start_grace_hours)
     engaged: set[datetime] = set()
     for stream in streams:
         for ts in stream.user_msg_timestamps:
@@ -754,10 +780,51 @@ def _off_hours_engaged_minutes(
             t = ts.replace(second=0, microsecond=0)
             end = ts + grace
             while t <= end:
-                if t < window_start_utc or t >= window_end_utc:
+                if t < early_cutoff_utc or t >= window_end_utc:
                     engaged.add(t)
                 t += minute
-    return len(engaged)
+    return sorted(engaged)
+
+
+def _off_hours_engaged_minutes(
+    streams: Iterable[StreamDayActivity],
+    window_start_utc: datetime,
+    window_end_utc: datetime,
+    grace_seconds: float,
+    early_start_grace_hours: int = EARLY_START_GRACE_HOURS,
+) -> int:
+    """Count of distinct off-hours engaged minutes (see
+    ``_off_hours_engaged_instants``)."""
+    return len(_off_hours_engaged_instants(
+        streams, window_start_utc, window_end_utc, grace_seconds,
+        early_start_grace_hours,
+    ))
+
+
+def _off_hours_local_ranges(
+    instants: list[datetime],
+    local_tz: tzinfo,
+    merge_gap_minutes: int = 5,
+) -> tuple[tuple[time, time], ...]:
+    """Compress sorted engaged instants into (first, last) local time-of-day
+    ranges, merging runs separated by ≤ ``merge_gap_minutes`` so a banner can
+    state *when* the off-hours work happened without fragmenting into noise.
+    Display-only: the exact minute count stays ``len(instants)``."""
+    if not instants:
+        return ()
+    merge_gap = timedelta(minutes=merge_gap_minutes)
+    ranges: list[tuple[datetime, datetime]] = []
+    start = prev = instants[0]
+    for t in instants[1:]:
+        if t - prev > merge_gap:
+            ranges.append((start, prev))
+            start = t
+        prev = t
+    ranges.append((start, prev))
+    return tuple(
+        (s.astimezone(local_tz).time(), e.astimezone(local_tz).time())
+        for s, e in ranges
+    )
 
 
 def _window_utc_bounds(

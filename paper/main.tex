@@ -262,8 +262,10 @@ falls back to the cold-start default below).
 The window is therefore individual to the operator rather than a property of
 the experiment. We make no assumption about which days are working days---there
 is no privileged weekend; a person can work any day. ``Work'' is whatever falls
-inside the operator's own inferred hours, on any date; activity outside those
-hours is the off-hours \emph{recovery} signal, again on any date. A manual band
+inside the operator's own inferred hours, on any date; engaged activity past
+the end of those hours---or implausibly far before their start---is the
+off-hours \emph{recovery} signal, again on any date (the boundary's asymmetry
+is defined with the composite below). A manual band
 may be pinned in configuration to override inference; before enough data accrues
 ($<5$ distinct dates of activity) a conventional 09:00--19:00 local band serves
 as a cold-start default. We sample the window at one-minute resolution; let $T$
@@ -420,25 +422,35 @@ imputing a $0$. In general the composite is the weight-normalised mean over
 whichever axes are defined for the day.
 The CODL ceiling is set to $5$---one above Cowan's $\approx 4$ capacity limit---so a day operating \emph{at} the working-memory boundary scores $0.8$ (the warning band) rather than saturating the axis at $1.0$.
 Off-hours work then adds an \emph{additive} load to this base. Let $o$ be the
-day's off-hours \emph{engaged} minutes---one-minute instants outside $W$ during
-which the operator was actively driving a session, i.e.\ within the foreground
-grace $g$ of one of their own messages (\S\ref{sec:codl}). The reported
-composite is
+day's off-hours \emph{engaged} minutes---one-minute instants during which the
+operator was actively driving a session (within the foreground grace $g$ of one
+of their own messages, \S\ref{sec:codl}) that fall \emph{after} the end of $W$,
+or more than an early-start grace $e$ (default $3$ hours) \emph{before} its
+start. The reported composite is
 \begin{equation}
 \mathrm{Composite}^{\!*} = \min\!\big(100,\ \mathrm{Composite} + 30\cdot\min(1, o/90)\big).
 \end{equation}
-Two design choices matter here. First, the toll is \emph{additive}, not
+Three design choices matter here. First, the toll is \emph{additive}, not
 multiplicative: off-hours work always counts, so a day worked \emph{entirely}
 outside the window---zero in-window base---still scores a positive composite,
 which a multiplicative form would wrongly leave at zero. Second, $o$ is anchored
 to \emph{interaction}, not stream liveness: a background session left running
 while the operator is away contributes nothing---only the operator actually
 being present and driving the agent outside their own hours counts (e.g.\ waking
-in the night to check on a run). The
-inferred band $W$ is the operator's norm; engaged work outside it is treated as
-a deviation from that norm. Like the background weight $\beta$, the magnitude
-($+30$ points, saturating at $90$ engaged minutes) is an explicit prior, not a
-fitted value (\S\ref{sec:threats}), grounded in disengagement as a recovery
+in the night to check on a run). Third, the boundary is \emph{asymmetric}:
+every engaged minute past the window end counts, while minutes before its start
+count only beyond the early-start grace. The recovery literature locates the
+cost in failure to \emph{disengage} at the day's end~\cite{sonnentag2007};
+beginning somewhat earlier than usual is ordinary schedule shift, not a
+recovery deficit, and penalising it would punish the healthy direction of
+flexibility. The grace is bounded so that genuinely nocturnal engagement stays
+visible: small-hours work (e.g.\ 01:30 against a noon start) lies far beyond
+any plausible early start and counts in full. The
+inferred band $W$ is the operator's norm; engaged work past it---or
+outlier-early before it---is treated as a deviation from that norm. Like the
+background weight $\beta$, the magnitudes (the $+30$-point toll saturating at
+$90$ engaged minutes, and the $3$-hour grace) are explicit priors, not fitted
+values (\S\ref{sec:threats}), grounded in disengagement as a recovery
 resource~\cite{sonnentag2007}.
 Equal weights are the explicit \emph{null hypothesis}: we have
 no evidence that one axis dominates felt load, and we prefer to state that than
@@ -723,10 +735,12 @@ before inference engages---and
 assumes that message timing tracks actual working hours; an operator who works
 silently or messages at odd hours will get a skewed band, and inference falls
 back to the fixed default during cold start. The additive off-hours load that
-lets work outside the band raise the composite is likewise an explicit prior
-($+30$ points, saturating at $90$ engaged minutes), not a measured penalty; its
-magnitude could over- or under-state the true cost of off-hours work and is a
-target for calibration. That load is anchored to \emph{interaction}---engaged
+lets work past the band raise the composite is likewise built from explicit
+priors ($+30$ points, saturating at $90$ engaged minutes; a $3$-hour early-start
+grace on the band's lower edge), not measured penalties; the magnitudes could
+over- or under-state the true cost of off-hours work---and the grace could
+misclassify a habitual pre-dawn shift as outlier work or vice versa---so both
+are targets for calibration. That load is anchored to \emph{interaction}---engaged
 minutes within the grace of the operator's own messages---so it ignores
 background sessions running while the operator is away and counts only active
 supervision of the agent. Silent reading or review without typing, and the lack

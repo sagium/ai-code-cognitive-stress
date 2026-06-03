@@ -29,6 +29,7 @@ from stress_levels.metrics import (
     _default_window,
     _off_hours_engaged_minutes,
     _off_hours_load_points,
+    _off_hours_local_ranges,
     _percentile,
     _stream_weight_at,
     build_profile,
@@ -264,10 +265,41 @@ def test_off_hours_engaged_evening_interaction_counts():
     assert _off_hours_engaged_minutes(streams, _WS, _WE, grace_seconds=300) == 6
 
 
-def test_off_hours_engaged_morning_interaction_counts():
-    # A 07:00 message marks 07:00..07:05, all before the window start.
+def test_off_hours_engaged_early_start_within_grace_is_free():
+    # A 07:00 message is 2 h before the 09:00 window start — within the 3 h
+    # early-start grace. Starting earlier than usual is schedule shift, not
+    # off-hours load.
     streams = (_stream("a", _utc(2026, 5, 15, 7), _utc(2026, 5, 15, 7),
                        user_msg_timestamps=(_utc(2026, 5, 15, 7),)),)
+    assert _off_hours_engaged_minutes(streams, _WS, _WE, grace_seconds=300) == 0
+
+
+def test_off_hours_engaged_outlier_early_morning_counts():
+    # A 05:00 message is 4 h before the window start — beyond the 3 h grace,
+    # an outlier (e.g. nocturnal work), so its 6 minutes count.
+    streams = (_stream("a", _utc(2026, 5, 15, 5), _utc(2026, 5, 15, 5),
+                       user_msg_timestamps=(_utc(2026, 5, 15, 5),)),)
+    assert _off_hours_engaged_minutes(streams, _WS, _WE, grace_seconds=300) == 6
+
+
+def test_off_hours_engaged_small_hours_continuation_counts():
+    # Work at 01:30 lands on this local day but sits ~7.5 h before the window
+    # start — far beyond any early start. The late-night continuation stays
+    # visible despite the early-side grace.
+    streams = (_stream("a", _utc(2026, 5, 15, 1, 30), _utc(2026, 5, 15, 1, 30),
+                       user_msg_timestamps=(_utc(2026, 5, 15, 1, 30),)),)
+    assert _off_hours_engaged_minutes(streams, _WS, _WE, grace_seconds=300) == 6
+
+
+def test_off_hours_engaged_grace_boundary_is_exclusive():
+    # Exactly 3 h early (06:00 against a 09:00 start) is still a free early
+    # start; one minute earlier crosses into outlier territory.
+    streams = (_stream("a", _utc(2026, 5, 15, 6), _utc(2026, 5, 15, 6),
+                       user_msg_timestamps=(_utc(2026, 5, 15, 6),)),)
+    assert _off_hours_engaged_minutes(streams, _WS, _WE, grace_seconds=300) == 0
+    streams = (_stream("a", _utc(2026, 5, 15, 5, 54), _utc(2026, 5, 15, 5, 54),
+                       user_msg_timestamps=(_utc(2026, 5, 15, 5, 54),)),)
+    # 05:54..05:59 are all before the 06:00 cutoff → 6 minutes count.
     assert _off_hours_engaged_minutes(streams, _WS, _WE, grace_seconds=300) == 6
 
 
@@ -292,6 +324,34 @@ def test_off_hours_engaged_counts_only_the_outside_part_at_the_edge():
     streams = (_stream("a", _utc(2026, 5, 15, 17, 58), _utc(2026, 5, 15, 18),
                        user_msg_timestamps=(_utc(2026, 5, 15, 17, 58),)),)
     assert _off_hours_engaged_minutes(streams, _WS, _WE, grace_seconds=300) == 4
+
+
+def test_off_hours_local_ranges_groups_and_converts_to_local():
+    # Two morning runs 07:00..07:05 and 07:20..07:25 UTC (gap 15 min > merge
+    # gap) → two ranges, rendered as local time-of-day (UTC+3 here).
+    tz = timezone(timedelta(hours=3))
+    instants = (
+        [_utc(2026, 5, 15, 7, m) for m in range(0, 6)]
+        + [_utc(2026, 5, 15, 7, m) for m in range(20, 26)]
+    )
+    assert _off_hours_local_ranges(instants, tz) == (
+        (time(10, 0), time(10, 5)),
+        (time(10, 20), time(10, 25)),
+    )
+
+
+def test_off_hours_local_ranges_merges_small_gaps():
+    # Runs separated by ≤ 5 min merge into one display range; the minute count
+    # stays exact because the caller uses len(instants), not the ranges.
+    instants = (
+        [_utc(2026, 5, 15, 20, m) for m in range(0, 3)]
+        + [_utc(2026, 5, 15, 20, m) for m in range(7, 10)]
+    )
+    assert _off_hours_local_ranges(instants, UTC) == ((time(20, 0), time(20, 9)),)
+
+
+def test_off_hours_local_ranges_empty():
+    assert _off_hours_local_ranges([], UTC) == ()
 
 
 # ---------------------------------------------------------------------------
@@ -626,6 +686,11 @@ def test_per_day_metrics_evening_session_adds_off_hours():
     window = WorkWindow(weekday=4, start=time(9), end=time(18))
     m = per_day_metrics(agg, window, UTC)
     assert m.off_hours_minutes == 12
+    # …and records WHEN those minutes happened, as local ranges.
+    assert m.off_hours_ranges_local == (
+        (time(19, 0), time(19, 5)),
+        (time(20, 0), time(20, 5)),
+    )
 
 
 def test_per_day_metrics_assigns_work_window_local():

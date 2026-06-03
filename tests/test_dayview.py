@@ -4,7 +4,7 @@ report and the KDE Plasma widget."""
 from __future__ import annotations
 
 import json
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timezone
 
 from stress_levels.aggregate import DayAggregate, StreamDayActivity
 from stress_levels.dayview import (
@@ -194,6 +194,44 @@ def test_dayview_hour_colors_match_counts():
     # Serialised for the widgets.
     d = dayview_to_dict(dv)
     assert d["hour_colors"] == dv.hour_colors
+
+
+# --- off-hours nag ----------------------------------------------------------
+
+def test_off_hours_nag_states_when_the_minutes_happened():
+    # The nag must carry the local time-of-day ranges so an earlier-in-the-day
+    # accumulation can't be misread as "you're off-hours right now".
+    m = DayMetrics(
+        day=date(2026, 5, 29), codl_avg=2.4, composite=35.0,
+        off_hours_minutes=39,
+        off_hours_ranges_local=((time(11, 12), time(11, 50)),),
+        work_window_local=(time(12, 0), time(20, 0)),
+    )
+    dv = build_dayview(m, None, _profile(), timezone.utc)
+    assert "(11:12–11:50)" in dv.off_hours_nag
+    assert "work window: 12:00–20:00" in dv.off_hours_nag
+
+
+def test_off_hours_nag_caps_ranges_shown():
+    ranges = tuple(
+        (time(h, 0), time(h, 5)) for h in (1, 2, 3, 4, 5)
+    )
+    m = DayMetrics(
+        day=date(2026, 5, 29), codl_avg=2.4, composite=35.0,
+        off_hours_minutes=30, off_hours_ranges_local=ranges,
+        work_window_local=(time(9, 0), time(18, 0)),
+    )
+    dv = build_dayview(m, None, _profile(), timezone.utc)
+    assert "01:00–01:05, 02:00–02:05, 03:00–03:05 +2 more" in dv.off_hours_nag
+
+
+def test_off_hours_nag_below_threshold_is_empty():
+    m = DayMetrics(
+        day=date(2026, 5, 29), codl_avg=2.4, composite=35.0,
+        off_hours_minutes=10,
+        off_hours_ranges_local=((time(7, 0), time(7, 9)),),
+    )
+    assert build_dayview(m, None, _profile(), timezone.utc).off_hours_nag == ""
 
 
 # --- serialization ----------------------------------------------------------

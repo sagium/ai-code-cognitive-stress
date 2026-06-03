@@ -239,7 +239,8 @@ class DayView:
     # point equals `composite`.
     score_progression: list["ScorePoint"]
     axes: list[AxisTile]
-    off_hours_minutes: int      # engaged minutes outside the work window
+    off_hours_minutes: int      # engaged minutes past the window end (or
+                                # outlier-early, beyond the early-start grace)
     # Non-empty when off-hours work is contributing meaningfully to the composite
     # (≥ 15 min, ≥ ~5 pts). Rendered as an amber nag banner by the widget so
     # the user understands why the score just jumped. Empty → no banner.
@@ -390,6 +391,19 @@ def score_progression(
     return points
 
 
+def _off_hours_when_label(ranges: tuple[tuple[time, time], ...]) -> str:
+    """Local-time ranges of the off-hours minutes, e.g. "11:12–11:50".
+    Caps at 3 ranges ("+N more") so the banner stays one readable line."""
+    if not ranges:
+        return ""
+    shown = ranges[:3]
+    label = ", ".join(
+        f"{s.strftime('%H:%M')}–{e.strftime('%H:%M')}" for s, e in shown
+    )
+    extra = len(ranges) - len(shown)
+    return label + (f" +{extra} more" if extra > 0 else "")
+
+
 def build_dayview(
     metrics: DayMetrics,
     agg: DayAggregate | None,
@@ -410,13 +424,17 @@ def build_dayview(
     status = composite_status(metrics.composite, profile.composite_p75, profile.composite_p90)
 
     # Off-hours nag: shown when off-hours engagement is meaningfully driving the
-    # composite (≥ 15 min → ≥ ~5 pts). States the contribution explicitly so the
-    # user understands why the live score just jumped.
+    # composite (≥ 15 min → ≥ ~5 pts). States the contribution explicitly — and
+    # *when* the off-hours minutes happened (local time) — so the user
+    # understands why the live score jumped and doesn't misread an
+    # earlier-in-the-day accumulation as "you're off-hours right now".
     off_min = metrics.off_hours_minutes
     off_pts = round(OFF_HOURS_LOAD_MAX_POINTS * min(1.0, off_min / OFF_HOURS_LOAD_CEILING_MIN))
     if off_min >= 15:
+        when = _off_hours_when_label(metrics.off_hours_ranges_local)
         off_hours_nag = (
             f"↑ +{off_pts} pts from {off_min} min of off-hours work"
+            + (f" ({when})" if when else "")
             + (f" · work window: {ww.start}–{ww.end}" if ww else "")
         )
     else:
