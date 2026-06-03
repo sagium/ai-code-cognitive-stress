@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "ai-code-cognitive-stress"
 dynamic = ["version"]
-description = "A self-supervisory cognitive-stress profile for agent-coding-tool users (Claude Code, Codex CLI, Aider) — measures parallel-session load, interruptions, and closure deficit against your own baseline and the research literature."
+description = "A self-supervisory cognitive-stress profile for agent-coding-tool users — measures parallel-session load, interruptions, and closure deficit against your own baseline and the research literature."
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.10"
@@ -13,7 +13,7 @@ authors = [
     { name = "Marinos Prevenios" },
 ]
 keywords = [
-    "claude-code", "codex", "aider", "agent-coding",
+    "agent-coding", "llm-agents",
     "cognitive-load", "burnout", "developer-productivity", "wellbeing",
 ]
 classifiers = [
