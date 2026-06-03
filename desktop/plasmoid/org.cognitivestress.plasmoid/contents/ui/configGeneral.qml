@@ -28,6 +28,6 @@ Kirigami.FormLayout {
         wrapMode: Text.WordWrap
         opacity: 0.7
         font: Kirigami.Theme.smallFont
-        text: i18n("The widget runs this command every refresh and reads its JSON. If the score stays blank, set an absolute path to aicogstress (Plasma may not inherit your shell PATH).")
+        text: i18n("The widget runs this command every refresh and shows the HTML card it prints. If the score stays blank, set an absolute path to aicogstress (Plasma may not inherit your shell PATH).")
     }
 }

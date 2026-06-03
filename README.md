@@ -106,17 +106,20 @@ A desktop widget that tracks **today** live. A compact header — the composite
 and a small intraday **score-progression sparkline** drawn as a severity
 gradient — sits above the full daily view from the HTML drill-down: the
 per-hour concurrency chart and the three axis tiles with zone range bars
-(baseline / optimum / you markers, severity-coloured values). Both widgets
-read their data by running `aicogstress --emit-json` on a timer — local-only,
-no network. Only today is recomputed each tick (past days are cached).
+(baseline / optimum / you markers, severity-coloured values). The card is
+rendered once, in Python (`stress_levels/widget_card.py`): both widgets run
+`aicogstress --emit-html-card` on a timer and inject the self-contained HTML
+it prints verbatim — they are thin hosts, pixel-identical on both OSes, and
+can't drift. Local-only, no network. Only today is recomputed each tick (past
+days are cached). (`--emit-json` prints the same daily view as data, for any
+other external display.)
 
 <p align="center">
   <img src="docs/screenshots/ubersicht-widget.png" width="430"
        alt="The macOS Übersicht widget on a desktop: glass card with the composite score 55 'Cooked', an off-hours nag banner, the per-hour concurrency chart with an evening session outside the shaded work window, and the three axis tiles with zone range bars (synthetic demo day)">
 </p>
 
-**KDE Plasma 6** — a native desktop/panel widget, themed with Kirigami so it
-matches your Plasma look:
+**KDE Plasma 6** — a desktop/panel widget hosting the card in a web view:
 
 ```bash
 python install.py --plasmoid                  # install the widget package
@@ -124,10 +127,12 @@ kquitapp6 plasmashell && kstart plasmashell    # restart Plasma to pick it up
 # then: right-click the desktop or a panel → "Add Widgets…" → "Cognitive Stress"
 ```
 
-On the desktop it shows the full daily view inline (sized to fit, no scrolling);
+On the desktop it shows the full card inline (sized to fit, no scrolling);
 in a panel it shows the compact composite score that expands on click. Plasma 6
-/ Qt 6 only (Plasma 5 is end-of-life). The package lives in `desktop/plasmoid/`
-as plain QML/JSON — no Python dependencies. If the score stays blank, `aicogstress`
+/ Qt 6 only (Plasma 5 is end-of-life), and it needs the QtWebEngine QML module
+(`qml6-module-qtwebengine` on Debian/Ubuntu, `qt6-webengine` on Arch — the
+same dependency as KDE's own web browser applet). The package lives in
+`desktop/plasmoid/` as a thin QML shell. If the score stays blank, `aicogstress`
 isn't on Plasma's `PATH`: set the absolute path to `aicogstress` in the widget's
 settings. Remove it with `python install.py --uninstall --plasmoid`. After
 updating the widget, restart plasmashell so it drops the cached version
@@ -144,11 +149,12 @@ python install.py --ubersicht    # symlink into Übersicht's widgets directory
 
 If the score stays blank, set the absolute path to `aicogstress` in the file's
 `command` line. Remove it with `python install.py --uninstall --ubersicht`.
-Not on a Mac? `desktop/ubersicht/preview.html` renders the widget's own code
+Not on a Mac? `desktop/ubersicht/preview.html` shows the widgets' exact card
 in any browser (instructions inside) — handy for hacking on it from Linux.
 
 All three surfaces — the HTML report and both desktop widgets — render from
-one shared model (`stress_levels/dayview.py`), so they can't drift.
+one shared model (`stress_levels/dayview.py`), and the two widgets share one
+renderer on top of it (`stress_levels/widget_card.py`), so they can't drift.
 
 > `python install.py` (the agent-install path above) also registers the chat
 > *skill* so you can just ask "show me my stress profile" — separate from, and

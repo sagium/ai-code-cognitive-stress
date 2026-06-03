@@ -3,10 +3,11 @@ drill-down shown in the HTML report and BOTH desktop widgets (KDE Plasma,
 macOS Übersicht).
 
 UI-agnostic: plain text only (Unicode, no HTML entities, no SVG, no QML).
-`render.py` renders this to HTML/SVG; `dayview_to_dict` serialises it for the
-widgets (`aicogstress --emit-json`). Sharing this module is what keeps the
-report and the widgets from drifting — the same role `scales.py` plays for
-zones/colours.
+`render.py` renders this to HTML/SVG for the report; `widget_card.py` renders
+it to the widgets' HTML card (`aicogstress --emit-html-card`); and
+`dayview_to_dict` serialises it as JSON for any other external display
+(`aicogstress --emit-json`). Sharing this module is what keeps the report and
+the widgets from drifting — the same role `scales.py` plays for zones/colours.
 """
 
 from __future__ import annotations

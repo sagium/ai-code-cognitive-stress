@@ -54,6 +54,7 @@ calibration-report*.json
 # Widget-preview data (generated next to desktop/ubersicht/preview.html; may
 # contain your own activity)
 desktop/ubersicht/dayview.json
+desktop/ubersicht/card.html
 
 # Logs
 *.log

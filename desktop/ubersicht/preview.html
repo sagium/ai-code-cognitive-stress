@@ -1,19 +1,19 @@
 <!doctype html>
 <!--
-  Browser preview of the Übersicht widget — works on any OS, no Mac needed.
+  Browser preview of the desktop widget card — works on any OS, no Mac needed.
 
-  It loads cognitive-stress.jsx and executes everything above its
-  "Übersicht exports" marker (which is plain JS by construction), so what you
-  see here IS the widget's own rendering code — no duplicated markup to drift.
-  The simulated macOS desktop (wallpaper, grain) and the entry animation are
-  the only preview-side additions; on a real Mac the glass sits over your
-  actual wallpaper and uses SF Pro.
+  The card itself is rendered by the CLI (stress_levels/widget_card.py — the
+  single renderer both desktop widgets inject verbatim); this page just loads
+  that output, so what you see here IS the widgets' own markup — no duplicated
+  rendering to drift. The simulated macOS desktop (wallpaper, grain) and the
+  entry animation are the only preview-side additions; on a real desktop the
+  glass sits over your actual wallpaper.
 
   Run from this directory:
-    aicogstress --emit-json > dayview.json   # your live data (or use
-                                             # scripts/generate_demo_report.py
-                                             # --dayview-json dayview.json)
-    python3 -m http.server 8731              # file:// can't fetch; serve it
+    aicogstress --emit-html-card > card.html   # your live data (or use
+                                               # scripts/generate_demo_report.py
+                                               # --dayview-card card.html)
+    python3 -m http.server 8731                # file:// can't fetch; serve it
     # open http://localhost:8731/preview.html
 
   Local-only: no webfonts, no external requests — system fonts throughout.
@@ -59,33 +59,22 @@
   const root = document.getElementById("root");
   const hint = (msg) => { root.innerHTML = `<div class="hint">${msg}</div>`; };
 
-  let head;
+  let card;
   try {
-    const src = await (await fetch("cognitive-stress.jsx")).text();
-    head = src.split("// ── Übersicht exports")[0];
-  } catch (e) {
-    return hint("Could not load cognitive-stress.jsx.\n" +
-      "Serve this directory over HTTP:\n  python3 -m http.server 8731");
-  }
-  // The head is plain JS by construction (the JSX lives below the marker).
-  const widget = new Function(head + "; return { CSS, renderWidget };")();
-
-  let dv;
-  try {
-    const resp = await fetch("dayview.json");
+    const resp = await fetch("card.html");
     if (!resp.ok) throw new Error(resp.status);
-    dv = await resp.json();
+    card = await resp.text();
   } catch (e) {
-    return hint("No dayview.json found next to this file.\nGenerate one:\n" +
-      "  aicogstress --emit-json &gt; dayview.json\n" +
+    return hint("No card.html found next to this file.\nGenerate one:\n" +
+      "  aicogstress --emit-html-card &gt; card.html\n" +
       "or, for the deterministic demo day:\n" +
-      "  python3 ../../scripts/generate_demo_report.py --dayview-json dayview.json");
+      "  python3 ../../scripts/generate_demo_report.py --dayview-card card.html\n" +
+      "(and serve this directory over HTTP:  python3 -m http.server 8731)");
   }
-
-  const style = document.createElement("style");
-  style.textContent = widget.CSS;
-  document.head.appendChild(style);
-  root.innerHTML = `<div class="cogstress">${widget.renderWidget(dv)}</div>`;
+  if (!card.includes('class="cogstress"'))
+    return hint("card.html doesn't look like a widget card — regenerate it:\n" +
+      "  aicogstress --emit-html-card &gt; card.html");
+  root.innerHTML = card;
 })();
 </script>
 </body>

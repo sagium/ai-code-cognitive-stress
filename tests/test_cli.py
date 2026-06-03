@@ -433,6 +433,28 @@ def test_main_emit_json_prints_dayview(monkeypatch, capsys):
     assert isinstance(payload, dict)
 
 
+def test_main_emit_html_card_prints_card(monkeypatch, capsys):
+    import stress_levels.dayview as dayview_mod
+    from stress_levels.dayview import build_dayview
+    from stress_levels.metrics import DayMetrics, StressProfile
+
+    prof = StressProfile(
+        days={}, work_windows={}, local_tz_name="UTC", baseline_window_days=30,
+        personal_optimum=2.0, composite_p50=20.0, composite_p75=30.0,
+        composite_p90=50.0,
+    )
+    dv = build_dayview(
+        DayMetrics(day=date(2026, 5, 29), composite=10.0), None, prof, timezone.utc,
+    )
+    monkeypatch.setattr(dayview_mod, "compute_today_dayview", lambda **kw: dv)
+    rc = main(["--emit-html-card"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert out.startswith("<style>")
+    assert 'class="cogstress"' in out
+    assert 'data-composite-label="10"' in out
+
+
 def test_main_rebuild_cache_clears_before_running(tmp_path, monkeypatch):
     _isolate_pipeline(monkeypatch, tmp_path)
     import stress_levels.__main__ as cli

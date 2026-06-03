@@ -329,23 +329,45 @@ def _demo_widget_aggregate(d: date) -> DayAggregate:
     return DayAggregate(day=d, streams=streams, peak_concurrent_streams=4)
 
 
-def write_dayview_json(path: Path) -> int:
-    from stress_levels.dayview import build_dayview, dayview_to_dict
+def _demo_dayview():
+    from stress_levels.dayview import build_dayview
     from stress_levels.metrics import per_day_metrics
 
     profile, _ = build_profile(YEAR)
     day = WIDGET_DEMO_DAY
     agg = _demo_widget_aggregate(day)
     m = per_day_metrics(agg, profile.work_windows[day.weekday()], timezone.utc)
-    view = build_dayview(m, agg, profile, timezone.utc)
+    return build_dayview(m, agg, profile, timezone.utc), m
+
+
+def _report_dayview(path: Path, view, m) -> None:
+    print(f"wrote {path}")
+    print(f"  day:        {m.day} (composite {m.composite:.0f}, "
+          f"peak {m.codl_peak} streams, off-hours {m.off_hours_minutes} min)")
+    print(f"  nag shown:  {bool(view.off_hours_nag)}")
+
+
+def write_dayview_json(path: Path) -> int:
+    from stress_levels.dayview import dayview_to_dict
+
+    view, m = _demo_dayview()
     path.write_text(
         json.dumps(dayview_to_dict(view), default=str, indent=2) + "\n",
         encoding="utf-8",
     )
-    print(f"wrote {path}")
-    print(f"  day:        {day} (composite {m.composite:.0f}, "
-          f"peak {m.codl_peak} streams, off-hours {m.off_hours_minutes} min)")
-    print(f"  nag shown:  {bool(view.off_hours_nag)}")
+    _report_dayview(path, view, m)
+    return 0
+
+
+def write_dayview_card(path: Path) -> int:
+    """The demo day rendered through the real widget renderer
+    (`stress_levels/widget_card.py`) — the same HTML `aicogstress
+    --emit-html-card` would print, for the widget screenshots/preview."""
+    from stress_levels.widget_card import render_card
+
+    view, m = _demo_dayview()
+    path.write_text(render_card(view) + "\n", encoding="utf-8")
+    _report_dayview(path, view, m)
     return 0
 
 
@@ -353,12 +375,20 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
         "--dayview-json", metavar="PATH", type=Path,
-        help="Write one representative demo day as dayview.v1 JSON (for the "
-             "widget screenshots) instead of the HTML report.",
+        help="Write one representative demo day as dayview.v1 JSON (the "
+             "--emit-json payload) instead of the HTML report.",
+    )
+    parser.add_argument(
+        "--dayview-card", metavar="PATH", type=Path,
+        help="Write one representative demo day as the rendered HTML widget "
+             "card (the --emit-html-card payload, for the widget "
+             "screenshots/preview) instead of the HTML report.",
     )
     args = parser.parse_args()
     if args.dayview_json:
         return write_dayview_json(args.dayview_json)
+    if args.dayview_card:
+        return write_dayview_card(args.dayview_card)
 
     profile, aggregates = build_profile(YEAR)
 

@@ -97,11 +97,18 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--emit-json", action="store_true",
         help="Print TODAY's full daily view (the same data the HTML day "
-             "drill-down shows) as JSON to stdout and exit. Used by the "
-             "desktop widgets (KDE Plasma, macOS Übersicht) and usable by any "
+             "drill-down shows) as JSON to stdout and exit. Usable by any "
              "external display. Ignores the date-span flags; reuses "
              "--baseline-days and --source. Local-only — reads local data, "
              "writes nothing, no network.",
+    )
+    parser.add_argument(
+        "--emit-html-card", action="store_true",
+        help="Print TODAY's daily view as one self-contained HTML card "
+             "fragment (inline CSS + SVG, no scripts) to stdout and exit. "
+             "This is the single renderer behind BOTH desktop widgets "
+             "(KDE Plasma, macOS Übersicht) — they inject this output "
+             "verbatim. Same span/source semantics as --emit-json.",
     )
     parser.add_argument(
         "--rebuild-cache", action="store_true",
@@ -237,15 +244,21 @@ def main(argv: list[str] | None = None) -> int:
         dedup.append(s)
     sources = dedup
 
-    # Emit-JSON mode: print today's full daily view to stdout for an external
-    # display (the desktop widgets). Ignores the date span and the report
-    # pipeline. Only JSON goes to stdout; diagnostics to stderr.
-    if args.emit_json:
+    # Emit modes: print today's full daily view to stdout for an external
+    # display — JSON for arbitrary consumers, or the rendered HTML card that
+    # both desktop widgets inject verbatim (widget_card.py). Ignores the date
+    # span and the report pipeline. Only the payload goes to stdout;
+    # diagnostics to stderr.
+    if args.emit_json or args.emit_html_card:
         from .dayview import compute_today_dayview, dayview_to_dict
         view = compute_today_dayview(
             baseline_days=args.baseline_days, sources=sources,
         )
-        print(json.dumps(dayview_to_dict(view), default=str))
+        if args.emit_html_card:
+            from .widget_card import render_card
+            print(render_card(view))
+        else:
+            print(json.dumps(dayview_to_dict(view), default=str))
         return 0
 
     # Calibration mode (maintainer): pool anonymized exports the maintainer has

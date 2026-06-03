@@ -6,8 +6,8 @@
     <kcfgfile name=""/>
     <group name="General">
         <entry name="command" type="String">
-            <label>Command that prints today's snapshot as JSON. If aicogstress is not on Plasma's PATH, set an absolute path (e.g. /home/you/.local/bin/aicogstress).</label>
-            <default>aicogstress --emit-json</default>
+            <label>Command that prints today's rendered HTML card. If aicogstress is not on Plasma's PATH, set an absolute path (e.g. /home/you/.local/bin/aicogstress).</label>
+            <default>aicogstress --emit-html-card</default>
         </entry>
         <entry name="refreshSeconds" type="Int">
             <label>Refresh interval in seconds.</label>

@@ -187,7 +187,7 @@ def _plasmoid_postinstall_hint() -> None:
         "         kquitapp6 plasmashell && kstart plasmashell\n"
         '    2. Right-click the desktop or a panel -> "Add Widgets..." ->\n'
         '       search "Cognitive Stress" and drop it in.\n'
-        "  The widget runs `aicogstress --emit-json` on a timer; make sure that command\n"
+        "  The widget runs `aicogstress --emit-html-card` on a timer; make sure that command\n"
         "  is on PATH, or set its full path in the widget's settings (Plasma may\n"
         "  not inherit your shell PATH)."
     )
@@ -319,7 +319,7 @@ def install_ubersicht() -> int:
     print(
         "  Übersicht picks it up automatically (refresh from its menu-bar "
         "icon if not).\n"
-        "  The widget runs `aicogstress --emit-json` on a timer; if the score "
+        "  The widget runs `aicogstress --emit-html-card` on a timer; if the score "
         "stays blank,\n"
         "  set the absolute path in the file's `command` line "
         "(`command -v aicogstress`)."
