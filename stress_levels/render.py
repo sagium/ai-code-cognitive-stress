@@ -1459,8 +1459,7 @@ _STYLES = """
   .tile-head { display: flex; justify-content: space-between; align-items: center;
     gap: 8px; }
   .tile-name { font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em;
-    color: var(--ink); font-weight: 700; flex: 1 1 auto; min-width: 0;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    color: var(--ink); font-weight: 700; flex: 1 1 auto; min-width: 0; }
   .tile-status { font-size: 9px; text-transform: uppercase; letter-spacing: 0.10em;
     padding: 4px 9px 3px; border-radius: 999px; white-space: nowrap; font-weight: 700;
     border: 1px solid transparent; }

@@ -105,7 +105,6 @@ CSS = """
   .cogstress .tile-zone { font-size: 10px; font-weight: 700; letter-spacing: .01em; }
   .cogstress .tile-desc {
     margin-top: 3px; font-size: 10.5px; line-height: 1.45; color: rgba(245,243,237,.60);
-    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
   }
   .cogstress .tile-foot { display: flex; justify-content: space-between; align-items: baseline; margin-top: 2px; }
   .cogstress .tile-value { font-size: 15px; font-weight: 700; font-feature-settings: "tnum"; }
