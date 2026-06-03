@@ -198,8 +198,14 @@ PlasmoidItem {
             Component.onCompleted: if (root.cardHtml.length > 0) showCard()
 
             function showCard() {
-                loadHtml("<!doctype html><html><head><meta charset='utf-8'></head>"
-                         + "<body style='margin:0;background:transparent'>"
+                // The wrapper strips the card's drop shadow: this view hugs
+                // the card exactly, so the shadow would be clipped to a faint
+                // corner spill anyway — without it the corners are pure
+                // desktop pass-through. (Übersicht and the browser preview
+                // keep the full shadow; they render unclipped.)
+                loadHtml("<!doctype html><html><head><meta charset='utf-8'>"
+                         + "<style>.cogstress { box-shadow: none !important; }</style>"
+                         + "</head><body style='margin:0;background:transparent'>"
                          + root.cardHtml + "</body></html>");
             }
 
