@@ -13,7 +13,7 @@
  * data-* attributes (data-composite-label / -color / data-has-activity) —
  * no second CLI invocation, no HTML parsing beyond the root tag.
  *
- * Local-only: shells out to a local CLI and renders its stdout from memory
+ * Private: shells out to a local CLI and renders its stdout from memory
  * (loadHtml, about:blank base). The card contains no scripts and no external
  * references; the only JavaScript run in the view is our own one-liner that
  * measures the card's height.

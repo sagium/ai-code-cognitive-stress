@@ -13,12 +13,12 @@ merges; this skill only prepares the branch.
 
 ## Context
 
-- Repo: `ai-code-cognitive-stress` — a local-only tool (`stress_levels/`) plus a
+- Repo: `ai-code-cognitive-stress` — a private tool (`stress_levels/`) plus a
   conference-style paper (`paper/main.tex`) that argues a load-index hypothesis and
   then attacks it.
 - Source of truth for rules + layout: `AGENTS.md`. Read it before acting. The hard
   invariants that constrain every fix:
-  - **Local-only.** Never add telemetry, network calls, or any off-machine data
+  - **Private.** Never add telemetry, network calls, or any off-machine data
     path. If the only way to "fix" a critique is a remote call (e.g. platform PR/MR
     events), that is out of scope — say so and reconcile in the paper instead.
   - **Never push or merge.** No `git push`, no tags, no releases, no PR/MR creation.
@@ -44,7 +44,7 @@ merges; this skill only prepares the branch.
   delegated to **Sonnet**.
 - In **Phase 4**, spawn the implementation as a Sonnet coding agent via the `Agent`
   tool: `subagent_type: "claude"`, `model: "sonnet"`, `isolation: "worktree"`. Give
-  it the approved plan, the local-only invariant, and the exact files/tests to
+  it the approved plan, the privacy invariant, and the exact files/tests to
   change. The Opus session then reviews the returned diff, runs the tests, and writes
   the paper updates itself. If a change is too small to be worth delegating, the Opus
   session may make it directly — but anything beyond a few lines goes to Sonnet.
@@ -110,11 +110,11 @@ whether the method also improves — correcting the critique text is part of the
 and comes first.
 
 Then, for CONFIRMED (and the real part of MIS-SCOPED) claims, assess whether a
-**local-only** method/code improvement is feasible and in scope:
+**private** method/code improvement is feasible and in scope:
 
 - What is the minimal, auditable change to `stress_levels/` (+ `tests/`) that
   reduces or removes the weakness?
-- Does it respect the local-only invariant and the project's preference for simple,
+- Does it respect the privacy invariant and the project's preference for simple,
   auditable signals over fragile inference? If the only fix needs the network or
   un-loggable data, it stays a stated caveat — reconcile in prose, do not bolt on a
   remote path.
@@ -131,7 +131,7 @@ chat. It must contain:
 - **Plan**, split into:
   1. *Critique-text corrections* (for STALE/INACCURATE/MIS-SCOPED) — what the §7
      paragraph and any §8 item should say to match current reality.
-  2. *Method/code improvement* (for CONFIRMED, if feasible & local-only) — exact
+  2. *Method/code improvement* (for CONFIRMED, if feasible & private) — exact
      files to change, the new behaviour, the tests to add, and the residual caveat
      the paper will retain afterward.
   3. *What stays a caveat* and why (e.g. out of scope because it needs the network).

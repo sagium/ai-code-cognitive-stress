@@ -6,7 +6,7 @@ the index so it covers the real range of work patterns. Produces a report plus a
 suggested ``scoring`` config block; it changes nothing on its own — the operator
 reviews and opts in (`config.json` `scoring`).
 
-Local-only and stdlib-only: reads files the maintainer already has on disk,
+Private and stdlib-only: reads files the maintainer already has on disk,
 writes a local report, and uses only ``statistics`` for the math (no numpy).
 
 **Unsupervised by necessity.** The exports carry no felt-load labels, so we can

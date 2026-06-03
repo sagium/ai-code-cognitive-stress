@@ -19,7 +19,7 @@ Building artifacts **locally** for verification is fine (e.g. `python -m build`
 into `dist/`). Stop there and report — the maintainer performs the actual
 release. "Build it" or "package it" is **not** permission to publish.
 
-## Local-only (core invariant)
+## Private (core invariant)
 
 The tool reads local agent-coding session logs and writes an HTML
 report to disk. It must **never send data off the machine** — no telemetry, no
@@ -69,7 +69,7 @@ ai-code-cognitive-stress/
 │   ├── render.py               # self-contained HTML report builder
 │   ├── serialize.py            # JSON sibling for the chat skill
 │   ├── research_export.py      # anonymized full-year export (local file; manual upload)
-│   ├── calibrate.py            # maintainer: pool exports → suggest scoring (local-only, unsupervised)
+│   ├── calibrate.py            # maintainer: pool exports → suggest scoring (private, unsupervised)
 │   ├── citations.py            # research-registry loader
 │   ├── citations.yml           # literature registry (single source of truth)
 │   └── sources/                # pluggable input adapters

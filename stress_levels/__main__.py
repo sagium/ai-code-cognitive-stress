@@ -99,7 +99,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Print TODAY's full daily view (the same data the HTML day "
              "drill-down shows) as JSON to stdout and exit. Usable by any "
              "external display. Ignores the date-span flags; reuses "
-             "--baseline-days and --source. Local-only — reads local data, "
+             "--baseline-days and --source. Private — reads local data, "
              "writes nothing, no network.",
     )
     parser.add_argument(
@@ -123,7 +123,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Write an ANONYMIZED full-year JSON snapshot to PATH (default: "
              "./stress-levels-research-<year>.json) for voluntary upload to "
              "the research-calibration form, then exit. Covers --year if given, "
-             "else the current calendar year. Local-only: writes a file and "
+             "else the current calendar year. Private: writes a file and "
              "nothing else — you upload it manually; the tool never sends data. "
              "Requires consent (interactive prompt, or --i-consent).",
     )
@@ -138,7 +138,7 @@ def _build_parser() -> argparse.ArgumentParser:
              "directories of *.json) and crunch the population to suggest "
              "calibrated normalization ceilings and composite weights, plus a "
              "work-pattern coverage map. Writes a report and prints a suggested "
-             "config 'scoring' block; changes nothing on its own. Local-only.",
+             "config 'scoring' block; changes nothing on its own. Private.",
     )
     parser.add_argument(
         "--calibrate-out", default="calibration-report.json", metavar="PATH",
@@ -296,7 +296,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     # Research-export mode: write an ANONYMIZED full-year snapshot to disk for
-    # voluntary manual upload. Local-only — writes a file and nothing else.
+    # voluntary manual upload. Private — writes a file and nothing else.
     # Overrides the date span with a full calendar year (--year if given, else
     # the current year). Gated on explicit consent.
     if args.export_research is not None:

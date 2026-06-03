@@ -9,7 +9,7 @@
  * the browser preview (preview.html), so the surfaces can't drift. This file
  * just runs the CLI on a timer and injects its output verbatim.
  *
- * Local-only: shells out to a local CLI and shows its stdout. No network —
+ * Private: shells out to a local CLI and shows its stdout. No network —
  * the card uses system font stacks, nothing is fetched.
  *
  * Install: copy or symlink this file into

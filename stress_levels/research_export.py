@@ -6,7 +6,7 @@ help calibrate the index's borrowed thresholds against real multi-developer
 data (see the paper's validation roadmap).
 
 This module is the only data-sharing path in the tool, and it preserves the
-local-only invariant by design: it **writes a file to local disk and nothing
+privacy invariant by design: it **writes a file to local disk and nothing
 else**. There is no network I/O here — the human carries the file to the form.
 Do not add an auto-upload/network step.
 

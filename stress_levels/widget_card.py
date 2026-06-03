@@ -15,7 +15,7 @@ any browser. The `data-*` attributes on the root div carry the headline values
 so a host can show a compact summary (e.g. the Plasma panel label) without
 parsing the markup or running a second command.
 
-Local-only: pure string building from the DayView — no I/O, no network.
+Private: pure string building from the DayView — no I/O, no network.
 """
 
 from __future__ import annotations
@@ -338,7 +338,7 @@ def render_card(dv: DayView) -> str:
         f'<div class="nag">{_esc(dv.off_hours_nag)}</div>' if dv.off_hours_nag else "",
         _hour_chart(dv),
         *(_axis_tile(a) for a in dv.axes),
-        f'<div class="foot"><span>local-only · updates live</span>'
+        f'<div class="foot"><span>private · updates live</span>'
         f'<span>{_esc(dv.day.isoformat()[:7])}</span></div>',
     ])
     return _wrap(
@@ -353,6 +353,6 @@ def render_error_card(message: str) -> str:
     inner = (
         f'<div class="head"><div class="score"><b style="color:{_DIM}">—</b><span>/ 100</span></div></div>'
         f'<div class="error">{_esc(message)}</div>'
-        f'<div class="foot"><span>local-only</span><span>cognitive stress</span></div>'
+        f'<div class="foot"><span>private</span><span>cognitive stress</span></div>'
     )
     return _wrap(inner, label="—", color=_DIM, has_activity=False)

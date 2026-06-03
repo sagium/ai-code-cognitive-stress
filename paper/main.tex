@@ -41,7 +41,7 @@ supervising several semi-autonomous agents at machine pace, interleaving
 prompts, judging outputs, and recovering interrupted trains of thought all
 day. This is a distinct cognitive regime, it accumulates, and existing
 developer-productivity dashboards do not measure it---they count output, not
-cognitive cost. We present a method and an open, \emph{local-only} tool that
+cognitive cost. We present a method and an open, \emph{private} tool that
 turns the session logs these tools already generate into a daily,
 individualized load index. It is meant as a self-assessment aid for an
 individual engineer---a good-enough proxy for the multitasking overload that
@@ -134,7 +134,7 @@ The contributions are:
   \item An \emph{engagement-weighted} concurrency measure that distinguishes
   actively-supervised sessions from background ``cooking'' ones, grounded in
   prospective-memory and unfulfilled-goal research (\S\ref{sec:codl}).
-  \item An open, dependency-free, local-only reference implementation that
+  \item An open, dependency-free, private reference implementation that
   serves as a working proof of concept~\cite{acsrepo} (\S\ref{sec:impl}).
   \item A deliberately adversarial treatment of our own construct
   (\S\ref{sec:threats}) and a validation roadmap with falsifiable predictions
@@ -564,17 +564,17 @@ writes a self-contained HTML report plus a machine-readable JSON sibling.
 Per-day aggregates are cached keyed by source-file modification time, so metric
 or weighting changes recompute from cache without re-parsing logs. Adding a new
 coding tool is a single adapter implementing the event protocol; the aggregate,
-metric, optimum, and rendering stages are tool-agnostic. The tool is local-only
+metric, optimum, and rendering stages are tool-agnostic. The tool is private
 by design: session transcripts frequently contain proprietary code and
 secrets, so the generated artefacts are treated as similarly sensitive and
 never leave the machine.
 
-The implementation also provides two optional, local-only pathways toward the
+The implementation also provides two optional, private pathways toward the
 multi-developer calibration of \S\ref{sec:validation}. The first is an
 anonymized, consent-gated \emph{research export}: a per-user file of derived
 daily metrics (and their components) with the timezone dropped and calendar
 dates randomly shifted, which the operator may choose to upload manually---the
-tool itself transmits nothing, preserving the local-only invariant. The second
+tool itself transmits nothing, preserving the privacy invariant. The second
 is a population \emph{calibration} step that pools such exports and proposes
 normalization ceilings and composite weights that cover the observed range of
 work patterns. Both read and write only local files. The calibration is
@@ -706,7 +706,7 @@ may differ. All reported behaviour is $n{=}1$ and from an author. The reference
 implementation provides the machinery to move beyond this---an anonymized
 per-user export and a population-calibration step that refits the ceilings to
 the pooled distribution (\S\ref{sec:impl})---so what remains is collecting the
-multi-developer sample, each participant running the local-only tool on their
+multi-developer sample, each participant running the private tool on their
 own machine and only derived metrics pooled. Until that sample exists the
 thresholds stay borrowed and the data stays $n{=}1$ (\S\ref{sec:validation}).
 
@@ -798,7 +798,7 @@ predictions that would, if tested, confirm or refute the design.
   (\S\ref{sec:impl}); what remains is collecting the population.
 \end{enumerate}
 A modest multi-developer study with experience sampling---each participant
-running the local-only tool on their own machine, with only the derived per-day
+running the private tool on their own machine, with only the derived per-day
 metrics and subjective ratings pooled for analysis, so no off-machine data path
 is added to the tool---is supported end-to-end by the released tooling (the
 anonymized export and the pooled-calibration step, \S\ref{sec:impl}) and is the
@@ -812,7 +812,7 @@ idle foreground session.
 
 \section{Ethics and Privacy}
 The tool reads proprietary source and potentially secrets; we therefore treat
-local-only processing as a hard invariant, not a feature, and any future
+private processing as a hard invariant, not a feature, and any future
 data-sharing path would require separate, explicit, opt-in consent. The intended
 use is individual self-reflection. We explicitly warn against managerial or
 comparative use across people: the index is calibrated to an individual's own
