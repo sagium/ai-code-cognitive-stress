@@ -36,7 +36,7 @@ from .metrics import DayMetrics, StressProfile, WorkWindow, per_day_debug
 
 SCHEMA = "ai-code-cognitive-stress.research-export.v3"
 
-CONSENT_VERSION = "3"
+CONSENT_VERSION = "5"
 
 # Affirmed by the operator before an export is written, and embedded verbatim in
 # the file so the acknowledgment travels with the data. Kept in sync with the
@@ -46,11 +46,11 @@ CONSENT_TEXT = (
     "the cognitive-stress index. I understand that it contains only derived, "
     "non-identifying data computed on my own machine: daily metrics and the "
     "components behind them, per-session activity counts (message and "
-    "tool-call tallies and durations), per-day counts of local git activity "
-    "(commits/merges and history-rewrite operations such as amend/rebase/reset, "
-    "as counts only), and an hourly activity-load shape, plus my typical "
+    "tool-call tallies and durations), session-resumption timing (how long "
+    "parked sessions sat idle before I picked them back up, in minutes), and an "
+    "hourly activity-load shape, plus my typical "
     "working-hour ranges. It contains no source code, file paths, repository "
-    "or branch names, commit messages, session text, usernames, or timezone; "
+    "or branch names, session text, usernames, or timezone; "
     "calendar dates are randomly shifted and a random per-export id is used, so "
     "the data is not personally identifying. Sharing is entirely optional, and "
     "because the submission is anonymous it cannot be traced back and withdrawn "
@@ -95,7 +95,7 @@ def build_research_export(
     aggregates: dict[date, DayAggregate] | None = None,
     local_tz=None,
     codl_cfg=None,
-    repo_map: dict[str, str] | None = None,
+    resumption_cfg=None,
     rng: random.Random | None = None,
     participant_id: str | None = None,
     generated_on: date | None = None,
@@ -106,11 +106,11 @@ def build_research_export(
     (the per-axis component breakdown, hourly activity shape, and anonymized
     per-session counts) for calibrating data collection and the metrics —
     still free of names, paths, and absolute timestamps. ``local_tz`` /
-    ``codl_cfg`` default to the same system timezone and config the profile was
-    built with. ``repo_map`` (cwd→repo-root, no paths emitted) lets the debug
-    block report the per-session closure correlation (closed_loops of
-    correlatable_loops) so the exported Closure Deficit is reproducible from
-    its counts.
+    ``codl_cfg`` / ``resumption_cfg`` default to the same system timezone and
+    config the profile was built with. The debug block reports the resumption
+    components (resume count, per-resume gap minutes, severity-summed load) so
+    the exported Closure Deficit is reproducible from them. Cross-day resumes are
+    threaded across days exactly as ``build_profile`` does.
 
     ``rng`` / ``participant_id`` / ``generated_on`` are injectable so the output
     is deterministic under test; in production they default to system entropy,
@@ -122,28 +122,43 @@ def build_research_export(
     if aggregates is not None:
         if local_tz is None:
             local_tz = datetime.now().astimezone().tzinfo or timezone.utc
-        if codl_cfg is None:
+        if codl_cfg is None or resumption_cfg is None:
             from .config import load_config
-            codl_cfg = load_config().codl
+            _cfg = load_config()
+            codl_cfg = codl_cfg or _cfg.codl
+            resumption_cfg = resumption_cfg or _cfg.resumption
 
     shift = timedelta(days=7 * rng.randint(-_MAX_SHIFT_WEEKS, _MAX_SHIFT_WEEKS))
 
+    # Cross-day resume memory, threaded across days in order (mirrors
+    # build_profile) so an exported day's resumption_load matches its profile
+    # closure_deficit even when sessions span days.
+    prior_last_ts_by_stream: dict[str, datetime] = {}
+
     days_out: list[dict[str, Any]] = []
     for d, m in sorted(profile.days.items()):
-        if not (m.composite > 0 or m.off_hours_minutes > 0):
-            continue
-        entry = _day_metrics_dict(m, shift)
-        if aggregates is not None:
-            agg = aggregates.get(d)
+        agg = aggregates.get(d) if aggregates is not None else None
+        if m.composite > 0 or m.off_hours_minutes > 0:
+            entry = _day_metrics_dict(m, shift)
             window = profile.work_windows.get(d.weekday())
             if agg is not None and window is not None:
                 entry["debug"] = per_day_debug(
                     agg, window, local_tz,
                     foreground_grace_minutes=codl_cfg.foreground_grace_minutes,
                     background_weight=codl_cfg.background_weight,
-                    repo_map=repo_map,
+                    prior_last_ts_by_stream=prior_last_ts_by_stream,
+                    resume_threshold_minutes=resumption_cfg.threshold_minutes,
+                    resume_full_decay_minutes=resumption_cfg.full_decay_minutes,
+                    resumption_daily_ceiling=resumption_cfg.daily_ceiling,
                 )
-        days_out.append(entry)
+            days_out.append(entry)
+        # Update cross-day memory even for non-emitted days, so a gap that spans
+        # an idle day is still measured against the right prior activity.
+        if agg is not None:
+            for s in agg.streams:
+                prev = prior_last_ts_by_stream.get(s.stream_id)
+                if prev is None or s.last_ts > prev:
+                    prior_last_ts_by_stream[s.stream_id] = s.last_ts
 
     return {
         "schema": SCHEMA,

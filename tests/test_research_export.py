@@ -198,6 +198,7 @@ def _stub_aggregates() -> dict:
         tool_result_count=18, tool_error_count=2,
         branches=(_BRANCH_NAME,),
         user_msg_timestamps=(_ts(10), _ts(11)),
+        resume_gaps=((_ts(11, 30), 3600),),  # one 60-min in-window resume
     )
     s2 = StreamDayActivity(
         stream_id="sess-2", project="another-project",
@@ -208,7 +209,6 @@ def _stub_aggregates() -> dict:
     )
     agg = DayAggregate(
         day=_ACTIVE_DAY, streams=(s1, s2), peak_concurrent_streams=2,
-        closure_events=None,
     )
     return {_ACTIVE_DAY: agg}
 
@@ -230,53 +230,51 @@ def test_debug_block_present_with_components():
     assert dbg["stream_count"] == 2
     assert dbg["peak_headcount"] == 2          # both streams overlap 11:00–12:00
     assert dbg["cross_stream_starts"] == 1     # s2 starts while s1 is active
-    assert dbg["loops_opened"] == 2            # both start inside the window
     assert dbg["total_tool_errors"] == 2
-    assert dbg["closures"] == 0
-    assert dbg["correlatable_loops"] == 0      # no commits that day → dropped
-    assert dbg["closed_loops"] == 0
-    assert dbg["reworks"] == 0
+    # Resumption components: s1's single 60-min in-window resume.
+    assert dbg["resumes"] == 1
+    assert dbg["resume_gap_minutes"] == [60.0]
+    assert dbg["resumption_load"] == 0.125     # min(1, 60/120) / 4
     for key in ("peak_weighted", "work_hours", "in_window_tool_errors",
                 "interruption_numerator", "off_hours_minutes",
                 "hourly_concurrency", "sessions"):
         assert key in dbg
 
 
-def test_consent_text_discloses_git_activity_counts():
-    """The export now ships per-day git commit/rework counts by default
-    (autodiscover), so the consent statement must disclose them."""
-    assert "git" in CONSENT_TEXT
-    assert "commit" in CONSENT_TEXT
-    # Still promises no identifying git detail.
+def test_consent_text_discloses_resumption_timing():
+    """The export ships session-resumption timing, so the consent statement must
+    disclose it — and must promise no identifying detail (git is no longer read)."""
+    assert "resumption" in CONSENT_TEXT
+    assert "git" not in CONSENT_TEXT  # the tool no longer reads git at all
     assert "no source code" in CONSENT_TEXT or "no source" in CONSENT_TEXT
     assert "repository or branch names" in CONSENT_TEXT
 
 
-def test_debug_closure_correlation_reproduces_deficit_and_leaks_no_path():
-    """With a repo_map, the debug block carries the per-session correlation
-    counts so the day's closure_deficit is reproducible from
-    (correlatable_loops, closed_loops), and the repo path never appears in the
+def test_debug_resumption_reproduces_deficit_and_leaks_no_path():
+    """The debug block carries the resumption components (resume count, per-resume
+    gap minutes, severity-summed load) so the day's closure_deficit is
+    reproducible from them, and the (username-bearing) cwd never appears in the
     export."""
-    from stress_levels.sources.base import ClosureEvent
-    from stress_levels.metrics import build_profile
+    from stress_levels.metrics import (
+        build_profile, RESUME_FULL_DECAY_MINUTES, RESUMPTION_DAILY_CEILING,
+    )
 
     def _ts(h):
         return datetime(2026, 5, 14, h, tzinfo=timezone.utc)
     repo = "/home/someone/secret-repo"
     streams = (
+        # one 120-min (fully-cold) in-window resume, picked back up at 14:00
         StreamDayActivity(stream_id="s1", project="p", cwd=repo,
-                          first_ts=_ts(10), last_ts=_ts(12)),
+                          first_ts=_ts(10), last_ts=_ts(16),
+                          resume_gaps=((_ts(14), 7200),)),
         StreamDayActivity(stream_id="s2", project="p", cwd=repo,
                           first_ts=_ts(11), last_ts=_ts(13)),
     )
-    closures = (ClosureEvent(ts=_ts(12), kind="commit", repo=repo),)
     aggs = {_ACTIVE_DAY: DayAggregate(day=_ACTIVE_DAY, streams=streams,
-                                      peak_concurrent_streams=2,
-                                      closure_events=closures)}
-    repo_map = {repo: repo}
+                                      peak_concurrent_streams=2)}
     windows = {wd: WorkWindow(weekday=wd, start=time(9), end=time(18))
                for wd in range(7)}
-    profile = build_profile(aggs, repo_map=repo_map)
+    profile = build_profile(aggs)
     profile = StressProfile(days=profile.days, work_windows=windows)
 
     out = build_research_export(
@@ -284,18 +282,21 @@ def test_debug_closure_correlation_reproduces_deficit_and_leaks_no_path():
         package_version="t", ingest_stats=None, aggregates=aggs,
         local_tz=timezone.utc,
         codl_cfg=SimpleNamespace(foreground_grace_minutes=5, background_weight=0.25),
-        repo_map=repo_map,
         rng=random.Random(1), participant_id="pid", generated_on=date(2026, 6, 1),
     )
     day = out["profile"]["days"][0]
     dbg = day["debug"]
-    assert dbg["loops_opened"] == 2
-    assert dbg["closures"] == 1
-    assert dbg["correlatable_loops"] == 2  # both loops' repo had a commit today
-    assert dbg["closed_loops"] == 1        # the commit time-correlates to one
-    # Deficit reconstructs from the debug counts.
-    assert day["closure_deficit"] == round(1 - dbg["closed_loops"] / dbg["correlatable_loops"], 3)
-    # The repo path (which contains a username) never leaks.
+    assert dbg["resumes"] == 1
+    assert dbg["resume_gap_minutes"] == [120.0]
+    assert dbg["resumption_load"] == 0.25  # min(1, 120/120) / 4
+    # Deficit reconstructs from the debug gap minutes.
+    reconstructed = round(min(
+        1.0,
+        sum(min(1.0, g / RESUME_FULL_DECAY_MINUTES) for g in dbg["resume_gap_minutes"])
+        / RESUMPTION_DAILY_CEILING,
+    ), 3)
+    assert day["closure_deficit"] == reconstructed
+    # The cwd (which contains a username) never leaks.
     assert "someone" not in json.dumps(out)
     assert "secret-repo" not in json.dumps(out)
 

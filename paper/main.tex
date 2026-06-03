@@ -82,9 +82,11 @@ memory, whose capacity for independent items is famously small (about
 four)~\cite{cowan2001}. Second, it is \emph{interruption-dense}: switching
 between agents and reacting to failures fragments attention and leaves residue
 that slows the resumed task~\cite{mark2008,mark2005,leroy2009,wickens2008}.
-Third, it is \emph{closure-poor}: agentic work spawns many loops that stay open,
-and demands that exceed recoverable resources are the mechanism of burnout in
-the Job Demands--Resources model~\cite{demerouti2001}. Chronic load without
+Third, it is \emph{closure-poor}: agentic work spawns many loops that are parked
+and resumed rather than finished in one sitting, and each cold resumption reloads
+decayed context at a cost that grows with the gap~\cite{monk2008,altmann2002}.
+Demands that exceed recoverable resources are the mechanism of burnout in the Job
+Demands--Resources model~\cite{demerouti2001}, and chronic load without
 recovery---not isolated peaks---is what damages people over
 time~\cite{mcewen1998,sonnentag2010}.
 
@@ -217,7 +219,7 @@ behavioural proxy, and \S\ref{sec:threats} treats the gap as the central threat.
 ]
 \node[pbox] (logs) {Local session logs --- one adapter per coding tool};
 \node[pbox, below=of logs] (events) {Typed events: your messages, assistant messages, tool use / result / error --- each timestamped};
-\node[pbox, below=of events] (agg) {Per-day aggregate: per-stream span $[a_s,b_s]$ and your-message times; local \texttt{git} closures};
+\node[pbox, below=of events] (agg) {Per-day aggregate: per-stream span $[a_s,b_s]$, your-message times, and intra-stream idle gaps};
 \node[pbox, below=of agg] (sample) {One-minute \emph{engagement-weighted} sampling inside the inferred work window: $e_s(t)\!\in\!\{1,\beta,0\}$,\; $C(t)=\sum_s e_s(t)$};
 \node[pbox, below=of sample] (axes) {Three axes: CODL $\cdot$ Interruption Index $\cdot$ Closure Deficit};
 \node[pbox, below=of axes] (comp) {Composite (0--100, equal weights) $+$ additive off-hours load};
@@ -241,10 +243,10 @@ The pipeline from raw logs to a daily score is summarised in
 Figure~\ref{fig:pipeline}; the remainder of this section defines each stage.
 
 \subsection{Data model}
-Input is the set of local session transcripts a coding tool already writes, plus
-local \texttt{git} history. A pluggable adapter maps each tool's log into a
-common vocabulary of typed events (user message, assistant message, tool use,
-tool result/error) with UTC timestamps. Events are reduced to per-day
+Input is the set of local session transcripts a coding tool already writes. A
+pluggable adapter maps each tool's log into a common vocabulary of typed events
+(user message, assistant message, tool use, tool result/error) with UTC
+timestamps. Events are reduced to per-day
 \emph{stream} records: one stream is one session on one day, summarised by its
 first/last event timestamps $[a_s,b_s]$, per-type counts, and the multiset of
 the user's own message timestamps $U_s$. All processing is local; nothing is
@@ -330,120 +332,80 @@ Tool calls \emph{within} an active session are not counted: while an agent
 works, the operator is in a ``waiting'' state in which attention can legitimately
 detach, so counting each call would inflate the rate by orders of magnitude and
 violate the standard definition of an interruption as an unscheduled event
-demanding immediate attention. Three events do pull attention: a tool
-\emph{error} (the operator may need to intervene), a \emph{cross-stream
-start} (a new session lit up while another was active, forcing a switch), and a
-\emph{git rework} event---an amend, rebase, reset, or cherry-pick read from the
-reflog (\S\ref{sec:closure}), where a history rewrite reopens a loop thought
-closed and is thus a self-interruption with attention residue~\cite{leroy2009}.
-Rework events collapse to one count per logical operation (a rebase's terminal
-entry, not one per replayed commit). With $E^{\mathrm{win}}$ the tool-error
+demanding immediate attention. Two events do pull attention: a tool
+\emph{error} (the operator may need to intervene) and a \emph{cross-stream
+start} (a new session lit up while another was active, forcing a switch, with
+attention residue~\cite{leroy2009}). With $E^{\mathrm{win}}$ the tool-error
 count apportioned to the work window, $X$ the in-window cross-stream starts,
-$R$ the in-window rework count, and $h$ the window length in hours,
+and $h$ the window length in hours,
 \begin{equation}
-I = \frac{1.5\,E^{\mathrm{win}} + 3.0\,X + 2.0\,R}{h}.
+I = \frac{1.5\,E^{\mathrm{win}} + 3.0\,X}{h}.
 \end{equation}
 The weights follow the relative cost of external versus self-interruption in the
-interruption literature~\cite{mark2008,mark2005,wickens2008}---rework sits
-between a single failed call and a full cross-stream switch; the normalization
+interruption literature~\cite{mark2008,mark2005,wickens2008}; the normalization
 ceiling is $10$/hour, well above the field baseline of a working-sphere switch
 roughly every $\approx$11~minutes ($\approx$5/hour) observed in knowledge
 work~\cite{gonzalezmark2004}.
 
 \subsection{Closure Deficit}\label{sec:closure}
-An open loop---a task dispatched but not yet resolved---keeps consuming the
-cognitive resource until it is closed or concretely
-planned~\cite{masicampo2011}; closure removes the residue an unfinished switch
-leaves on the next task~\cite{leroy2009} and is itself a recovery
-resource~\cite{sonnentag2007}. We therefore measure the share of the day's git-visible \emph{opened} loops that
-were never \emph{closed}. A loop is opened when a stream starts inside the work
-window. It is \emph{closed} by a real closure event---a \texttt{git} \emph{push},
-\emph{commit}, or \emph{merge} that is the \emph{operator's own}---made in
-\emph{that session's own repository} and timestamped within the loop's active span
-plus a short grace tail, $[a_s,\,b_s+g]$; we use $g=30$\,min, since a closure
-typically lands shortly after the agent falls quiet. The strongest signal is the
-push: it means the work left the machine, and it is self-scoped by construction
-(only the operator's own pushes write an \texttt{update by push} entry to this
-clone's remote-tracking reflog, so a server-side merge bot cannot forge one).
-Commits and merges are scoped to the operator's own author identities---the set
-of \texttt{user.email}/\texttt{user.name} values configured in local \texttt{git}
-(global plus each scanned repository, which already captures an operator who
-commits under several accounts). Without this scope, in a shared monorepo the
-closure signal collapses into \emph{``was anyone on the team committing while I
-had a session open''}: in our own data the dominant repository carried 4{,}477
-commits from 48 authors (1{,}051 from a merge bot) and \emph{none} authored by
-the operator under the all-author rule, so teammates' and the bot's commits
-spuriously closed the operator's loops and understated the deficit. Each closure
-event closes at most one loop, matched greedily to the earliest-ending open loop
-it covers, so a single commit cannot mask several abandoned loops. The
-repositories scanned are, by default, auto-discovered from the working
-directories the sessions themselves recorded: each session's \texttt{cwd} is
-walked up to its nearest \texttt{.git} root, so the closure signal is on out of
-the box without the operator hand-listing repositories. This stays inside the
-local-only invariant---it reads cwds the sessions already logged and runs
-read-only local \texttt{git}, walking no further than those directories.
+A loop you cannot finish in one sitting and have to pick back up later is a loop
+left open, and reopening it is not free: a suspended goal's activation decays over
+the gap and must be reconstructed on return~\cite{altmann2002}, and the cost of
+that reconstruction rises with how long the task was suspended~\cite{monk2008}.
+In the programming domain specifically, resuming an interrupted task reliably
+incurs a context-reconstruction tax---only a small fraction of interrupted
+sessions resume coding within a minute, and fewer still resume without first
+navigating to rebuild context~\cite{parnin2011}. Closure, conversely, is a
+recovery resource~\cite{sonnentag2007}, and the tendency to return to interrupted
+tasks is a robust behavioural regularity, even as the older claim that open tasks
+are better \emph{remembered} fails to replicate~\cite{ghibellini2025}. We
+therefore measure the day's \emph{resumption load}: how much the operator
+re-entered parked sessions, weighted by how cold each had gone.
 
-Closures are attributed \emph{per repository and per author}: a commit in one
-project can close only loops opened by sessions that ran in that same repository,
-and only when the operator authored it, so neither cross-project nor cross-author
-activity can spuriously close a loop. A loop counts toward the deficit only
-when \texttt{git} can speak to it---when its repository saw at least one of the
-\emph{operator's own} events that day. Loops in a repository \texttt{git} never
-touched by the operator that day (or whose \texttt{cwd} resolves to no tracked
-repository) are \emph{excluded by design}, so the axis scores closure only over
-the loops it can actually observe, rather than penalising sessions---investigation,
-review, planning---that were never meant to produce a commit. A loop that stays
-\emph{unclosed} but lasted under five minutes is also dropped from the
-denominator: a sub-five-minute session that caught no commit is a quick check, not
-a loop deliberately left open, so it must not raise the deficit (a short session
-that \emph{did} catch a commit still counts, as closed---only the sub-threshold
-unclosed noise is removed). History-\emph{rewriting}
-operations (amend, rebase, reset,
-cherry-pick)---read from the \texttt{git} reflog, the only place they are
-recorded---make a repository git-visible but are \emph{not} themselves closures:
-a rewrite reopens or churns a loop thought closed, so a rebased-but-uncommitted
-loop stays \emph{unclosed}, and the rewrite is routed to the Interruption Index
-as rework (\S\ref{sec:interruption}) rather than to this axis.
-With $\mathcal{O}=\{s : a_s\in W\}$ the loops opened in the window,
-$\mathcal{C}\subseteq\mathcal{O}$ the \emph{correlatable} loops---those whose
-repository was \texttt{git}-active that day---and $k$ the number of them closed
-by the greedy repository-and-time match,
+A \emph{resume} is a true-idle gap in a single session's event timeline---a span
+during which no event of any kind (user message, model message, or tool call) was
+recorded---of at least a threshold $\tau$ ($\tau=30$\,min by default; below it the
+loop was paused, not suspended). A session continued on a later calendar day
+contributes a cross-day resume on the day work resumes. The cost of one resume
+saturates with the gap length $g$,
+\begin{equation}
+\sigma(g) = \min\!\Big(1,\ \frac{g}{\Delta}\Big),
+\end{equation}
+where $\Delta$ ($=120$\,min) is the horizon past which the context is treated as
+fully cold, so a six-hour gap is no costlier than a two-hour one once activation
+has fully decayed---the linear-then-flat shape of the duration--cost
+relationship~\cite{monk2008,altmann2002}. With $\mathcal{R}$ the set of resumes
+whose pickup instant falls inside the work window $W$, and a daily ceiling $K$
+($=4$ fully-cold reloads, a loose working-memory anchor~\cite{cowan2001}: cold-
+reloading more than about four distinct loops in a day means thrashing across more
+open contexts than working memory comfortably holds),
 \begin{equation}
 \mathrm{ClosureDeficit} =
-\operatorname{clip}\!\Big(1 - \frac{k}{|\mathcal{C}|},\, 0,\, 1\Big),
-\quad (|\mathcal{C}|>0),
+\operatorname{clip}\!\Big(\frac{1}{K}\sum_{g\in\mathcal{R}}\sigma(g),\ 0,\ 1\Big).
 \end{equation}
-and \emph{undefined} when no loop is correlatable ($|\mathcal{C}|=0$). The
-Closure Deficit has meaning only on git repositories, so a day git cannot speak
-to---debugging, generic chat, or work in a repository the operator did not
-touch---is \emph{omitted as data}, not scored. The distinction is load-bearing:
-$0$ means ``you opened loops and closed them all'' (genuine perfect closure),
-whereas an omitted day means ``there was no git work to assess.'' Collapsing the
-second into a $0$ would credit a pure-debugging day with perfect closure and
-dilute its composite, so the two are kept distinct: the omitted day contributes
-to neither the axis nor any rollup average, and the composite renormalises over
-the axes that remain (\S\ref{sec:composite}). A day that opens many loops and
-closes few is exactly the demands-without-recoverable-resources pattern the JD-R
-model identifies with burnout~\cite{demerouti2001}.
+A value of $0$ is a real, good score---every loop was closed in one sitting---and
+the axis is defined on every active day, requiring no \texttt{git} and no
+configuration. It is \emph{undefined} (omitted as data, not scored) only on a day
+with no activity at all. The thresholds $\tau$, $\Delta$, and $K$ are
+citation-anchored modeling priors, not values fitted to felt load; all three are
+configurable.
 
-Crucially, this axis is built from per-session \emph{correlation} of opened and
-closed loops, not from the concurrency time-series $C(t)$, so it is independent
-of the CODL shape by construction: two days with identical $C(t)$ (hence
-identical $\overline{\mathrm{CODL}}$) receive different deficits if one committed
-its loops and the other left them open---information $C(t)$ cannot carry. This
-removes the collinearity of earlier versions, in which the deficit was the
-fraction of samples with $C(t)>1$ and thus a re-expression of concurrency. The
-remaining proxy is the correlation itself: a closure is matched to a session by
-repository, author, and time overlap, not by a shared identifier (session
-transcripts and commits carry none), so an own-authored commit may still be
-matched to a different \emph{own} same-repo session active in the same window
-(\S\ref{sec:threats}). The earlier all-author version had a far larger confound---a
-\emph{teammate's} commit closing the operator's loop in a shared repository---which
-author-scoping removes. With no git repository configured at all the axis has no
-basis to exist, so it is omitted entirely (an earlier version fell back to a
-$C(t)>1$ concurrency-presence proxy here; that proxy was \emph{removed}---it was
-not a git signal and re-expressed concurrency the axis is meant to be orthogonal
-to).
+This axis is built from per-session resume \emph{events}, not from the concurrency
+time-series $C(t)$, so it is independent of the CODL shape by construction: two
+days with identical $C(t)$ (hence identical $\overline{\mathrm{CODL}}$) receive
+different deficits if one parked-and-reloaded its loops while the other ran them to
+completion in a sitting---information $C(t)$ cannot carry. It also makes the axis
+git-independent, which removes the earlier version's dependence on local commit
+history and its attendant confounds (a shared monorepo's teammate or merge-bot
+commits being read as the operator's closures, and the need to author-scope and
+repository-attribute every commit). The gap is, however, a \emph{proxy} for a
+parked loop and not a certainty (\S\ref{sec:threats}): a long \emph{autonomous}
+agent turn is correctly excluded because it is not idle, but stepping away with a
+session still mid-turn is not distinguished from a true suspension. And the
+supporting laboratory evidence~\cite{monk2008,altmann2002} measured \emph{short}
+interruptions, on the order of seconds to a minute; the multi-hour and cross-day
+gaps this axis scores extrapolate well beyond that regime, with the field study of
+interrupted programming~\cite{parnin2011} as the closest in-domain bridge.
 
 \subsection{Composite}\label{sec:composite}
 Each available axis is normalized to $[0,1]$ and blended with equal weights. When
@@ -455,13 +417,11 @@ the Closure Deficit is defined for the day, all three contribute:
 +\ \mathrm{clip}(\mathrm{ClosureDeficit},0,1)
 \bigg).
 \end{multline}
-On a day with no git-correlatable activity the Closure Deficit is undefined
-(\S\ref{sec:closure}); the blend then \emph{drops} that axis and renormalises
-over the remaining two---its weight is redistributed to CODL and Interruption,
-not imputed as a perfect-closure $0$. So a heavy debugging or chat day is scored
-on the load and interruption it actually carried rather than discounted for
-closing loops it never opened. In general the composite is the weight-normalised
-mean over whichever axes are defined for the day.
+The Closure Deficit is defined on every active day (\S\ref{sec:closure}) and is
+undefined only on a day with no activity at all; on such a day the blend
+\emph{drops} that axis and renormalises over the remaining two rather than
+imputing a $0$. In general the composite is the weight-normalised mean over
+whichever axes are defined for the day.
 The CODL ceiling is set to $5$---one above Cowan's $\approx 4$ capacity limit---so a day operating \emph{at} the working-memory boundary scores $0.8$ (the warning band) rather than saturating the axis at $1.0$.
 Off-hours work then adds an \emph{additive} load to this base. Let $o$ be the
 day's off-hours \emph{engaged} minutes---one-minute instants outside $W$ during
@@ -476,9 +436,9 @@ multiplicative: off-hours work always counts, so a day worked \emph{entirely}
 outside the window---zero in-window base---still scores a positive composite,
 which a multiplicative form would wrongly leave at zero. Second, $o$ is anchored
 to \emph{interaction}, not stream liveness: a background session left running
-while the operator is away contributes nothing, and \texttt{git} commits never
-enter---only the operator actually being present and driving the agent outside
-their own hours counts (e.g.\ waking in the night to check on a run). The
+while the operator is away contributes nothing---only the operator actually
+being present and driving the agent outside their own hours counts (e.g.\ waking
+in the night to check on a run). The
 inferred band $W$ is the operator's norm; engaged work outside it is treated as
 a deviation from that norm. Like the background weight $\beta$, the magnitude
 ($+30$ points, saturating at $90$ engaged minutes) is an explicit prior, not a
@@ -690,53 +650,39 @@ the redundancy among axes across pooled exports (\S\ref{sec:impl}). That step is
 fitted weights track subjective load, so equal weights remain the default and
 the placeholder stands until the supervised calibration of \S\ref{sec:validation}.
 
-\paragraph{Closure Deficit correlation is heuristic, and scoped to the operator's own git-visible loops.}
-The axis correlates the operator's own \texttt{git} pushes/commits/merges to the
-loops opened each work window (\S\ref{sec:closure}), so it is no longer a
-re-expression of concurrency and the name is honest about what it computes. A
-closure event closes only a loop in its \emph{own} repository whose active span it
-falls within (plus a 30\,min grace), and closes at most one loop---a commit in
-repository $A$ can no longer close a loop opened in repository $B$, which the
-earlier global count permitted. Two scoping choices matter. First, \emph{author}:
-commits/merges count only when the operator authored them (matched against the
-\texttt{user.email}/\texttt{user.name} identities local \texttt{git} records,
-which covers multiple accounts), and pushes are self-scoped by the reflog that
-records them. An earlier all-author version had a severe confound---in a shared
-monorepo a \emph{teammate's} or merge-bot's commit closed the operator's loops, so
-the axis silently measured team activity rather than the operator's own closure;
-on our data it understated the deficit (a pooled $0.25$ against a correctly-scoped
-$\approx 0.54$). The honest residual is the inverse: author identity is itself a
-heuristic, so a commit authored under an un-recorded local identity is missed, and
-matching on author \emph{name} (not only email) could in principle admit a
-distinctly-named collaborator who happens to share the operator's configured name.
-Second, the correlation is still a \emph{time-overlap} heuristic: a closure is
-matched to a session by repository, author, and time, not by a shared identifier,
-because session transcripts and commits carry none---so an own-authored commit may
-still be attributed to a \emph{different own} same-repository session active in the
-same window, and squashed or batched commits under- or over-count real closures
-(the squash itself, like other history rewrites, is separately counted as rework on
-the Interruption Index, \S\ref{sec:interruption}); the grace tail and the
-five-minute trivial-session floor (below which an unclosed loop is dropped as a
-quick check) are fixed constants, not calibrated. By \emph{design}, a loop is
-scored only when the
-operator's own \texttt{git} activity is visible in its repository that day: loops in
-repositories the operator did not touch are excluded rather than counted as
-unclosed, so the axis measures closure over observable loops and does not penalise
-investigation- or review-only sessions that were never meant to commit. Such a
-day is \emph{omitted as data}---the axis returns no value, not a $0$---so it
-enters neither the rollup averages nor the personal optimum, and the composite
-renormalises over the axes that remain rather than crediting the day with a
-perfect-closure $0$ (\S\ref{sec:composite}); an earlier version that scored these
-days as $0$ silently flattered closure and diluted their stress score. This is
-deliberately low-power: on our data $\approx 82\%$ of opened loops are dropped this
-way and the axis is silent on most days, the cost of refusing to speak without
-evidence. A day of genuine but \emph{uncommitted, unpushed} coding---work opened and
-abandoned with no \texttt{git} trace---therefore reads as no-signal rather than high
-deficit, and the local push signal is itself lossy because a merged feature branch
-pruned from the clone takes its remote-tracking reflog with it. A shared
-session$\leftrightarrow$commit identifier would replace the time-overlap heuristic,
-and platform PR/MR events would sharpen the signal further, but the latter requires
-a network call and is out of scope for a local-only tool.
+\paragraph{The Closure Deficit's idle gap is a proxy for a parked loop.}
+The axis scores \emph{resumption load}: idle gaps in a session's timeline where a
+parked loop was picked back up, weighted by gap length (\S\ref{sec:closure}). This
+makes it independent of concurrency---two days with identical $C(t)$ score
+differently if one reloaded its loops cold and the other did not---and
+git-independent, which removes the earlier git-correlation version's confounds (a
+shared monorepo's teammate or merge-bot commits being read as the operator's
+closures, the author-scoping and per-repository attribution needed to suppress
+that, and the silence of the axis on uncommitted work). It introduces its own
+limitations, which we state plainly. First, the gap is a \emph{proxy}: it is
+genuine wall-clock dormancy (no event of any kind), so a long \emph{autonomous}
+agent turn is correctly \emph{not} counted as a resume, but the converse failure
+remains---stepping away while a session is mid-turn, or leaving a session idle in
+the foreground, is indistinguishable from a deliberate suspension, and a single
+prompt that triggers a very long tool run slightly over-attributes the agent's
+working time to the parked span. Second, and most importantly, the
+duration$\to$cost relationship this axis leans on was measured in the laboratory
+over \emph{short} interruptions---seconds to about a minute~\cite{monk2008,altmann2002};
+the multi-hour and cross-day gaps that dominate real agentic work extrapolate well
+beyond that regime. The field study of interrupted programming~\cite{parnin2011} is
+the closest in-domain anchor that resumption is costly at the minutes-and-up scale,
+but the specific severity curve $\sigma(g)=\min(1,g/\Delta)$ and the saturation
+horizon $\Delta$ are a modeling choice, not a fitted function. Third, the three
+constants---the resume threshold $\tau$, the horizon $\Delta$, and the daily
+ceiling $K$---are citation-anchored priors, not values calibrated against felt
+load; the ceiling in particular borrows Cowan's working-memory bound by analogy
+rather than measurement. A retrieval-cue effect we do \emph{not} model cuts the
+other way and is worth noting: an agent transcript is itself a strong cue for
+reconstructing a suspended goal~\cite{altmann2002}, so a resumed \emph{agent}
+session may be cheaper to reload than the cue-free laboratory task the curve is
+drawn from---meaning the axis, if anything, may over-state the cost of a resume.
+The axis is now defined on every active day and returns no value only when there
+is no activity at all (\S\ref{sec:composite}).
 
 \paragraph{Engagement is interaction-anchored by design.} Foreground is proxied
 by proximity to the operator's own messages within a grace window $g$. Silent
@@ -866,16 +812,17 @@ is added to the tool---is now supported end-to-end by the released tooling (the
 anonymized export and the pooled-calibration step, \S\ref{sec:impl}) and is the
 primary outstanding work; running it would address the majority of the threats
 in \S\ref{sec:threats}, in particular the single-subject and borrowed-threshold
-limitations, converting this from a principled instrument into a validated one. Folding real closure events
-(pushes/commits/merges) into the Closure Deficit, previously listed here as future
-work, is now done and active by default via repositories auto-discovered from
-session working directories, with closures scoped to the operator's own author
-identities and pushes (self-scoped by the local reflog), correlated to sessions by
-repository, author, and time overlap, and history-rewrite operations routed to the
-Interruption Index as rework (\S\ref{sec:closure}); the remaining closure-side work
-is a reliable session$\leftrightarrow$commit identifier to replace the time-overlap
-heuristic, and recovering closure on genuinely uncommitted loops that the
-git-visibility scope currently excludes.
+limitations, converting this from a principled instrument into a validated one. The
+Closure Deficit was reworked from a git-commit-correlation measure into a
+git-independent \emph{resumption-load} metric (\S\ref{sec:closure}): it scores idle
+gaps where a parked session is picked back up, weighted by gap length, so it needs
+no commit history, is defined on every active day, and is grounded in the
+task-resumption literature~\cite{monk2008,altmann2002,parnin2011}. This removed the
+tool's last dependence on \texttt{git} entirely (the Interruption Index's former
+reflog ``rework'' term went with it). The remaining closure-side work is
+calibrating the resume threshold, decay horizon, and daily ceiling against felt
+load rather than borrowing them, and better separating a deliberately parked loop
+from an idle foreground session.
 
 \section{Ethics and Privacy}
 The tool reads proprietary source and potentially secrets; we therefore treat

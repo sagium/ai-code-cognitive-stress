@@ -8,8 +8,7 @@ therefore wins.
 
 The Popen guard is deliberately narrow: it no-ops only known browser-opener
 commands (xdg-open/open/x-www-browser/gnome-open) and delegates everything else
-to the real subprocess.Popen — so subprocess.run (and the git-closure source
-tests that drive a real `git`) keep working.
+to the real subprocess.Popen — so subprocess.run keeps working.
 """
 
 from __future__ import annotations

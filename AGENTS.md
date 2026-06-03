@@ -21,7 +21,7 @@ release. "Build it" or "package it" is **not** permission to publish.
 
 ## Local-only (core invariant)
 
-The tool reads local agent-coding session logs + local git and writes an HTML
+The tool reads local agent-coding session logs and writes an HTML
 report to disk. It must **never send data off the machine** — no telemetry, no
 network calls at render time, no remote data collection. Do not reintroduce any
 data-sharing/upload path without a separate, explicit, maintainer-approved
@@ -56,10 +56,9 @@ ai-code-cognitive-stress/
 │   ├── research_export.py      # anonymized full-year export (local file; manual upload)
 │   ├── calibrate.py            # maintainer: pool exports → suggest scoring (local-only, unsupervised)
 │   ├── citations.py            # research-registry loader
-│   ├── citations.yml           # 24-entry literature registry (single source of truth)
+│   ├── citations.yml           # literature registry (single source of truth)
 │   └── sources/                # pluggable input adapters
 │       ├── base.py             # the SessionSource protocol every adapter implements
-│       ├── git_closure.py      # local git commits/merges (closure signal)
 │       └── …                   # one small adapter per supported LLM coding tool
 ├── tests/                      # hermetic pytest suite (synthetic fixtures only)
 ├── scripts/generate_demo_report.py   # deterministic demo data for the screenshots

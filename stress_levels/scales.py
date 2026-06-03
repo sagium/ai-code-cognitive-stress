@@ -47,10 +47,10 @@ INTERRUPTION_ZONES = [
     (999.0, "high", "Heavily fragmented"),
 ]
 CLOSURE_ZONES = [
-    (0.20, "good", "Most opened loops closed"),
-    (0.45, "moderate", "Some loops left open"),
-    (0.70, "caution", "Many loops left unclosed"),
-    (1.01, "high", "Most loops left unclosed"),
+    (0.20, "good", "Loops closed in one sitting"),
+    (0.45, "moderate", "Some parked and resumed"),
+    (0.70, "caution", "Frequent cold resumes"),
+    (1.01, "high", "Heavy resume thrashing"),
 ]
 
 # Range-bar maxima per axis. CODL's ceiling is the metric's normalisation
@@ -71,6 +71,15 @@ def zone_for(value: float, zones: list[tuple[float, str, str]]) -> tuple[str, st
 
 def zone_color(status_class: str) -> str:
     return ZONE_COLORS.get(status_class, "#999999")
+
+
+def codl_count_color(count: float) -> str:
+    """Bar colour for a concurrent-session count, by its CODL zone — so the
+    per-hour concurrency bars (report + both widgets) shade green→amber→red with
+    rising parallelism instead of a flat colour. Shared so the surfaces can't
+    drift from the CODL thresholds (Cowan 2001, ~4)."""
+    status_class, _ = zone_for(count, CODL_ZONES)
+    return zone_color(status_class)
 
 
 def composite_color(status_class: str) -> str:

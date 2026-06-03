@@ -1,6 +1,6 @@
 ---
 name: ai-code-cognitive-stress
-description: Generate a cognitive stress profile from the user's agent-coding-tool activity — Claude Code, OpenAI Codex CLI, Aider, or any combination — measures parallel-session load, interruption rate, and closure deficit, and produces an HTML report with daily, monthly, and yearly views against a personal optimum. Triggers when the user asks about their context switching load, cognitive stress, parallel-agent usage, burnout proximity, or wants to see how loaded their week/month has been. Reads local data only (session logs of supported tools + local git); writes nothing remote.
+description: Generate a cognitive stress profile from the user's agent-coding-tool activity — Claude Code, OpenAI Codex CLI, Aider, or any combination — measures parallel-session load, interruption rate, and closure deficit, and produces an HTML report with daily, monthly, and yearly views against a personal optimum. Triggers when the user asks about their context switching load, cognitive stress, parallel-agent usage, burnout proximity, or wants to see how loaded their week/month has been. Reads local data only (session logs of supported tools); writes nothing remote.
 ---
 
 # Stress Levels
@@ -181,9 +181,9 @@ Key references:
 - Cowan (2001) — working-memory capacity → CODL ≥ 4 threshold
 - Cummings & Mitchell (2008) — supervisory-control fan-out → PSC canary
 - Mark, Gudith & Klocke (2008); Leroy (2009) — interruption cost framework
-- Demerouti et al. (2001) JD-R; Masicampo & Baumeister (2011) open goals;
-  Sonnentag & Fritz (2007) closure-as-recovery → Closure Deficit (unclosed
-  share of opened loops, using real git commits/merges)
+- Monk, Trafton & Boehm-Davis (2008); Altmann & Trafton (2002); Parnin &
+  Rugaber (2011); Sonnentag & Fritz (2007) → Closure Deficit (resumption load:
+  parked sessions reloaded cold, scored by gap length — no git needed)
 - McEwen (1998) — allostatic load → sustained-overload recommendation
 - Yerkes & Dodson (1908); Csíkszentmihályi (1990) — optimum-load target line
 

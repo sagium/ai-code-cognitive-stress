@@ -275,14 +275,19 @@ PlasmoidItem {
                         ctx.fillText("" + i, mLeft - 3, y);
                     }
 
+                    var hourColors = root.dv.hour_colors || [];
                     for (var h = 0; h < 24; h++) {
                         var c = hours[h];
                         if (c <= 0) continue;
                         var barPx = (c / peak) * plotH;
                         var x = mLeft + h * barW + barW * 0.08;
                         var yb = mTop + plotH - barPx;
-                        ctx.fillStyle = root.barColor;
+                        // Per-bar colour by CODL zone of the count (shared model),
+                        // falling back to the flat bar colour if absent.
+                        ctx.globalAlpha = 0.85;
+                        ctx.fillStyle = hourColors[h] || root.barColor;
                         ctx.fillRect(x, yb, barW * 0.84, barPx);
+                        ctx.globalAlpha = 1.0;
                         ctx.fillStyle = title;
                         ctx.font = "bold 9px sans-serif";
                         ctx.textAlign = "center"; ctx.textBaseline = "bottom";
@@ -396,7 +401,7 @@ PlasmoidItem {
                                 }
                                 ctx.setLineDash([]);
 
-                                // No-data axis (e.g. Closure with no git activity that day):
+                                // No-data axis (only a day with no activity at all now):
                                 // draw the scale for context but no "you" marker — a 0-position
                                 // marker would read as a perfect score, not "not measured".
                                 if (m.has_data === false) {

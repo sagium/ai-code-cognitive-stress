@@ -126,7 +126,50 @@
   doi: "10.1037/a0024192"
   supports:
     - "Background-session weight is > 0: open/unfulfilled goals consume attention and working memory until closed or planned"
-    - "Reinforces the Closure Deficit axis — closing or planning a loop frees the resource"
+
+# Task resumption & goal-activation decay — the resumption-based Closure Deficit.
+# These ground the axis on the cost of picking a parked loop back up, scaled by
+# how long it sat, rather than on the (weakly-replicating) memory-persistence of
+# open goals.
+- key: monk-trafton-boehmdavis-2008
+  authors: "Monk, C. A., Trafton, J. G. & Boehm-Davis, D. A."
+  year: 2008
+  title: "The effect of interruption duration and demand on resuming suspended goals"
+  venue: "Journal of Experimental Psychology: Applied, 14(4), 299–313"
+  doi: "10.1037/a0014402"
+  supports:
+    - "Resumption time rises with interruption DURATION — the warrant for grading each resume by its gap length"
+    - "Decay governs the resumption-cost profile (rehearsal mitigates) — supports a duration→cost severity curve"
+
+- key: altmann-trafton-2002
+  authors: "Altmann, E. M. & Trafton, J. G."
+  year: 2002
+  title: "Memory for goals: an activation-based model"
+  venue: "Cognitive Science, 26(1), 39–83"
+  doi: "10.1207/s15516709cog2601_2"
+  supports:
+    - "A suspended goal's activation decays over the gap and must be re-strengthened to be retrieved — the mechanism behind resumption cost"
+    - "Retrieval cues lower reconstruction cost — an agent transcript is such a cue"
+
+- key: parnin-rugaber-2011
+  authors: "Parnin, C. & Rugaber, S."
+  year: 2011
+  title: "Resumption strategies for interrupted programming tasks"
+  venue: "Software Quality Journal, 19(1), 5–34"
+  doi: "10.1007/s11219-010-9104-9"
+  supports:
+    - "In-domain field evidence: resuming an interrupted programming task incurs a context-reconstruction tax (only 10% resume coding within 1 min; only 7% resume without navigating to rebuild context)"
+    - "The closest field bridge for gaps beyond the sub-minute lab regime"
+
+- key: ghibellini-meier-2025
+  authors: "Ghibellini, R. & Meier, B."
+  year: 2025
+  title: "Interruption, recall and resumption: a meta-analysis of the Zeigarnik and Ovsiankina effects"
+  venue: "Humanities and Social Sciences Communications, 12(1), 1–13"
+  doi: "10.1057/s41599-025-05000-w"
+  supports:
+    - "The tendency to resume interrupted tasks (Ovsiankina effect) replicates — grounds resumption as a real, measurable behaviour"
+    - "The memory advantage for unfinished tasks (Zeigarnik effect) does NOT reliably replicate — so the axis is grounded on resumption cost, not open-goal memory persistence"
 
 - key: maslach-jackson-1981
   authors: "Maslach, C. & Jackson, S. E."

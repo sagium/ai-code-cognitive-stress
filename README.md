@@ -40,7 +40,7 @@ argument and every citation are in the [paper](paper/ai-code-cognitive-stress-pa
 ### How it tackles the problem
 
 <p align="center">
-  <img src="docs/screenshots/pipeline.svg" alt="Pipeline: LLM coding-tool session logs + local git → ingest typed events → aggregate per-day (cached) → metrics (CODL · interruption · closure) → composite 0–100 vs your personal optimum → HTML report and live widgets (tkinter + KDE Plasma)" width="100%">
+  <img src="docs/screenshots/pipeline.svg" alt="Pipeline: LLM coding-tool session logs → ingest typed events → aggregate per-day (cached) → metrics (CODL · interruption · closure) → composite 0–100 vs your personal optimum → HTML report and live widgets (tkinter + KDE Plasma)" width="100%">
 </p>
 
 The whole pipeline runs locally — no network, no telemetry, nothing leaves the
@@ -248,7 +248,7 @@ default.
 |---|---|---|---|
 | **CODL** (Concurrent Operational Demand Load) | How many agent sessions you supervise at once | 1-min samples over the work window; `codl_avg` time-weighted, `codl_peak` the max. Status threshold at the working-memory cap (~4) | Working memory ≈ 4 chunks (**Cowan 2001**); non-linear degradation past fan-out limits (**Cummings & Mitchell 2008**; **Sheridan 1992**) |
 | **Interruption Index** | Weighted attention-pulls per work hour | `(tool_error × 1.5 + cross-session-start × 3.0) / work_hours`. Tool calls *within* a session don't count — that's a Waiting state, not an interruption | Interrupted work is faster but more stressful (**Mark, Gudith & Klocke 2008**); external switches cost ~25% more (**Mark, Gonzalez & Harris 2005**); attention residue (**Leroy 2009**); cross-tool switches cost more (**Wickens 2008**) |
-| **Closure Deficit** | Share of the git-visible loops *you* opened but never closed (0 = everything landed, 1 = nothing did) | `1 − closed / correlatable`: a loop (stream started in the work window) is *closed* by **your own** git push/commit/merge in **its own repo** whose timestamp falls within the session's active span + 30 min; each closure event closes one loop. A **push** is the strongest signal (work left the machine, self-scoped by the local reflog); commits/merges count only when **you** authored them (your `user.email`/`user.name` from local git config, across multiple accounts) — so a shared repo's teammate and merge-bot commits don't spuriously close your loops. Loops in a repo *you* didn't touch that day are **excluded**, and an **unclosed session under 5 minutes** is dropped as a trivial check (it can't raise the deficit; a short session that *did* commit still counts as closed). A day with no git activity of your own is **omitted as data** (shown as —, *not* scored 0 — that would read as perfect closure), and the composite **renormalises over the remaining axes**, so a debugging/chat day is scored on its real load, not discounted. Repos and identities auto-discovered (or set `closure.repos` / `closure.identities` in `config.json`). Per-session correlation, not concurrency — independent of the CODL shape. The axis has meaning only on git repos — with none configured it is omitted entirely | Open loops keep consuming working memory until closed (**Masicampo & Baumeister 2011**); closure removes attention residue (**Leroy 2009**) and is a recovery resource (**Sonnentag & Fritz 2007**); burnout = demands exceeding recoverable resources (**Demerouti et al. 2001**) |
+| **Closure Deficit** | Loops you couldn't finish in one sitting and had to pick back up — scored by how long they sat parked (0 = everything closed in one sitting, 1 = many cold reloads) | `min(1, Σ severity / 4)`: a **resume** is a true-idle gap in a session (no user *or* agent event) of ≥ 30 min whose pickup lands in the work window, or a same-session pickup on a later day. Each resume's **severity** is `min(1, gap ÷ 120 min)` — cost rises with how long the loop was parked, then saturates once context is fully cold. Sum the severities, divide by a daily ceiling (~4 cold reloads, a loose Cowan anchor), clip to `[0, 1]`. A long *autonomous agent* turn is **not** counted (it isn't idle). No git required — scored on **every** active day; `None` only on a day with no activity. Thresholds in `config.json` (`resumption` block). Per-session, independent of the CODL shape | Resumption cost rises with gap **duration** (**Monk, Trafton & Boehm-Davis 2008**); goal-activation decays over the gap (**Altmann & Trafton 2002**); in-domain reconstruction tax for interrupted coding (**Parnin & Rugaber 2011**); closure is a recovery resource (**Sonnentag & Fritz 2007**) |
 
 **Composite (0–100)** is the equal-weighted blend of the three normalised axes —
 the explicit v1 null hypothesis (no evidence yet favours one axis), stated as such
@@ -274,15 +274,15 @@ not peaks, is what damages you over time.
   is a self-run triage signal, not a diagnosis.
 - The supervisory-control analogy is borrowed from UAV operators
   (**Crandall & Cummings 2007**) and is plausible but **unvalidated** for LLM
-  oversight. The Closure Deficit now folds in real git pushes/commits/merges,
-  scoped to *your own* author identities (so a shared monorepo's teammate and
-  merge-bot commits don't close your loops) and correlating each to a session by
-  repo, author, and time overlap — a heuristic, not a shared identifier; loops
-  in repos you didn't touch are excluded by design. Days with no git activity of
-  your own are omitted as data (not scored 0), and the composite renormalises
-  over the remaining axes — deliberately low-power, silent on most days rather
-  than guessing. The axis has meaning only on git repos; with none configured it
-  is omitted entirely (the old concurrency-presence proxy was removed).
+  oversight. The Closure Deficit measures **resumption load** — idle gaps where a
+  parked session was picked back up — using gap duration as a proxy for how cold
+  the loop went. A long autonomous agent turn is excluded (it isn't idle), but
+  stepping away mid-turn is not, so the gap is a proxy, not a certainty. The
+  supporting lab evidence (**Monk et al. 2008**; **Altmann & Trafton 2002**)
+  measured *short* (sub-minute) interruptions; multi-hour and cross-day gaps
+  extrapolate beyond that regime, with **Parnin & Rugaber 2011** the closest
+  in-domain field bridge. No git is required and the axis is scored on every
+  active day.
 
 Every threshold, weight, and recommendation traces to an entry in
 [`stress_levels/citations.yml`](stress_levels/citations.yml) — the report renders

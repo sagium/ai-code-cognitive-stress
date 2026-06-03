@@ -19,10 +19,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from stress_levels.aggregate import DayAggregate, StreamDayActivity  # noqa: E402
-from stress_levels.sources.base import ClosureEvent  # noqa: E402
 from stress_levels.markdown_min import to_html as md_to_html  # noqa: E402
 from stress_levels.metrics import (  # noqa: E402
     DayMetrics,
+    RESUME_FULL_DECAY_MINUTES,
+    RESUMPTION_DAILY_CEILING,
     StressProfile,
     WorkWindow,
     _composite_score,
@@ -145,10 +146,9 @@ def _build_aggregate(d: date, m: DayMetrics, rng: random.Random) -> DayAggregate
             tool_result_count=max(1, n_msgs // 2),
             user_msg_timestamps=msg_ts,
         )
-        # Weekend off-hours: a source is "wired" but no commits land (the demo
-        # treats weekend tinkering as unclosed) — empty tuple, not None.
-        return DayAggregate(day=d, streams=(stream,), peak_concurrent_streams=1,
-                            closure_events=())
+        # Weekend off-hours work happens outside the window, so it contributes
+        # to the off-hours toll, not the resumption axis.
+        return DayAggregate(day=d, streams=(stream,), peak_concurrent_streams=1)
 
     # Active workday: 1–3 streams spread across the work window.
     n_streams = min(m.codl_peak, 3) or 1
@@ -178,30 +178,40 @@ def _build_aggregate(d: date, m: DayMetrics, rng: random.Random) -> DayAggregate
             user_msg_timestamps=msg_ts,
             branches=("main",),
         ))
-    # Synthesise commits consistent with the day's closure_deficit so the
-    # aggregate matches the new opened-vs-closed definition: of the loops
-    # opened today, close round((1 - deficit) * loops) of them.
-    loops_opened = len(streams)
-    closures: list[ClosureEvent] = []
-    if loops_opened:
-        n_closed = int(round((1.0 - m.closure_deficit) * loops_opened))
-        n_closed = max(0, min(n_closed, loops_opened))
-        for j in range(n_closed):
-            # Land each commit late in its stream's life, inside the window.
-            s = streams[j]
-            commit_ts = min(
-                s.last_ts,
-                datetime(d.year, d.month, d.day, 18, 0, tzinfo=timezone.utc),
-            )
-            closures.append(ClosureEvent(
-                ts=commit_ts, kind="commit",
-                repo="demo-project", branch="main",
-                title=f"close loop {j}",
-            ))
+    # Synthesise in-window idle gaps (resumes) consistent with the day's target
+    # closure_deficit, so the day-view recomputation matches the headline. The
+    # axis is min(1, Σ severity / ceiling), so the severity budget to hit the
+    # target is deficit × ceiling; emit fully-cold (full-decay) resumes plus a
+    # fractional remainder, attached to the first stream.
+    if streams:
+        full = RESUME_FULL_DECAY_MINUTES * 60
+        budget = m.closure_deficit * RESUMPTION_DAILY_CEILING
+        gaps: list[tuple[datetime, int]] = []
+        hour = 10
+        while budget > 0.01 and hour < 18:
+            sev = min(1.0, budget)
+            gap_sec = max(120, int(round(sev * full)))
+            gaps.append((datetime(d.year, d.month, d.day, hour, 0,
+                                  tzinfo=timezone.utc), gap_sec))
+            budget -= sev
+            hour += 1
+        streams[0] = _with_resume_gaps(streams[0], tuple(gaps))
     return DayAggregate(
         day=d, streams=tuple(streams),
         peak_concurrent_streams=m.codl_peak,
-        closure_events=tuple(closures),
+    )
+
+
+def _with_resume_gaps(s: StreamDayActivity,
+                      gaps: tuple[tuple[datetime, int], ...]) -> StreamDayActivity:
+    """Return a copy of a (frozen, slotted) StreamDayActivity with resume_gaps set."""
+    return StreamDayActivity(
+        stream_id=s.stream_id, project=s.project, cwd=s.cwd,
+        first_ts=s.first_ts, last_ts=s.last_ts,
+        user_msg_count=s.user_msg_count, assistant_msg_count=s.assistant_msg_count,
+        tool_use_count=s.tool_use_count, tool_result_count=s.tool_result_count,
+        tool_error_count=s.tool_error_count, branches=s.branches,
+        user_msg_timestamps=s.user_msg_timestamps, resume_gaps=gaps,
     )
 
 
@@ -258,12 +268,12 @@ def main() -> int:
     # Sample Top focus content — what an analyst panel might write after
     # looking at the synthetic data above. Two punchy actions, ranked.
     focus_md = (
-        "- **Close one session before opening the next on heavy workdays.** "
+        "- **Finish a loop before you walk away from it on heavy workdays.** "
         "Your closure deficit clears 0.55 on the four spike days of the year — "
-        "you spent more than half those work hours juggling overlapping Claude "
-        "sessions. CODL peaks stayed within working-memory capacity "
-        "(Cowan 2001), so the load is from leaving sessions open, not from "
-        "running too many in parallel.\n\n"
+        "those days are full of sessions parked for hours and reloaded cold, "
+        "and the longer a loop sits the more it costs to resume (Monk et al. "
+        "2008). CODL peaks stayed within working-memory capacity (Cowan 2001), "
+        "so the load is from re-entering stale context, not parallelism.\n\n"
         "- **Cut weekend Claude work.** "
         "Several Saturdays this year logged 2+ hours of off-hours activity. "
         "Detachment failure on weekends compounds the work-week load rather "

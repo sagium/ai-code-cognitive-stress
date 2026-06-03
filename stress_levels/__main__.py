@@ -170,64 +170,6 @@ def _clear_cache(cache_dir: Path) -> bool:
         return False
 
 
-def _build_closure_sources(sources, since: date, until: date) -> tuple[list, dict]:
-    """Build the git closure/rework source(s) + the cwd→repo-root map.
-
-    Repos scanned = explicit `config.closure.repos` ∪ (when `autodiscover` is
-    on, the default) the git roots of the working directories the sessions
-    recorded in [since, until]. All local and read-only — discovery is bounded
-    to cwds the sessions already touched and never walks the disk.
-
-    Returns ``([], {})`` when the union is empty (autodiscover off and no
-    explicit repos, or no session ran inside a git repo) → the Closure Deficit
-    is omitted entirely (every day yields None). The cwd→root map (str→str) lets
-    the metrics layer attribute each stream's opened loops to its repo."""
-    from datetime import datetime as _dt, time as _time, timezone as _tz
-    from pathlib import Path as _Path
-
-    from .config import load_config
-    from .discovery import (
-        collect_session_cwds, discover_identities, discover_repo_roots,
-        repo_map_as_str,
-    )
-    from .sources.git_closure import GitRepoClosureSource
-
-    cfg = load_config().closure
-    # Keyed by resolved abs-path string so explicit and discovered roots dedupe
-    # (the git source stamps each event's repo with str(repo.resolve())).
-    roots: dict[str, None] = {}
-    for r in cfg.repos:
-        p = _Path(r).expanduser()
-        try:
-            roots[str(p.resolve())] = None
-        except OSError:
-            roots[str(p)] = None
-
-    repo_map: dict[str, str] = {}
-    if cfg.autodiscover:
-        since_dt = _dt.combine(since, _time.min, tzinfo=_tz.utc)
-        until_dt = _dt.combine(until, _time.max, tzinfo=_tz.utc)
-        cwds = collect_session_cwds(sources, since_dt, until_dt)
-        discovered_roots, cwd_map = discover_repo_roots(cwds)
-        for root in discovered_roots:
-            roots[str(root)] = None
-        repo_map = repo_map_as_str(cwd_map)
-
-    if not roots:
-        return [], {}
-
-    # Operator identity set for scoping commit/merge closures: explicit config
-    # identities unioned with those auto-discovered from local git config
-    # (global + each scanned repo). Empty → no scoping (legacy all-author),
-    # which is only sane for solo repos. Pushes ignore this (self-scoped).
-    identities = set(cfg.identities) | discover_identities(roots.keys())
-
-    return [GitRepoClosureSource(
-        repos=[_Path(r) for r in roots],
-        identities=identities,
-    )], repo_map
-
-
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     try:
@@ -305,13 +247,6 @@ def main(argv: list[str] | None = None) -> int:
         dedup.append(s)
     sources = dedup
 
-    # Resolve git closure/rework sources. By default `closure.autodiscover`
-    # finds the repos the sessions ran in (from their recorded cwds) and unions
-    # them with any explicit `closure.repos`; set autodiscover false with no
-    # explicit repos to omit the Closure Deficit entirely. Local git only.
-    # `repo_map` (cwd→repo-root) drives per-repo closure attribution in metrics.
-    closure_sources, repo_map = _build_closure_sources(sources, since, until)
-
     # Widget mode: live always-on-top window for today. Ignores the date span
     # and the report pipeline entirely. tkinter is imported lazily inside
     # run_widget so non-widget runs never load it.
@@ -321,8 +256,6 @@ def main(argv: list[str] | None = None) -> int:
             baseline_days=args.baseline_days,
             sources=sources,
             refresh_seconds=args.refresh,
-            closure_sources=closure_sources,
-            repo_map=repo_map,
         )
 
     # Emit-JSON mode: print today's full daily view to stdout for an external
@@ -333,7 +266,6 @@ def main(argv: list[str] | None = None) -> int:
         from .widget import compute_today_dayview
         view = compute_today_dayview(
             baseline_days=args.baseline_days, sources=sources,
-            closure_sources=closure_sources, repo_map=repo_map,
         )
         print(json.dumps(dayview_to_dict(view), default=str))
         return 0
@@ -395,23 +327,16 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 1
 
-        # Rebuild discovery for the full-year export window so closures and
-        # per-repo attribution cover repos touched all year, not just the
-        # report window's.
-        rs_closure_sources, rs_repo_map = _build_closure_sources(
-            sources, rs_since, rs_until,
-        )
         rs_aggs, rs_stats = get_day_aggregates(
             rs_since, rs_until, sources=sources,
-            closure_sources=rs_closure_sources,
         )
         rs_profile = build_profile(
-            rs_aggs, baseline_days=args.baseline_days, repo_map=rs_repo_map,
+            rs_aggs, baseline_days=args.baseline_days,
         )
         payload = build_research_export(
             rs_profile, since=rs_since, until=rs_until,
             package_version=__version__, ingest_stats=rs_stats,
-            aggregates=rs_aggs, repo_map=rs_repo_map,
+            aggregates=rs_aggs,
         )
         rs_path = Path(
             args.export_research
@@ -431,7 +356,7 @@ def main(argv: list[str] | None = None) -> int:
         file=sys.stderr,
     )
     aggregates, stats = get_day_aggregates(
-        since, until, sources=sources, closure_sources=closure_sources,
+        since, until, sources=sources,
     )
     print(
         f"ingested {stats.ingest.events_emitted:,} events from "
@@ -440,7 +365,7 @@ def main(argv: list[str] | None = None) -> int:
         file=sys.stderr,
     )
     profile = build_profile(
-        aggregates, baseline_days=args.baseline_days, repo_map=repo_map,
+        aggregates, baseline_days=args.baseline_days,
     )
     html = report(
         profile, aggregates, label=label,

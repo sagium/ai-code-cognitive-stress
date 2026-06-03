@@ -67,34 +67,6 @@ class ClaudeCodeSessionSource:
             if kept_any:
                 stats.files_kept += 1
 
-    def discover_cwds(self, since: datetime, until: datetime) -> set[str]:
-        """Distinct working directories recorded across sessions touched in the
-        window. Feeds repo auto-discovery (discovery.py). Lightweight: reads
-        only each record's `cwd` field, never the message content. All cwds a
-        session visited are collected, so a stream's recorded cwd is always a
-        key in the resulting repo map regardless of mid-session `cd`."""
-        cwds: set[str] = set()
-        if not self.projects_dir.is_dir():
-            return cwds
-        for path in self._discover_session_files(since):
-            try:
-                fh = path.open("r", encoding="utf-8")
-            except OSError:
-                continue
-            with fh:
-                for raw_line in fh:
-                    line = raw_line.strip()
-                    if not line:
-                        continue
-                    try:
-                        record = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    cwd = record.get("cwd")
-                    if cwd:
-                        cwds.add(cwd)
-        return cwds
-
     # ------------------------------------------------------------------
     # Discovery + parsing — kept as instance methods so a subclass could
     # point at a non-standard projects_dir or filter projects differently.

@@ -46,30 +46,19 @@ class CodlConfig:
 
 
 @dataclass(frozen=True, slots=True)
-class ClosureConfig:
-    """Real closure + rework event ingestion (git log + reflog).
+class ResumptionConfig:
+    """Scoring parameters for the Closure Deficit (resumption load).
 
-    ``autodiscover`` (default True) finds repos from the working directories
-    the agent sessions recorded — walking each cwd up to its nearest ``.git``
-    root. This is bounded to cwds the sessions already touched; it never walks
-    the disk hunting for repos, and stays fully local/read-only.
-
-    ``repos`` is an explicit list of local git repo paths, always scanned and
-    unioned with any auto-discovered roots. When the union is empty (e.g.
-    ``autodiscover`` off and no explicit repos), the Closure Deficit is omitted
-    entirely (every day yields None) — the axis has meaning only on git repos.
-
-    ``identities`` is the operator's own commit-author identities (emails and/or
-    names) used to scope closures: only commits/merges by these authors count as
-    the operator closing a loop, so a shared monorepo's teammate and merge-bot
-    commits don't spuriously close it. When empty (the default) the identities
-    are auto-discovered from local git config (global + each scanned repo's
-    ``user.email``/``user.name``), which already handles an operator who commits
-    under multiple accounts. Set explicitly only to add identities no local git
-    config records. Pushes are self-scoped by their reflog and ignore this."""
-    repos: tuple[str, ...] = ()
-    autodiscover: bool = True
-    identities: tuple[str, ...] = ()
+    A resume is a true-idle gap in a session of at least ``threshold_minutes``
+    (or a cross-day pickup); its severity is ``min(1, gap / full_decay_minutes)``;
+    the day's axis is ``min(1, Σ severity / daily_ceiling)``. All three are
+    citation-anchored modeling priors (Monk et al. 2008 duration→cost; loose
+    Cowan 2001 anchor for the ceiling), calibratable but NOT fitted to felt load.
+    Lowering ``threshold_minutes`` below the aggregate store floor (2 min) has no
+    effect without a cache rebuild."""
+    threshold_minutes: int = 30
+    full_decay_minutes: int = 120
+    daily_ceiling: float = 4.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,7 +80,7 @@ class ScoringConfig:
 class Config:
     work_window: WorkWindow | None = None
     codl: CodlConfig = CodlConfig()
-    closure: ClosureConfig = ClosureConfig()
+    resumption: ResumptionConfig = ResumptionConfig()
     scoring: ScoringConfig = ScoringConfig()
 
 
@@ -126,7 +115,7 @@ def load_config(path: Path | None = None) -> Config:
     config = Config(
         work_window=work_window,
         codl=_parse_codl(data.get("codl") or {}),
-        closure=_parse_closure(data.get("closure") or {}),
+        resumption=_parse_resumption(data.get("resumption") or {}),
         scoring=_parse_scoring(data.get("scoring") or {}),
     )
     _CONFIG_CACHE[key] = config
@@ -158,35 +147,25 @@ def _parse_scoring(raw: dict) -> ScoringConfig:
     )
 
 
-def _parse_closure(raw: dict) -> ClosureConfig:
-    """Parse the closure block. ``repos`` must be a list of strings (paths);
-    ``autodiscover`` must be a bool (default True). Missing/empty repos with
-    autodiscover off → no closure source (the Closure Deficit is omitted)."""
-    repos = raw.get("repos", [])
-    if repos in (None, ""):
-        repos = []
-    if not isinstance(repos, list) or not all(isinstance(r, str) for r in repos):
-        raise ValueError(
-            f"closure.repos must be a list of path strings, got {repos!r}"
-        )
-    autodiscover = raw.get("autodiscover", True)
-    if not isinstance(autodiscover, bool):
-        raise ValueError(
-            f"closure.autodiscover must be a boolean, got {autodiscover!r}"
-        )
-    identities = raw.get("identities", [])
-    if identities in (None, ""):
-        identities = []
-    if not isinstance(identities, list) or not all(
-        isinstance(i, str) for i in identities
+def _parse_resumption(raw: dict) -> ResumptionConfig:
+    """Parse + validate the resumption-scoring block, falling back to defaults
+    for any missing key. ``threshold_minutes`` and ``full_decay_minutes`` must be
+    > 0; ``daily_ceiling`` must be > 0."""
+    d = ResumptionConfig()
+    threshold = raw.get("threshold_minutes", d.threshold_minutes)
+    full_decay = raw.get("full_decay_minutes", d.full_decay_minutes)
+    ceiling = raw.get("daily_ceiling", d.daily_ceiling)
+    for name, v in (
+        ("threshold_minutes", threshold),
+        ("full_decay_minutes", full_decay),
+        ("daily_ceiling", ceiling),
     ):
-        raise ValueError(
-            f"closure.identities must be a list of strings, got {identities!r}"
-        )
-    return ClosureConfig(
-        repos=tuple(repos),
-        autodiscover=autodiscover,
-        identities=tuple(identities),
+        if not isinstance(v, (int, float)) or v <= 0:
+            raise ValueError(f"resumption.{name} must be > 0, got {v!r}")
+    return ResumptionConfig(
+        threshold_minutes=int(threshold),
+        full_decay_minutes=int(full_decay),
+        daily_ceiling=float(ceiling),
     )
 
 

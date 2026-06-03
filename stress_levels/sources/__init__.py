@@ -7,7 +7,6 @@ implementing it live in their own module:
     sources/claude_code.py   Claude Code (~/.claude/projects/*.jsonl)
     sources/codex.py         OpenAI Codex CLI (~/.codex/sessions/*.jsonl)
     sources/aider.py         Aider (.aider.chat.history.md per project)
-    sources/git_closure.py   Git commit/merge closure events (any repo)
 
 New sources can be added without changing any other module: implement
 the `SessionSource` protocol and pass an instance to `ingest.collect()`
@@ -15,18 +14,14 @@ or `aggregate.get_day_aggregates()`.
 """
 
 from .aider import AiderSessionSource
-from .base import ClosureEvent, ClosureEventSource, SessionSource
+from .base import SessionSource
 from .claude_code import ClaudeCodeSessionSource
 from .codex import CodexSessionSource
-from .git_closure import GitRepoClosureSource
 
 __all__ = [
     "AiderSessionSource",
     "ClaudeCodeSessionSource",
-    "ClosureEvent",
-    "ClosureEventSource",
     "CodexSessionSource",
-    "GitRepoClosureSource",
     "SessionSource",
 ]
 

@@ -10,23 +10,19 @@ Three axes (per day, computed during work hours only):
     Interruption Idx  weighted attention-pulling events per work hour.
                       Weights from Mark, Gudith & Klocke (2008) and
                       Mark, Gonzalez & Harris (2005).
-    Closure Deficit   share of the day's git-correlatable opened loops left
-                      unclosed: clip(1 - closed / correlatable, 0, 1). A loop
-                      (stream started in the work window) is closed by the
-                      operator's OWN push/commit/merge in its repo within the
-                      loop's active span + grace; loops we can't correlate to the
-                      operator's git activity (no tracked repo, or a repo they
-                      didn't touch that day) are dropped. An unclosed loop keeps
-                      consuming the
-                      cognitive resource (Masicampo & Baumeister 2011;
-                      Leroy 2009); closure is itself a recovery resource
-                      (Sonnentag & Fritz 2007) and demands without recoverable
-                      resources are the JD-R burnout mechanism (Demerouti et
-                      al. 2001). Independent of the concurrency shape C(t) by
-                      construction. The axis has meaning ONLY on git repos: a day
-                      with no git-correlatable activity (and the no-closure-source
-                      case) yields None — omitted as data, not scored 0 — and the
-                      composite renormalises over the remaining axes.
+    Closure Deficit   resumption load: a loop you couldn't finish in one sitting
+                      and had to pick back up later. Each resume (a true-idle gap
+                      in a session ≥ RESUME_THRESHOLD_MINUTES, or a cross-day
+                      pickup) carries a severity that saturates with gap length —
+                      min(1, gap / RESUME_FULL_DECAY_MINUTES) — and the day's value
+                      is min(1, Σ severity / RESUMPTION_DAILY_CEILING) in [0, 1].
+                      Resuming a parked goal reloads decayed activation (Altmann &
+                      Trafton 2002) at a cost rising with the gap (Monk, Trafton &
+                      Boehm-Davis 2008; in-domain, Parnin & Rugaber 2011); closure
+                      is a recovery resource (Sonnentag & Fritz 2007). Independent
+                      of the concurrency shape C(t) by construction. Needs no git
+                      and is scored on every active day; None only when a day has
+                      no activity at all.
 
 Composite stress = equal-weighted blend of the three axes mapped to 0..100.
 Equal weights are the null hypothesis for v1; we don't have evidence to favor
@@ -96,26 +92,6 @@ INTERRUPTION_NORMALISATION_CEILING: float = 10.0
 W_TOOL_ERROR: float = 1.5
 W_CROSS_STREAM: float = 3.0
 
-# Git rework events (amend / rebase / reset / cherry-pick, from the reflog) are
-# history rewrites: a loop you thought was closed got reopened or churned. They
-# pull attention the way Leroy's (2009) attention residue from an un-clean
-# switch does, so they add to the interruption count rather than the closure
-# axis. Weighted between a single tool error and a cross-stream context switch:
-# more disruptive than one failed tool call, less than juggling two live
-# sessions. A modeling prior, not a fitted value.
-W_GIT_REWORK: float = 2.0
-
-# ClosureEvent.kind routing. CLOSURE kinds net the day's opened loops (reduce
-# the Closure Deficit); REWORK kinds feed the Interruption axis instead. Kept
-# in sync with sources/git_closure.py and the ClosureEvent docstring in
-# sources/base.py.
-CLOSURE_KINDS: frozenset[str] = frozenset(
-    {"push", "commit", "merge", "pr_merge", "mr_merge", "issue_close"}
-)
-REWORK_KINDS: frozenset[str] = frozenset(
-    {"amend", "squash", "rebase", "reset", "revert", "cherry_pick"}
-)
-
 # CODL engagement weighting. A session counts at full weight (1.0) only while
 # you're actively driving it — within FOREGROUND_GRACE of one of your messages.
 # Outside that, it is alive but "cooking" in the background and counts at
@@ -128,42 +104,56 @@ REWORK_KINDS: frozenset[str] = frozenset(
 FOREGROUND_GRACE_MINUTES_DEFAULT: int = 5
 BACKGROUND_WEIGHT_DEFAULT: float = 0.25
 
-# Closure Deficit — fraction of the day's git-correlatable *opened* loops left
-# *unclosed*. An opened loop is a stream that started inside the work window; it
-# is *closed* by one of the OPERATOR'S OWN closure events in the SAME repo whose
-# timestamp lands within the loop's active span plus a grace tail. Closure
-# events, strongest first: a `push` (work shipped off the machine; inherently
-# self-scoped via this clone's reflog), then a `commit`/`merge` authored by the
-# operator (a teammate's or merge-bot's commit in a shared repo is NOT the
-# operator closing their own loop and is filtered out at the source). A loop we
-# can't correlate to the operator's own git activity (no resolvable repo, or a
-# repo the operator didn't touch that day) is dropped — we don't penalise what
-# git can't speak to, and we don't credit closure to other people. Grounding:
-#   - Masicampo & Baumeister (2011): an unfulfilled/open goal keeps consuming
-#     working memory until it is closed or planned — so unclosed loops, not
-#     mere presence of parallelism, are the load.
-#   - Leroy (2009): closure removes attention residue; an unclosed switch
-#     leaves residue that taxes the next task.
-#   - Sonnentag & Fritz (2007): closure is a recovery resource.
-#   - Demerouti et al. (2001), JD-R: burnout = demands without recoverable
-#     resources; a day that opens many loops and closes few is exactly that.
-# Each commit closes at most one loop (it correlates to one logical session, not
-# an unbounded number). This axis uses per-session *correlation*, not the
-# concurrency time-series C(t), so it is independent of the CODL shape.
+# Closure Deficit — RESUMPTION LOAD. A loop you can't finish in one sitting and
+# have to pick back up later is an unclosed loop; the cost of resuming it grows
+# with how long it was parked, because a suspended goal's activation decays over
+# the gap and must be reconstructed on return. We score the day by summing a
+# per-resume severity that saturates with gap length, then normalising.
 #
-# A commit closes a session only when it lands within the session's active span
-# plus this grace tail — you typically commit shortly AFTER the agent finishes a
-# loop. Kept tight so a commit correlates to that specific session rather than
-# to "some session that ran that day".
-CLOSURE_CORRELATION_GRACE_MINUTES: int = 30
+# A *resume* is a true-idle gap in a session's timeline (no user OR agent event)
+# of at least RESUME_THRESHOLD_MINUTES, or a same-session pickup on a later
+# calendar day. Each resume's severity is min(1, gap / RESUME_FULL_DECAY_MINUTES):
+# a gap at the full-decay horizon (or beyond) counts as a fully-cold reload (1.0);
+# shorter parks count proportionally. The day's axis value is
+# min(1, Σ severity / RESUMPTION_DAILY_CEILING), in [0, 1] — 0 means every loop
+# was closed in one sitting (genuinely good), higher means more / colder reloads.
+# Independent of the concurrency shape C(t): it nets resume events, not C(t).
+# Grounding:
+#   - Monk, Trafton & Boehm-Davis (2008): resumption time rises with interruption
+#     DURATION — the warrant for grading each resume by its gap length.
+#   - Altmann & Trafton (2002), Memory for Goals: a suspended goal's activation
+#     decays over the gap and must be re-strengthened to be retrieved on return.
+#   - Parnin & Rugaber (2011): in-domain — resuming an interrupted programming
+#     task reliably incurs a context-reconstruction tax (only 10% resume coding
+#     within 1 min; only 7% resume without first navigating to rebuild context).
+#   - Sonnentag & Fritz (2007): closure / disengagement is a recovery resource;
+#     a loop you keep reopening is one you never got to close.
+#   - Ghibellini & Meier (2025) meta-analysis: the tendency to resume interrupted
+#     tasks (Ovsiankina) replicates; the older "open loops are better remembered"
+#     claim (Zeigarnik) does not — so we ground the axis on resumption cost, not
+#     on memory-persistence of open goals.
+# Unlike the former git-correlation measure this needs no git and is scored on
+# every active day. CAVEAT: the lab studies measured short interruptions (seconds
+# to ~1 min); multi-hour and cross-day gaps are an extrapolation beyond that
+# regime, with Parnin & Rugaber as the closest field bridge.
 
-# Minimum loop duration (last_ts - first_ts) for an UNCLOSED loop to count toward
-# the Closure Deficit. A session shorter than this with no related commit/push is
-# a trivial check — a quick open, not a real loop you abandoned — so it is dropped
-# from the denominator entirely (it neither penalises nor flatters closure). A
-# short session that DID get a commit still counts as closed; this filter only
-# removes the sub-threshold *unclosed* noise. Applies to the Closure axis only.
-CLOSURE_MIN_LOOP_MINUTES: int = 5
+# A gap of at least this many minutes (no event of any kind) is a resume — a
+# parked loop picked back up — rather than a short break. Below it, the loop was
+# never really suspended. Calibratable via config; a modeling prior, not fitted.
+RESUME_THRESHOLD_MINUTES: int = 30
+
+# The gap length at which a resume counts as a fully-cold reload (severity 1.0).
+# Severity is min(1, gap / this), so a 6-hour park is no colder than a 2-hour one
+# once context is fully gone. Anchors the duration→cost curve of Monk et al.
+# (2008). A modeling prior, not fitted.
+RESUME_FULL_DECAY_MINUTES: int = 120
+
+# Sum of per-resume severities that maps the daily axis to 1.0. ~4 fully-cold
+# reloads in a day is taken as "heavy" — a loose Cowan (2001) anchor: cold-
+# reloading more than ~4 distinct loops in a day means thrashing across more open
+# contexts than working memory comfortably holds. A modeling prior (like the
+# off-hours ceiling), calibratable, NOT validated against felt load.
+RESUMPTION_DAILY_CEILING: float = 4.0
 
 # v1 composite weights — equal (null hypothesis). The methodology footer of
 # the rendered report names this choice and links to the relevant citations.
@@ -189,8 +179,8 @@ WORK_WINDOW_MIN_SAMPLES: int = 5
 # sustained off-hours work drains it.  Applies additively to the composite
 # so that a day with zero in-window work but real off-hours interaction still
 # scores > 0.  Anchored to USER/AGENT INTERACTION (within grace_seconds of
-# a user message), not stream liveness — automated git commits and background
-# sessions running while the human is away do NOT contribute.
+# a user message), not stream liveness — a background session running while the
+# human is away does NOT contribute.
 # 90 min of off-hours engaged minutes is taken as the ceiling (beyond that,
 # the signal saturates).  30 composite points is audible without dominating
 # the three primary axes on moderate days.
@@ -222,9 +212,9 @@ class DayMetrics:
     codl_peak: int = 0               # peak headcount of sessions alive at once
     codl_peak_active: float = 0.0    # peak engagement-weighted load (drives fan-out rec)
     interruption_rate: float = 0.0   # per work hour
-    closure_deficit: float | None = None  # 0..1 unclosed share of opened loops,
-                                     # or None when the day has no git-correlatable
-                                     # activity (omitted as data, NOT scored as 0)
+    closure_deficit: float | None = None  # 0..1 resumption load (severity-summed
+                                     # resumes / ceiling); 0 = closed in one sitting.
+                                     # None only when the day has no activity at all.
     off_hours_minutes: int = 0       # engaged minutes outside the work window
                                      # (interaction-anchored, not stream liveness)
     composite: float = 0.0           # 0..100
@@ -252,22 +242,23 @@ def build_profile(
     aggregates: dict[date, DayAggregate],
     baseline_days: int = 30,
     local_tz: tzinfo | None = None,
-    repo_map: dict[str, str] | None = None,
 ) -> StressProfile:
     """Reduce a window of DayAggregates into a StressProfile.
 
     `local_tz` is the timezone in which to interpret "work hours" and
     "weekday". Defaults to the system local timezone.
-
-    `repo_map` (cwd→repo-root) attributes each stream's opened loops to the
-    git repo it ran in, so the Closure Deficit nets closures per-repo. When
-    None/empty the deficit nets globally (the prior, repo-agnostic behaviour).
     """
     local_tz = local_tz or datetime.now().astimezone().tzinfo or timezone.utc
     work_windows = detect_work_windows(aggregates, local_tz=local_tz)
     cfg = load_config()
     codl_cfg = cfg.codl
     scoring = cfg.scoring
+    resumption = cfg.resumption
+
+    # Cross-day resumes: as we walk days in order, remember the last event time
+    # of each stream so a session picked back up on a later calendar day scores
+    # as a (cold) resume on the day work resumed.
+    prior_last_ts_by_stream: dict[str, datetime] = {}
 
     days: dict[date, DayMetrics] = {}
     for day, agg in sorted(aggregates.items()):
@@ -280,8 +271,17 @@ def build_profile(
             codl_ceiling=scoring.codl_ceiling,
             interruption_ceiling=scoring.interruption_ceiling,
             weights=scoring.weights,
-            repo_map=repo_map,
+            resume_threshold_minutes=resumption.threshold_minutes,
+            resume_full_decay_minutes=resumption.full_decay_minutes,
+            resumption_daily_ceiling=resumption.daily_ceiling,
+            prior_last_ts_by_stream=prior_last_ts_by_stream,
         )
+        # Update the cross-day memory AFTER scoring `day`, so this day's own
+        # last_ts can't close its own gap.
+        for s in agg.streams:
+            prev = prior_last_ts_by_stream.get(s.stream_id)
+            if prev is None or s.last_ts > prev:
+                prior_last_ts_by_stream[s.stream_id] = s.last_ts
 
     # Percentiles are computed across all active days.
     composites = [
@@ -398,7 +398,10 @@ def per_day_metrics(
     codl_ceiling: float = CODL_NORMALISATION_CEILING,
     interruption_ceiling: float = INTERRUPTION_NORMALISATION_CEILING,
     weights: tuple[float, float, float] = COMPOSITE_WEIGHTS,
-    repo_map: dict[str, str] | None = None,
+    resume_threshold_minutes: int = RESUME_THRESHOLD_MINUTES,
+    resume_full_decay_minutes: int = RESUME_FULL_DECAY_MINUTES,
+    resumption_daily_ceiling: float = RESUMPTION_DAILY_CEILING,
+    prior_last_ts_by_stream: dict[str, datetime] | None = None,
 ) -> DayMetrics:
     """Compute the three axes + composite for one day.
 
@@ -406,6 +409,10 @@ def per_day_metrics(
     falls on. Off-hours interaction (engaged minutes outside the work window)
     is captured as `off_hours_minutes` and adds an additive load to the
     composite, whether it occurs on a weekday, Saturday, or Sunday.
+
+    `prior_last_ts_by_stream` (stream_id → last event ts seen on an EARLIER day)
+    lets the Closure Deficit score cross-day resumes. `build_profile` threads it;
+    callers that score a single day in isolation may omit it (no cross-day term).
     """
     if not agg.streams:
         return DayMetrics(
@@ -437,12 +444,15 @@ def per_day_metrics(
         codl_peak = 0
         codl_peak_active = 0.0
 
-    # Closure Deficit: share of the operator's git-correlatable opened loops
-    # left unclosed, or None when the day has no git-correlatable activity
-    # (omitted as data — the axis has meaning only on git repos). Independent of
-    # the C(t) shape (it nets loop-open COUNTS against closure COUNTS).
-    closure_deficit = _closure_deficit(
-        agg, window_start_utc, window_end_utc, repo_map,
+    # Closure Deficit: resumption load — severity-summed resumes (parked loops
+    # picked back up) normalised to [0, 1]. 0 means every loop closed in one
+    # sitting; higher means more / colder reloads. Independent of the C(t) shape.
+    closure_deficit = _resumption_load(
+        agg, window_start_utc, window_end_utc,
+        prior_last_ts_by_stream=prior_last_ts_by_stream,
+        threshold_seconds=resume_threshold_minutes * 60,
+        full_decay_seconds=resume_full_decay_minutes * 60,
+        daily_ceiling=resumption_daily_ceiling,
     )
 
     cross_starts = _count_cross_stream_starts(
@@ -458,13 +468,9 @@ def per_day_metrics(
         agg.streams, "tool_error_count",
         window_start_utc, window_end_utc,
     )
-    # Git rework events (reflog amend/rebase/reset/cherry-pick) in the window
-    # are self-interruptions — history rewrites that reopen a closed loop.
-    rework_in_window = _count_rework(agg, window_start_utc, window_end_utc)
     interruption_count = (
         in_window_errors * W_TOOL_ERROR
         + cross_starts * W_CROSS_STREAM
-        + rework_in_window * W_GIT_REWORK
     )
     interruption_rate = interruption_count / work_hours
 
@@ -472,8 +478,8 @@ def per_day_metrics(
     # the operator was actively driving a session (within the foreground grace
     # of one of their own messages). Anchored to interaction, not stream
     # liveness: a background job that ran while the human was away contributes
-    # nothing, and git commits never enter here. The inferred window is the
-    # norm; engaged interaction outside it is the off-hours abuse.
+    # nothing. The inferred window is the norm; engaged interaction outside it
+    # is the off-hours abuse.
     off_hours_minutes = _off_hours_engaged_minutes(
         agg.streams, window_start_utc, window_end_utc,
         grace_seconds=foreground_grace_minutes * 60,
@@ -509,7 +515,10 @@ def per_day_debug(
     local_tz: tzinfo,
     foreground_grace_minutes: int = FOREGROUND_GRACE_MINUTES_DEFAULT,
     background_weight: float = BACKGROUND_WEIGHT_DEFAULT,
-    repo_map: dict[str, str] | None = None,
+    prior_last_ts_by_stream: dict[str, datetime] | None = None,
+    resume_threshold_minutes: int = RESUME_THRESHOLD_MINUTES,
+    resume_full_decay_minutes: int = RESUME_FULL_DECAY_MINUTES,
+    resumption_daily_ceiling: float = RESUMPTION_DAILY_CEILING,
 ) -> dict:
     """Per-day component breakdown behind the scores, for the research export's
     debug detail. Mirrors the inputs `per_day_metrics` reduces, so the two stay
@@ -535,17 +544,21 @@ def per_day_debug(
     in_window_errors = _apportion_to_window(
         agg.streams, "tool_error_count", ws, we,
     )
-    rework = _count_rework(agg, ws, we)
-    loops_opened = sum(1 for s in agg.streams if ws <= s.first_ts <= we)
-    # All CLOSURE-kind commits on the day (descriptive); correlation decides
-    # which actually close a loop.
-    closures = sum(
-        1 for c in (agg.closure_events or ()) if c.kind in CLOSURE_KINDS
+    # Resumption components: the gap (minutes) of each qualifying resume and the
+    # severity-summed load. The exported Closure Deficit
+    # (min(1, Σ severity / ceiling)) is reproducible from these.
+    resume_gap_seconds = _qualifying_resumes(
+        agg, ws, we, prior_last_ts_by_stream, resume_threshold_minutes * 60,
     )
-    # Per-session git correlation: closed_loops of correlatable_loops. The
-    # exported Closure Deficit (1 - closed_loops/correlatable_loops) is
-    # reproducible from these debug counts.
-    closed_loops, correlatable_loops = _closure_correlation(agg, ws, we, repo_map)
+    resume_gap_minutes = [round(g / 60, 1) for g in resume_gap_seconds]
+    full_decay_seconds = resume_full_decay_minutes * 60
+    resumption_severity_sum = sum(
+        _resume_severity(g, full_decay_seconds) for g in resume_gap_seconds
+    )
+    resumption_load = (
+        min(1.0, resumption_severity_sum / resumption_daily_ceiling)
+        if resumption_daily_ceiling > 0 else 0.0
+    )
 
     # Hourly activity shape: average engagement-weighted concurrency per local
     # hour. Samples are one-per-minute from ws, so sample i is ws + i minutes.
@@ -583,14 +596,11 @@ def per_day_debug(
         "total_tool_errors": sum(s.tool_error_count for s in agg.streams),
         "interruption_numerator": round(
             in_window_errors * W_TOOL_ERROR
-            + cross_starts * W_CROSS_STREAM
-            + rework * W_GIT_REWORK, 3,
+            + cross_starts * W_CROSS_STREAM, 3,
         ),
-        "loops_opened": loops_opened,
-        "correlatable_loops": correlatable_loops,
-        "closures": closures,
-        "closed_loops": closed_loops,
-        "reworks": rework,
+        "resumes": len(resume_gap_seconds),
+        "resume_gap_minutes": resume_gap_minutes,
+        "resumption_load": round(resumption_load, 3),
         "off_hours_minutes": _off_hours_engaged_minutes(
             agg.streams, ws, we, grace_seconds=grace,
         ),
@@ -599,176 +609,79 @@ def per_day_debug(
     }
 
 
-def _count_rework(
+def _resume_severity(gap_seconds: float, full_decay_seconds: float) -> float:
+    """Severity of one resume, in (0, 1]: ``min(1, gap / full_decay)``. Linear in
+    gap length up to the full-decay horizon, then saturates — a much longer park
+    is no colder once context is fully gone. Grounds the duration→cost curve of
+    Monk, Trafton & Boehm-Davis (2008)."""
+    if full_decay_seconds <= 0:
+        return 1.0
+    return min(1.0, gap_seconds / full_decay_seconds)
+
+
+def _qualifying_resumes(
     agg: DayAggregate,
     window_start_utc: datetime,
     window_end_utc: datetime,
-) -> int:
-    """Number of git rework events (reflog amend/rebase/reset/cherry-pick) in
-    the work window. 0 when no closure source is wired."""
-    if not agg.closure_events:
-        return 0
-    return sum(
-        1 for c in agg.closure_events
-        if c.kind in REWORK_KINDS
-        and window_start_utc <= c.ts <= window_end_utc
-    )
-
-
-def _closure_deficit(
-    agg: DayAggregate,
-    window_start_utc: datetime,
-    window_end_utc: datetime,
-    repo_map: dict[str, str] | None = None,
-    grace_seconds: int = CLOSURE_CORRELATION_GRACE_MINUTES * 60,
-) -> float | None:
-    """Share of the day's git-correlatable opened loops left unclosed, in [0, 1],
-    or ``None`` when the day has no git-correlatable activity at all.
-
-    The Closure Deficit has meaning ONLY on git repositories, so a day git can't
-    speak to yields ``None`` — *omitted as data*, never scored as ``0.0``. The
-    distinction is load-bearing: ``0.0`` means "you opened loops and closed them
-    all" (genuine perfect closure), whereas ``None`` means "there was no git work
-    to assess". Collapsing the second into the first would credit a pure
-    debugging or generic-chat day with perfect closure and dilute its composite.
-    Callers must treat ``None`` as no-data (the composite renormalises over the
-    remaining axes; rollups and the personal optimum skip it).
-
-    Only CLOSURE-kind events (push/commit/merge) close loops here; REWORK-kind
-    events (amend/rebase/reset/…) are routed to the Interruption axis instead.
-
-    Each opened loop (a stream started in the work window) is correlated to one
-    of the operator's own closures in the SAME repo whose timestamp falls within
-    the loop's active span plus a grace tail (see ``_closure_correlation``).
-    Loops we cannot correlate to the operator's git activity (no resolvable repo,
-    or a repo the operator didn't touch that day) are dropped from both numerator
-    and denominator; closures that correlate to no loop are ignored.
-
-      * ``correlatable > 0`` → ``clip(1 - closed / correlatable, 0, 1)``.
-      * ``correlatable == 0`` (no git loops to speak of) → ``None``.
-      * no closure source wired at all (``agg.closure_events is None``) → ``None``;
-        the Closure Deficit simply does not exist without git (the former
-        ``C(t)>1`` concurrency proxy was removed — it was not a git signal).
-
-    Built from per-session *correlation*, so it carries information the
-    concurrency time-series C(t) does not: two days with identical concurrency
-    shapes score differently if one closed its loops and the other left them
-    open.
-    """
-    # No git closure source wired → the axis has no basis to exist. Omit as data.
-    if agg.closure_events is None:
-        return None
-
-    closed, correlatable = _closure_correlation(
-        agg, window_start_utc, window_end_utc, repo_map, grace_seconds,
-    )
-    if correlatable <= 0:
-        return None
-    return max(0.0, min(1.0, 1.0 - closed / correlatable))
-
-
-# Single repo bucket used when no repo_map is available (no-cwd sources): we
-# can't attribute by repo, so all commits/loops share one bucket and correlate
-# by time alone. Never collides with a real repo path.
-_GLOBAL_REPO_KEY = "*"
-
-
-def _closure_correlation(
-    agg: DayAggregate,
-    window_start_utc: datetime,
-    window_end_utc: datetime,
-    repo_map: dict[str, str] | None = None,
-    grace_seconds: int = CLOSURE_CORRELATION_GRACE_MINUTES * 60,
-    min_loop_seconds: int = CLOSURE_MIN_LOOP_MINUTES * 60,
-) -> tuple[int, int]:
-    """Correlate the day's commits to the loops they closed, per session.
-
-    A *loop* is a stream that started inside the work window. A commit *closes*
-    a loop when it is in the loop's repo and its timestamp falls within the
-    loop's active span plus a grace tail: ``[first_ts, last_ts + grace]``. Each
-    commit closes at most one loop (greedy, earliest-ending loop first), so a
-    commit correlates to one logical session rather than masking several.
-
-    Only loops we can correlate to git activity count. A loop whose repo git
-    never touched that day (no commit, merge, or rework) — or whose cwd doesn't
-    resolve to a tracked repo — is *dropped* (excluded from both closed and
-    correlatable): git can't speak to its closure, so we don't penalise it. A
-    loop in a repo that WAS git-active that day but caught no time-correlated
-    commit stays *unclosed* — the real deficit signal. Commits that correlate to
-    no loop are ignored.
-
-    Trivial-session filter: a loop that stays *unclosed* AND lasted less than
-    ``min_loop_seconds`` (default 5 min) is a quick check, not a real loop you
-    abandoned, so it is dropped from the denominator too — it shouldn't penalise
-    closure. A short loop that DID catch a commit still counts as closed (a quick
-    commit-and-push is a genuine closure); only sub-threshold *unclosed* noise is
-    removed.
-
-    Returns ``(closed, correlatable)``; the Closure Deficit is
-    ``1 - closed/correlatable``. ``per_day_debug`` reports both so the exported
-    deficit is reproducible from the debug counts.
-
-    With no ``repo_map`` (no-cwd sources) every loop and commit shares one
-    global bucket and correlation is by time alone — best-effort back-compat.
-    """
-    keyed = bool(repo_map)
-
-    # Walk the day's git events once (already day-bucketed upstream). A repo is
-    # "git-visible" today if it saw ANY event — commit, merge, OR rework — so a
-    # loop in a repo that was rebased/amended but not committed is correlatable
-    # (and stays unclosed), while a loop in a repo git never touched is dropped.
-    # Only CLOSURE-kind events can actually close a loop.
-    active_repos: set[str] = set()
-    commits_by_repo: dict[str, list[datetime]] = defaultdict(list)
-    for c in (agg.closure_events or ()):
-        key = c.repo if keyed else _GLOBAL_REPO_KEY
-        active_repos.add(key)
-        if c.kind in CLOSURE_KINDS:
-            commits_by_repo[key].append(c.ts)
-
-    # Loops opened in the work window, resolved to a repo bucket, with their span.
-    loops: list[tuple[str | None, datetime, datetime]] = []
+    prior_last_ts_by_stream: dict[str, datetime] | None,
+    threshold_seconds: int,
+) -> list[float]:
+    """Gap lengths (seconds) of every resume that counts toward the day's load:
+      * an intra-day idle gap (``resume_gaps``) ≥ threshold whose resume instant
+        is in the work window, and
+      * a cross-day pickup — first event today ≥ threshold after the stream's
+        last event on an earlier day — landing in the work window.
+    Shared by ``_resumption_load`` (scores them) and ``per_day_debug`` (reports
+    them) so the exported components reproduce the axis."""
+    gaps: list[float] = []
     for s in agg.streams:
-        if window_start_utc <= s.first_ts <= window_end_utc:
-            key = ((repo_map or {}).get(s.cwd) if s.cwd else None) if keyed \
-                else _GLOBAL_REPO_KEY
-            loops.append((key, s.first_ts, s.last_ts))
+        for resume_ts, gap_seconds in s.resume_gaps:
+            if gap_seconds >= threshold_seconds and (
+                window_start_utc <= resume_ts <= window_end_utc
+            ):
+                gaps.append(float(gap_seconds))
+        if prior_last_ts_by_stream:
+            prior = prior_last_ts_by_stream.get(s.stream_id)
+            if prior is not None:
+                gap = (s.first_ts - prior).total_seconds()
+                if gap >= threshold_seconds and (
+                    window_start_utc <= s.first_ts <= window_end_utc
+                ):
+                    gaps.append(gap)
+    return gaps
 
-    # Drop loops we can't correlate to git activity: no repo bucket, or a repo
-    # git never touched today.
-    correlatable = [
-        (key, first, last) for (key, first, last) in loops
-        if key is not None and key in active_repos
-    ]
-    if not correlatable:
-        return 0, 0
 
-    # Greedy 1:1 matching by repo + time overlap. Earliest-ending loop first, so
-    # a commit closes the loop it most tightly follows.
-    grace = timedelta(seconds=grace_seconds)
-    min_loop = timedelta(seconds=min_loop_seconds)
-    used: dict[str, list[bool]] = {
-        key: [False] * len(times) for key, times in commits_by_repo.items()
-    }
-    closed = 0
-    correlatable_count = 0
-    for key, first, last in sorted(correlatable, key=lambda lp: lp[2]):
-        hi = last + grace
-        is_closed = False
-        for i, cts in enumerate(commits_by_repo.get(key, ())):
-            if not used[key][i] and first <= cts <= hi:
-                used[key][i] = True
-                is_closed = True
-                break
-        if is_closed:
-            closed += 1
-            correlatable_count += 1
-        elif (last - first) >= min_loop:
-            # A genuine unclosed loop — the real deficit signal.
-            correlatable_count += 1
-        # else: a sub-min-duration session that caught no commit is a trivial
-        # check; drop it from the denominator (don't let noise raise the deficit).
-    return closed, correlatable_count
+def _resumption_load(
+    agg: DayAggregate,
+    window_start_utc: datetime,
+    window_end_utc: datetime,
+    prior_last_ts_by_stream: dict[str, datetime] | None = None,
+    threshold_seconds: int = RESUME_THRESHOLD_MINUTES * 60,
+    full_decay_seconds: int = RESUME_FULL_DECAY_MINUTES * 60,
+    daily_ceiling: float = RESUMPTION_DAILY_CEILING,
+) -> float | None:
+    """Resumption load for the day, in [0, 1], or ``None`` only when the day has
+    no activity at all.
+
+    Each qualifying resume (see ``_qualifying_resumes``) contributes
+    ``_resume_severity(gap)``; the day's value is
+    ``min(1, Σ severity / daily_ceiling)``. ``0.0`` is a real, good score (every
+    loop closed in one sitting) — distinct from ``None`` (no activity to assess).
+    Needs no git and is independent of the concurrency time-series C(t): two days
+    with identical C(t) score differently if one parked-and-reloaded its loops
+    and the other ran them to completion in a sitting.
+    """
+    if not agg.streams:
+        return None
+
+    gaps = _qualifying_resumes(
+        agg, window_start_utc, window_end_utc,
+        prior_last_ts_by_stream, threshold_seconds,
+    )
+    total = sum(_resume_severity(g, full_decay_seconds) for g in gaps)
+    if daily_ceiling <= 0:
+        return 0.0
+    return min(1.0, total / daily_ceiling)
 
 
 def _composite_score(
@@ -1022,15 +935,13 @@ def derive_personal_optimum(
         # Need at least 2 days in a bucket to trust the average.
         if len(metrics) < 2:
             continue
-        # Average closure over only the days that HAVE closure data — None
-        # (no git-correlatable activity) is omitted, not treated as 0. A bucket
-        # with no closure evidence at all contributes a neutral closure factor
-        # so the band is judged on off-hours alone rather than rewarded for the
-        # absence of git work.
+        # Average resumption load over the days that HAVE it — None (a no-activity
+        # day) is omitted, not treated as 0. A bucket with no such data contributes
+        # a neutral closure factor so the band is judged on off-hours alone.
         clo_vals = [m.closure_deficit for m in metrics if m.closure_deficit is not None]
         closure_factor = (1.0 - sum(clo_vals) / len(clo_vals)) if clo_vals else 1.0
         avg_off = sum(m.off_hours_minutes for m in metrics) / len(metrics)
-        # Higher is better — low closure-deficit AND low off-hours interaction.
+        # Higher is better — low resumption load AND low off-hours interaction.
         score = closure_factor / (1.0 + avg_off / 60.0)
         if score > best_score:
             best_score = score

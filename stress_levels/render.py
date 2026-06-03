@@ -26,6 +26,7 @@ from .metrics import (
     WorkWindow,
 )
 from .scales import (
+    codl_count_color,
     composite_status,
     zone_color,
 )
@@ -744,7 +745,8 @@ def _render_day_chart(day: date, agg: DayAggregate, metrics: DayMetrics) -> str:
         w = bar_w * 0.84
         bars.append(
             f'<rect x="{x:.1f}" y="{y:.1f}" width="{w:.1f}" '
-            f'height="{bar_px:.1f}" fill="#d99058" opacity="0.85" rx="2"/>'
+            f'height="{bar_px:.1f}" fill="{codl_count_color(c)}" '
+            f'opacity="0.85" rx="2"/>'
         )
         bars.append(
             f'<text x="{x + w / 2:.1f}" y="{y - 4:.1f}" font-size="10" '
@@ -951,9 +953,9 @@ def _render_range_bar(
         )
 
     # User marker — the dominant element. Draw last so it sits on top. When the
-    # axis has no data for the day (show_value=False, e.g. no git activity), the
-    # scale is drawn for context but no marker is placed: a 0-position marker
-    # would read as a perfect score rather than "not measured".
+    # axis has no data for the day (show_value=False, e.g. a day with no activity
+    # at all), the scale is drawn for context but no marker is placed: a
+    # 0-position marker would read as a perfect score rather than "not measured".
     if show_value:
         user_x = _x(value)
         off_scale = value > range_max
@@ -1046,13 +1048,13 @@ def _render_methodology(profile: StressProfile, stats: AggregateStats | None) ->
         (2) All axes are <em>taskload</em> (objective demand), not <em>workload</em>
         (subjective experience); correlation with felt overload is only moderate,
         and objective and subjective workload are known to dissociate.
-        (3) The Closure Deficit correlates the operator's own git
-        pushes/commits/merges to the loops opened each work window by repo +
-        author + time overlap, but that correlation is heuristic, not a
-        guaranteed link; days with no git activity of the operator's own are
-        omitted as data (not scored 0) and the composite renormalises over the
-        remaining axes. The axis has meaning only on git repositories — with
-        none configured it is omitted entirely.
+        (3) The Closure Deficit scores <em>resumption load</em> — idle gaps where
+        a parked session was picked back up — using gap duration as a proxy for
+        how cold the loop went. A long autonomous agent turn is excluded (it is
+        not idle), but stepping away mid-turn is not; and the supporting lab
+        evidence measured short (sub-minute) interruptions, so multi-hour and
+        cross-day gaps extrapolate beyond that regime (Parnin &amp; Rugaber 2011 is
+        the closest field bridge).
         (4) Personal optimum and percentiles require &ge; 14 days of activity;
         fewer days renders as "calibrating".
       </p>

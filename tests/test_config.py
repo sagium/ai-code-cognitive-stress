@@ -102,59 +102,36 @@ def test_codl_rejects_negative_grace(tmp_path):
         load_config(cfg)
 
 
-# --- closure block ---------------------------------------------------------
+# --- resumption block --------------------------------------------------------
 
-def test_shipped_config_has_empty_closure_repos_and_autodiscover_on():
-    """The shipped default carries no explicit repos but turns auto-discovery
-    on, so the Closure Deficit is sourced from the repos the sessions ran in."""
-    cfg = load_config()  # the real config.json
-    assert cfg.closure.repos == ()
-    assert cfg.closure.autodiscover is True
-
-
-def test_closure_autodiscover_defaults_true_when_missing(tmp_path):
-    cfg = tmp_path / "config.json"
-    cfg.write_text(json.dumps(_ww({"closure": {"repos": []}})), encoding="utf-8")
-    assert load_config(cfg).closure.autodiscover is True
+def test_shipped_config_has_resumption_defaults():
+    """The shipped default carries the citation-anchored resumption priors."""
+    cfg = load_config().resumption  # the real config.json
+    assert cfg.threshold_minutes == 30
+    assert cfg.full_decay_minutes == 120
+    assert cfg.daily_ceiling == 4.0
 
 
-def test_closure_autodiscover_parsed(tmp_path):
-    cfg = tmp_path / "config.json"
-    cfg.write_text(json.dumps(_ww({
-        "closure": {"autodiscover": False, "repos": ["/home/me/proj"]},
-    })), encoding="utf-8")
-    loaded = load_config(cfg).closure
-    assert loaded.autodiscover is False
-    assert loaded.repos == ("/home/me/proj",)
-
-
-@pytest.mark.parametrize("bad", ["yes", 1, None])
-def test_closure_rejects_non_bool_autodiscover(tmp_path, bad):
-    cfg = tmp_path / "config.json"
-    cfg.write_text(
-        json.dumps(_ww({"closure": {"autodiscover": bad}})), encoding="utf-8",
-    )
-    with pytest.raises(ValueError, match="closure.autodiscover"):
-        load_config(cfg)
-
-
-def test_closure_block_missing_falls_back_to_empty(tmp_path):
+def test_resumption_block_missing_falls_back_to_defaults(tmp_path):
     cfg = tmp_path / "config.json"
     cfg.write_text(json.dumps(_ww({})), encoding="utf-8")
-    assert load_config(cfg).closure.repos == ()
+    r = load_config(cfg).resumption
+    assert (r.threshold_minutes, r.full_decay_minutes, r.daily_ceiling) == (30, 120, 4.0)
 
 
-def test_closure_repos_parsed(tmp_path):
+def test_resumption_custom_values_parsed(tmp_path):
     cfg = tmp_path / "config.json"
     cfg.write_text(json.dumps(_ww({
-        "closure": {"repos": ["/home/me/proj", "/home/me/other"]},
+        "resumption": {"threshold_minutes": 45, "full_decay_minutes": 90,
+                       "daily_ceiling": 6},
     })), encoding="utf-8")
-    assert load_config(cfg).closure.repos == ("/home/me/proj", "/home/me/other")
+    r = load_config(cfg).resumption
+    assert (r.threshold_minutes, r.full_decay_minutes, r.daily_ceiling) == (45, 90, 6.0)
 
 
-@pytest.mark.parametrize("bad", [{"repos": "not-a-list"}, {"repos": [1, 2]}])
-def test_closure_rejects_non_string_list(tmp_path, bad):
+@pytest.mark.parametrize("key", ["threshold_minutes", "full_decay_minutes", "daily_ceiling"])
+def test_resumption_rejects_non_positive(tmp_path, key):
     cfg = tmp_path / "config.json"
-    cfg.write_text(json.dumps(_ww({"closure": bad})), encoding="utf-8")
-    with pytest.raises(ValueError, match="closure.repos"):
+    cfg.write_text(json.dumps(_ww({"resumption": {key: 0}})), encoding="utf-8")
+    with pytest.raises(ValueError, match=f"resumption.{key}"):
         load_config(cfg)

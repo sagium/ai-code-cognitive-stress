@@ -89,10 +89,11 @@ def test_off_scale_value_clamps_and_flags():
     assert t.fraction == 1.0
 
 
-def test_closure_tile_no_git_activity_is_not_scored():
-    """A day with no git-correlatable closure (closure_deficit is None) renders
-    the Closure tile as 'not scored' (—) with no value marker — never as a 0
-    that would read as perfect closure. The zone scale is still drawn."""
+def test_closure_tile_no_data_is_not_scored():
+    """A day with no closure value (closure_deficit is None — now only a
+    no-activity day) renders the Closure tile as 'not scored' (—) with no value
+    marker — never as a 0 that would read as perfect closure. The zone scale is
+    still drawn."""
     m = DayMetrics(day=date(2026, 5, 29), codl_avg=2.0,
                    closure_deficit=None, composite=20.0)
     t = build_axis_tile(AXES[2], m, _profile())  # AXES[2] = Closure
@@ -100,9 +101,20 @@ def test_closure_tile_no_git_activity_is_not_scored():
     assert t.value_label == "—"
     assert t.fraction == 0.0 and t.off_scale is False
     assert t.baseline is None and t.optimum is None
-    # The reason is stated explicitly and ties the disabled state to the cause.
-    assert "disabled" in t.unit_text and "git repo" in t.unit_text
+    # The reason is stated explicitly.
+    assert "not scored" in t.unit_text and "no activity" in t.unit_text
     assert t.segments  # the empty scale is still drawn for context
+
+
+def test_closure_tile_zero_is_scored_not_blank():
+    """A real 0.0 resumption load (every loop closed in one sitting) is a SCORED
+    good day, distinct from the None no-data case — it gets a value marker."""
+    m = DayMetrics(day=date(2026, 5, 29), codl_avg=2.0,
+                   closure_deficit=0.0, composite=20.0)
+    t = build_axis_tile(AXES[2], m, _profile())
+    assert t.has_data is True
+    assert t.value_label == "0.00"
+    assert "resume ceiling" in t.unit_text
 
 
 # --- personal baseline ------------------------------------------------------
@@ -138,6 +150,47 @@ def test_hour_counts_buckets_by_local_hour():
 
 def test_hour_counts_no_streams():
     assert hour_counts(date(2026, 5, 29), None, timezone.utc) == [0] * 24
+
+
+# --- per-hour bar colours (CODL zone of the count) --------------------------
+
+def test_codl_count_color_tracks_zones():
+    from stress_levels.scales import codl_count_color, zone_color
+    # 1 concurrent → "good" green; 4 → "caution" amber; 6 → "high" red.
+    assert codl_count_color(1) == zone_color("good")
+    assert codl_count_color(4) == zone_color("caution")
+    assert codl_count_color(6) == zone_color("high")
+    # The colours actually differ as concurrency rises (not a flat fill).
+    assert len({codl_count_color(n) for n in (1, 2, 4, 6)}) >= 3
+
+
+def test_dayview_hour_colors_match_counts():
+    from stress_levels.scales import codl_count_color
+    day = date(2026, 5, 29)
+    # Three streams overlapping around 10:00 (count 3) and one alone at 14:00.
+    streams = tuple(
+        StreamDayActivity(
+            stream_id=f"s{i}", project="p",
+            first_ts=datetime(2026, 5, 29, 9, 45, tzinfo=timezone.utc),
+            last_ts=datetime(2026, 5, 29, 10, 45, tzinfo=timezone.utc),
+        ) for i in range(3)
+    ) + (
+        StreamDayActivity(
+            stream_id="solo", project="p",
+            first_ts=datetime(2026, 5, 29, 13, 45, tzinfo=timezone.utc),
+            last_ts=datetime(2026, 5, 29, 14, 45, tzinfo=timezone.utc),
+        ),
+    )
+    m = DayMetrics(day=day, codl_avg=2.0, codl_peak=3, composite=20.0)
+    dv = build_dayview(m, DayAggregate(day=day, streams=streams), _profile(), timezone.utc)
+    assert len(dv.hour_colors) == 24
+    assert dv.hour_colors == [codl_count_color(c) for c in dv.hours]
+    # The busy hour (3 concurrent) and the solo hour (1) are coloured differently.
+    assert dv.hours[10] == 3 and dv.hours[14] == 1
+    assert dv.hour_colors[10] != dv.hour_colors[14]
+    # Serialised for the widgets.
+    d = dayview_to_dict(dv)
+    assert d["hour_colors"] == dv.hour_colors
 
 
 # --- serialization ----------------------------------------------------------

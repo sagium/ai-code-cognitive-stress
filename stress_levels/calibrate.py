@@ -40,7 +40,7 @@ class DayRecord:
     weekday: str
     codl_avg: float
     interruption_rate: float
-    closure_deficit: float | None  # None → day had no git-correlatable activity
+    closure_deficit: float | None  # resumption load; None → day had no activity
     composite: float
     off_hours_minutes: float
     work_start: int | None = None
@@ -176,8 +176,8 @@ def calibrate(
     """Crunch pooled day records into calibration suggestions + descriptives."""
     codl = [r.codl_avg for r in records]
     interr = [r.interruption_rate for r in records]
-    # Closure is None on days with no git-correlatable activity (omitted as
-    # data). Closure-specific stats run over only the days that HAVE closure.
+    # Closure (resumption load) is None only on days with no activity. Closure-
+    # specific stats run over only the days that HAVE a value.
     closure = [r.closure_deficit for r in records if r.closure_deficit is not None]
     composite = [r.composite for r in records]
     off_hours = [r.off_hours_minutes for r in records]

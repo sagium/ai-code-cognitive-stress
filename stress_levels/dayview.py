@@ -28,6 +28,7 @@ from .scales import (
     CODL_ZONES,
     INTERRUPTION_RANGE_MAX,
     INTERRUPTION_ZONES,
+    codl_count_color,
     composite_advice,
     composite_color,
     composite_status,
@@ -110,36 +111,33 @@ AXES: tuple[AxisMeta, ...] = (
         key="closure",
         name="Closure Deficit",
         description=(
-            "Of the loops git can see you open, the share you never closed. "
-            "0 = every such loop got your push/commit, 1 = none landed. A day "
-            "with no git activity of your own is not scored at all (shown as —), "
-            "not counted as zero. Lower is better."
+            "Loops you couldn't finish in one sitting and had to pick back up. "
+            "Each resume costs more the longer the session sat parked. 0 = every "
+            "loop closed in one sitting, 1 = many cold reloads. Lower is better."
         ),
         range_max=CLOSURE_RANGE_MAX,
         zones=CLOSURE_ZONES,
         has_optimum=False,
         technique=(
-            "1 − closed / correlatable, where a loop = a stream started in the "
-            "work window and it is closed by YOUR OWN git push/commit/merge in "
-            "its repo within the loop's active span + grace. Loops we can't "
-            "correlate to your git activity (no tracked repo, or a repo you "
-            "didn't touch that day) are dropped; a day with none is not scored. "
-            "A session under 5 min that caught no commit is treated as a trivial "
-            "check and dropped too, so it can't raise the deficit. "
-            "Per-session correlation — independent of the CODL shape."
+            "Sum of per-resume severities ÷ a daily ceiling, clipped to [0,1]. A "
+            "resume is a true-idle gap in a session (no activity at all) of ≥ 30 "
+            "min, or a pickup on a later day; each resume's severity is "
+            "min(1, gap ÷ 120 min), so cost rises with how long the loop was "
+            "parked then saturates once context is fully cold. No git required — "
+            "scored on every active day; independent of the CODL shape."
         ),
         basis=(
-            "Demerouti et al. (2001) Job Demands-Resources; Masicampo & "
-            "Baumeister (2011) open goals; Leroy (2009) attention residue; "
-            "Sonnentag & Fritz (2007) closure as recovery."
+            "Monk, Trafton & Boehm-Davis (2008) resumption cost rises with gap "
+            "duration; Altmann & Trafton (2002) goal-activation decay; Parnin & "
+            "Rugaber (2011) in-domain reconstruction tax; Sonnentag & Fritz "
+            "(2007) closure as recovery."
         ),
         caveat=(
-            "A closure is matched to a session by repo + author + time overlap, "
-            "not a guaranteed link. Closures count only when you authored them "
-            "(or pushed them), so a shared repo's teammate/bot commits are "
-            "ignored. Days with no git activity of your own are omitted as data "
-            "(not scored 0), and the composite renormalises over the remaining "
-            "axes. The axis has meaning only on git repositories."
+            "A gap is dormant wall-clock time, a proxy for a parked loop — a long "
+            "autonomous agent turn is excluded (it's not idle), but stepping away "
+            "with a session still mid-turn isn't. The lab evidence measured short "
+            "(sub-minute) gaps; multi-hour and cross-day gaps extrapolate beyond "
+            "that regime, with Parnin & Rugaber as the closest field bridge."
         ),
     ),
 )
@@ -160,8 +158,8 @@ def _axis_unit(key: str, m: DayMetrics) -> str:
     if key == "interruption":
         return "weighted events per work hour"
     if m.closure_deficit is None:
-        return "disabled — no active git repo this day"
-    return f"{m.closure_deficit * 100:.0f}% of opened loops left unclosed"
+        return "not scored — no activity this day"
+    return f"{m.closure_deficit * 100:.0f}% of the daily resume ceiling"
 
 
 # ---------------------------------------------------------------------------
@@ -190,7 +188,7 @@ class AxisTile:
     value_label: str
     unit_text: str
     range_max: float
-    has_data: bool      # False → axis had no data this day (e.g. no git activity)
+    has_data: bool      # False → axis had no data this day (e.g. no activity at all)
     status: str
     zone_label: str
     color: str
@@ -230,6 +228,7 @@ class DayView:
     work_window: WorkWindow | None
     work_window_label: str  # "work window: 09:00 – 17:00" | "work window: (unknown)"
     hours: list[int]        # 24 per-local-hour concurrent-stream counts
+    hour_colors: list[str]  # 24 per-hour bar colours, by CODL zone of the count
     peak_concurrent: int
     # Cumulative composite at each hour-end of the work window (how the score
     # built up over the day), each point carrying its zone colour. The last
@@ -309,9 +308,10 @@ def build_axis_tile(meta: AxisMeta, m: DayMetrics, profile: StressProfile) -> Ax
     rmax = meta.range_max
     segments, ticks = _zone_segments_and_ticks(meta.zones, rmax)
 
-    # No-data axis (currently only Closure, when the day had no git-correlatable
-    # activity): render the empty scale with a neutral "not scored" state rather
-    # than a 0 that reads as a perfect score. The value is omitted as data.
+    # No-data axis: render the empty scale with a neutral "not scored" state
+    # rather than a 0 that reads as a perfect score. With the resumption-based
+    # Closure Deficit this only fires on a day with no activity at all; the path
+    # is kept for that edge and for any future axis that can genuinely lack data.
     if raw is None:
         return AxisTile(
             key=meta.key, name=meta.name, description=meta.description,
@@ -428,7 +428,9 @@ def build_dayview(
         composite_color=composite_color(status),
         advice=composite_advice(status),
         work_window=ww, work_window_label=ww_label,
-        hours=counts, peak_concurrent=max(counts) if counts else 0,
+        hours=counts,
+        hour_colors=[codl_count_color(c) for c in counts],
+        peak_concurrent=max(counts) if counts else 0,
         score_progression=score_progression(metrics, agg, profile, local_tz),
         axes=[build_axis_tile(meta, metrics, profile) for meta in AXES],
         off_hours_minutes=off_min,
@@ -462,6 +464,7 @@ def dayview_to_dict(dv: DayView) -> dict:
         ),
         "work_window_label": dv.work_window_label,
         "hours": dv.hours,
+        "hour_colors": dv.hour_colors,
         "peak_concurrent": dv.peak_concurrent,
         "score_progression": [
             {"value": p.value, "color": p.color} for p in dv.score_progression

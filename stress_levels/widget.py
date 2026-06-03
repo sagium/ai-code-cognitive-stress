@@ -47,15 +47,9 @@ def compute_today_dayview(
     projects_dir=None,
     cache_dir=None,
     now: datetime | None = None,
-    closure_sources=None,
-    repo_map=None,
 ) -> DayView:
     """Recompute today's full daily view. Reads only today's session files live
-    (past days come from the on-disk cache). `now` is injectable for tests.
-
-    `closure_sources` (optional) feeds the Closure Deficit real commit/merge
-    events and reflog rework events; when omitted the axis uses its legacy
-    proxy. `repo_map` (cwd→repo-root) drives per-repo closure attribution."""
+    (past days come from the on-disk cache). `now` is injectable for tests."""
     tz = _local_tz()
     today = (now or datetime.now(tz)).astimezone(tz).date()
     since = today - timedelta(days=baseline_days)
@@ -63,10 +57,9 @@ def compute_today_dayview(
         since, today,
         projects_dir=projects_dir, cache_dir=cache_dir,
         sources=sources, local_tz=tz, now=now,
-        closure_sources=closure_sources,
     )
     profile = build_profile(
-        aggregates, baseline_days=baseline_days, local_tz=tz, repo_map=repo_map,
+        aggregates, baseline_days=baseline_days, local_tz=tz,
     )
     metrics = profile.days.get(today) or DayMetrics(day=today)
     return dayview.build_dayview(metrics, aggregates.get(today), profile, tz)
@@ -92,8 +85,6 @@ def run_widget(  # pragma: no cover — tkinter event loop; needs a display
     baseline_days: int = 30,
     sources=None,
     refresh_seconds: int = 60,
-    closure_sources=None,
-    repo_map=None,
 ) -> int:
     """Launch the always-on-top live widget. Blocks until the window closes.
     Returns 0 on clean exit, 1 if tkinter is unavailable."""
@@ -117,10 +108,7 @@ def run_widget(  # pragma: no cover — tkinter event loop; needs a display
     def worker() -> None:
         while not stop.is_set():
             try:
-                q.put(compute_today_dayview(
-                    baseline_days, sources, closure_sources=closure_sources,
-                    repo_map=repo_map,
-                ))
+                q.put(compute_today_dayview(baseline_days, sources))
             except Exception as exc:  # surface, don't die
                 q.put(exc)
             stop.wait(refresh)
@@ -263,7 +251,6 @@ def _draw_chart(tk, parent, dv: DayView) -> None:  # pragma: no cover — tk ren
                   highlightthickness=1, highlightbackground=PALETTE["rule"])
     c.pack(fill="x", padx=14, pady=(4, 16))
     max_count = max(dv.peak_concurrent, 1)
-    bar_fill = _blend(PALETTE["warn"], 0.85, PALETTE["panel"])
     shade = _blend(PALETTE["good"], 0.12, PALETTE["panel"])
 
     def redraw(W: int) -> None:
@@ -295,6 +282,9 @@ def _draw_chart(tk, parent, dv: DayView) -> None:  # pragma: no cover — tk ren
             bar_px = (count / max_count) * plot_h
             x = m_left + h * bar_w + bar_w * 0.08
             y = m_top + plot_h - bar_px
+            # Per-bar colour by CODL zone of the count (from the shared model),
+            # blended over the panel since tkinter fills have no alpha channel.
+            bar_fill = _blend(dv.hour_colors[h], 0.85, PALETTE["panel"])
             c.create_rectangle(x, y, x + bar_w * 0.84, m_top + plot_h, fill=bar_fill, width=0)
             c.create_text(x + bar_w * 0.42, y - 6, text=str(count),
                           fill=PALETTE["ink"], font=("TkDefaultFont", 8, "bold"))
@@ -423,9 +413,9 @@ def _draw_range_bar(tk, parent, tile: AxisTile) -> None:  # pragma: no cover —
             c.create_text(ox, optimum_label_y, text=tile.optimum_label, anchor=anchor_at(ox),
                           fill=PALETTE["accent"], font=("TkDefaultFont", 7))
 
-        # No-data axis (e.g. Closure on a day with no git activity): draw the
-        # scale for context but no "you" marker — a 0-position marker would read
-        # as a perfect score rather than "not measured".
+        # No-data axis (only a day with no activity at all now): draw the scale
+        # for context but no "you" marker — a 0-position marker would read as a
+        # perfect score rather than "not measured".
         if tile.has_data:
             ux = x_at(min(1.0, tile.fraction))
             label = f"you {tile.value:.2f}" + (" ▶" if tile.off_scale else "")
