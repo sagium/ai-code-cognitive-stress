@@ -77,7 +77,8 @@ ai-code-cognitive-stress/
 │       └── …                   # one small adapter per supported LLM coding tool
 ├── tests/                      # hermetic pytest suite (synthetic fixtures only)
 ├── scripts/generate_demo_report.py   # deterministic demo data for the screenshots
-├── docs/screenshots/           # images in the README
+├── scripts/capture_screenshots.py    # README screenshots as crisp mostly-vector SVGs (crisp-screenshots skill)
+├── docs/screenshots/           # images in the README (scalable SVGs + the widget photo)
 ├── templates/report.html       # original static design mockup (not used at runtime)
 ├── desktop/plasmoid/            # KDE Plasma 6 widget — thin WebEngineView host for `aicogstress --emit-html-card`
 ├── desktop/ubersicht/           # macOS Übersicht widget — thin JSX host (same card) + browser preview harness

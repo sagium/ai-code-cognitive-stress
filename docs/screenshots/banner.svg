@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 300" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" role="img" aria-label="ai-code-cognitive-stress — the cognitive load of supervising parallel AI coding agents, measured. Private, research-grounded, scored against your own baseline.">
+  <defs>
+    <linearGradient id="card" x1="0" y1="0" x2="0.03" y2="1">
+      <stop offset="0" stop-color="#1d201c"/>
+      <stop offset="1" stop-color="#131512"/>
+    </linearGradient>
+    <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0"    stop-color="#ffffff" stop-opacity="0.07"/>
+      <stop offset="0.25" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="curve" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0"    stop-color="#c5b48a"/>
+      <stop offset="0.42" stop-color="#6c9a8b"/>
+      <stop offset="0.58" stop-color="#6c9a8b"/>
+      <stop offset="0.78" stop-color="#d99058"/>
+      <stop offset="1"    stop-color="#b04a3a"/>
+    </linearGradient>
+    <linearGradient id="fade" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6c9a8b" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#6c9a8b" stop-opacity="0"/>
+    </linearGradient>
+    <marker id="axis-arrow" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto-start-reverse" viewBox="0 0 8 8">
+      <path d="M0 0 8 4 0 8z" fill="rgba(245,243,237,0.30)"/>
+    </marker>
+  </defs>
+
+  <!-- card -->
+  <rect x="1" y="1" width="1278" height="298" rx="18" fill="url(#card)" stroke="rgba(255,255,255,0.13)" stroke-width="2"/>
+  <rect x="2" y="2" width="1276" height="90" rx="17" fill="url(#sheen)"/>
+
+  <!-- ===================== left: wordmark ===================== -->
+  <text x="72" y="78" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="15" letter-spacing="1.5" fill="rgba(245,243,237,0.38)">ai-code-cognitive-stress</text>
+
+  <text x="70" y="128" font-size="40" font-weight="700" fill="rgba(245,243,237,0.92)" letter-spacing="-0.5">The cognitive load of supervising</text>
+  <text x="70" y="176" font-size="40" font-weight="700" letter-spacing="-0.5"><tspan fill="rgba(245,243,237,0.92)">parallel AI coding agents — </tspan><tspan fill="#efe9da" font-style="italic">measured.</tspan></text>
+
+  <text x="71" y="216" font-size="17" fill="rgba(245,243,237,0.60)">Private  ·  research-grounded  ·  scored against your own baseline</text>
+
+  <!-- mini day-strip: two weeks of composite, report-heatmap style -->
+  <g transform="translate(71,242)">
+    <rect width="22" height="22" rx="5" fill="#6c9a8b" opacity="0.45"/>
+    <rect x="28" width="22" height="22" rx="5" fill="#6c9a8b" opacity="0.65"/>
+    <rect x="56" width="22" height="22" rx="5" fill="#6c9a8b"/>
+    <rect x="84" width="22" height="22" rx="5" fill="#c5b48a"/>
+    <rect x="112" width="22" height="22" rx="5" fill="#6c9a8b" opacity="0.8"/>
+    <rect x="140" width="22" height="22" rx="5" fill="#c5b48a"/>
+    <rect x="168" width="22" height="22" rx="5" fill="#d99058"/>
+    <rect x="196" width="22" height="22" rx="5" fill="#d99058" opacity="0.85"/>
+    <rect x="224" width="22" height="22" rx="5" fill="#b04a3a"/>
+    <rect x="252" width="22" height="22" rx="5" fill="#d99058"/>
+    <rect x="280" width="22" height="22" rx="5" fill="#c5b48a"/>
+    <rect x="308" width="22" height="22" rx="5" fill="#6c9a8b" opacity="0.8"/>
+    <rect x="336" width="22" height="22" rx="5" fill="#6c9a8b" opacity="0.55"/>
+    <rect x="364" width="22" height="22" rx="5" fill="#6c9a8b" opacity="0.7"/>
+    <text x="400" y="16" font-size="13" fill="rgba(245,243,237,0.38)">your last two weeks</text>
+  </g>
+
+  <!-- ===================== right: inverted-U flow channel ===================== -->
+  <g>
+    <!-- axes (arrowheads carry the "more load / more performance" direction) -->
+    <line x1="858" y1="248" x2="1226" y2="248" stroke="rgba(255,255,255,0.13)" stroke-width="2" marker-end="url(#axis-arrow)"/>
+    <line x1="858" y1="248" x2="858" y2="58" stroke="rgba(255,255,255,0.13)" stroke-width="2" marker-end="url(#axis-arrow)"/>
+    <text x="849" y="64" font-size="12.5" fill="rgba(245,243,237,0.38)" text-anchor="end" transform="rotate(-90 849 64)">performance</text>
+
+    <!-- flow channel band -->
+    <rect x="990" y="56" width="110" height="192" fill="url(#fade)"/>
+    <line x1="990"  y1="56" x2="990"  y2="248" stroke="#efe9da" stroke-width="1.5" stroke-dasharray="3 5" opacity="0.45"/>
+    <line x1="1100" y1="56" x2="1100" y2="248" stroke="#efe9da" stroke-width="1.5" stroke-dasharray="3 5" opacity="0.45"/>
+    <text x="1045" y="48" font-size="13" font-weight="600" fill="#efe9da" text-anchor="middle">your flow channel</text>
+
+    <!-- inverted-U curve, zone-coloured -->
+    <path d="M872 240 C 942 100, 1150 96, 1216 236" fill="none" stroke="url(#curve)" stroke-width="5" stroke-linecap="round"/>
+
+    <!-- "you are here" marker on the curve -->
+    <circle cx="1045" cy="133" r="8" fill="#161814" stroke="#efe9da" stroke-width="3.5"/>
+
+    <!-- zone words along the load axis -->
+    <text x="915"  y="272" font-size="12.5" fill="#6c9a8b" text-anchor="middle">Chill</text>
+    <text x="1118" y="272" font-size="12.5" fill="#d99058" text-anchor="middle">Heating up</text>
+    <text x="1200" y="272" font-size="12.5" fill="#d98c80" text-anchor="middle">Cooked</text>
+  </g>
+</svg>
