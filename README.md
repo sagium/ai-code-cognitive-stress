@@ -48,42 +48,84 @@ individually-derived optimum (an inverted-U "flow channel", not a fixed ceiling)
 
 Pure-stdlib Python, **3.10 – 3.14** (including the latest), zero third-party
 dependencies. **Not published to a package index** — you run it straight from a
-clone.
-
-```bash
-git clone <repo-url> ai-code-cognitive-stress
-cd ai-code-cognitive-stress
-```
+clone. The core install is identical on Linux and macOS; only the optional
+desktop widget differs (KDE Plasma vs Übersicht), so each OS gets its own
+step-by-step below.
 
 **The easy path — let your agent install it.** This repo ships as a chat *skill*
-for the LLM coding tools you already use. Open the clone in your agent (Claude
-Code, Codex CLI, Aider, Cursor, …) and ask it to install the project — it runs
-`python install.py`, which registers the skill on your machine:
+for the LLM coding tools you already use. Open the clone in your agent and ask
+it to install the project — it runs
+`python install.py`, which registers the skill on your machine. **Using it is
+then just talking to your agent**: ask *"show me my stress profile"* or *"how
+loaded was my week?"* and the project skill takes over — it generates the
+report, writes a focused read of your own data, and opens it in your browser.
+No CLI flags to remember.
+
+Prefer to do it by hand? Follow the steps for your OS.
+
+### Linux — step by step
 
 ```bash
-python install.py        # what the agent runs — registers the chat skill
+# 1. Clone and enter the repo
+git clone <repo-url> ai-code-cognitive-stress
+cd ai-code-cognitive-stress
+
+# 2. Register the chat skill (the same thing the agent path above runs)
+python install.py
+
+# 3. Optional — put the `aicogstress` CLI on your PATH with uv
+#    (a system Python ≥ 3.10 can always run it as `python -m stress_levels`)
+uv tool install --from . ai-code-cognitive-stress
+
+# 4. Your first report
+aicogstress --year 2026 --open           # or: python -m stress_levels --year 2026 --open
 ```
 
-**Using it is then just talking to your agent.** Ask *"show me my stress
-profile"* or *"how loaded was my week?"* and the project skill takes over: it
-generates the report, writes a focused read of your own data, and opens it in
-your browser. No CLI flags to remember.
-
-**Prefer to drive it yourself?** It's pure stdlib, so a system Python ≥ 3.10
-just works:
+**5. Optional — the live KDE Plasma 6 desktop widget** (Plasma 6 / Qt 6 only;
+needs the QtWebEngine QML module — the same dependency as KDE's own web-browser
+applet):
 
 ```bash
-python -m stress_levels --year 2026 --open
+sudo apt install qml6-module-qtwebengine       # Debian/Ubuntu (Arch: sudo pacman -S qt6-webengine)
+python install.py --plasmoid                   # install the widget package
+kquitapp6 plasmashell && kstart plasmashell    # restart Plasma to pick it up
+# then: right-click the desktop or a panel → "Add Widgets…" → "Cognitive Stress"
 ```
 
-Or **with [uv](https://docs.astral.sh/uv/)** (auto-provisions a Python in range
-if you don't already have one):
+### macOS — step by step
+
+```bash
+# 1. Clone and enter the repo
+git clone <repo-url> ai-code-cognitive-stress
+cd ai-code-cognitive-stress
+
+# 2. Register the chat skill (the same thing the agent path above runs)
+python3 install.py
+
+# 3. Optional — put the `aicogstress` CLI on your PATH with uv (brew install uv)
+#    (a system Python ≥ 3.10 can always run it as `python3 -m stress_levels`)
+uv tool install --from . ai-code-cognitive-stress
+
+# 4. Your first report
+aicogstress --year 2026 --open           # or: python3 -m stress_levels --year 2026 --open
+```
+
+**5. Optional — the live [Übersicht](https://tracesof.net/uebersicht/) desktop
+widget:**
+
+```bash
+brew install --cask ubersicht    # if you don't have Übersicht yet
+python3 install.py --ubersicht   # symlink the widget into Übersicht's widgets dir
+```
+
+### Other ways to run it
+
+**With [uv](https://docs.astral.sh/uv/)** and no install at all (auto-provisions
+a Python in range if you don't already have one):
 
 ```bash
 uv run python -m stress_levels --year 2026 --open        # run from the working tree
 uvx --from . ai-code-cognitive-stress --month 2026-05    # build + run the console app
-uv tool install --from . ai-code-cognitive-stress        # put `aicogstress` on your PATH
-aicogstress --year 2026 --open
 ```
 
 Each run writes a self-contained `<output>.html` report plus a `<output>.json`
@@ -119,38 +161,26 @@ other external display.)
        alt="The macOS Übersicht widget on a desktop: glass card with the composite score 55 'Cooked', an off-hours nag banner, the per-hour concurrency chart with an evening session outside the shaded work window, and the three axis tiles with zone range bars (synthetic demo day)">
 </p>
 
-**KDE Plasma 6** — a desktop/panel widget hosting the card in a web view:
-
-```bash
-python install.py --plasmoid                  # install the widget package
-kquitapp6 plasmashell && kstart plasmashell    # restart Plasma to pick it up
-# then: right-click the desktop or a panel → "Add Widgets…" → "Cognitive Stress"
-```
-
-On the desktop it shows the full card inline (sized to fit, no scrolling);
-in a panel it shows the compact composite score that expands on click. Plasma 6
-/ Qt 6 only (Plasma 5 is end-of-life), and it needs the QtWebEngine QML module
-(`qml6-module-qtwebengine` on Debian/Ubuntu, `qt6-webengine` on Arch — the
-same dependency as KDE's own web browser applet). The package lives in
-`desktop/plasmoid/` as a thin QML shell. If the score stays blank, `aicogstress`
-isn't on Plasma's `PATH`: set the absolute path to `aicogstress` in the widget's
-settings. Remove it with `python install.py --uninstall --plasmoid`. After
-updating the widget, restart plasmashell so it drops the cached version
+**KDE Plasma 6** — a desktop/panel widget hosting the card in a web view
+(install: step 5 of the [Linux steps](#linux--step-by-step) above). On the
+desktop it shows the full card inline (sized to fit, no scrolling); in a panel
+it shows the compact composite score that expands on click. Plasma 6 / Qt 6
+only (Plasma 5 is end-of-life). The package lives in `desktop/plasmoid/` as a
+thin QML shell. If the score stays blank, `aicogstress` isn't on Plasma's
+`PATH`: set the absolute path to `aicogstress` in the widget's settings.
+Remove it with `python install.py --uninstall --plasmoid`. After updating the
+widget, restart plasmashell so it drops the cached version
 (`kquitapp6 plasmashell && kstart plasmashell`).
 
 **macOS** — an [Übersicht](https://tracesof.net/uebersicht/) widget (pictured
-above): a translucent glass card over your wallpaper, in system SF Pro:
-
-```bash
-python install.py --ubersicht    # symlink into Übersicht's widgets directory
-# or drag desktop/ubersicht/cognitive-stress.jsx into
-# ~/Library/Application Support/Übersicht/widgets/ yourself
-```
-
-If the score stays blank, set the absolute path to `aicogstress` in the file's
-`command` line. Remove it with `python install.py --uninstall --ubersicht`.
-Not on a Mac? `desktop/ubersicht/preview.html` shows the widgets' exact card
-in any browser (instructions inside) — handy for hacking on it from Linux.
+above): a translucent glass card over your wallpaper, in system SF Pro
+(install: step 5 of the [macOS steps](#macos--step-by-step) above; or drag
+`desktop/ubersicht/cognitive-stress.jsx` into
+`~/Library/Application Support/Übersicht/widgets/` yourself). If the score
+stays blank, set the absolute path to `aicogstress` in the file's `command`
+line. Remove it with `python3 install.py --uninstall --ubersicht`. Not on a
+Mac? `desktop/ubersicht/preview.html` shows the widgets' exact card in any
+browser (instructions inside) — handy for hacking on it from Linux.
 
 All three surfaces — the HTML report and both desktop widgets — render from
 one shared model (`stress_levels/dayview.py`), and the two widgets share one
@@ -226,8 +256,8 @@ subjective criterion (NASA-TLX / EMA) and stays future work.
 ## Project structure
 
 The project layout and the rules for working in this repo live in
-[`AGENTS.md`](AGENTS.md) — the tool-agnostic instructions file read by Claude
-Code, Codex CLI, Aider, Cursor, Copilot, and others.
+[`AGENTS.md`](AGENTS.md) — the tool-agnostic instructions file that agent
+coding tools read.
 
 In short: adding a new coding tool is a single file — implement the
 `SessionSource` protocol in `stress_levels/sources/base.py` (yield typed events
