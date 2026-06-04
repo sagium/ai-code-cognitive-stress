@@ -377,7 +377,10 @@ def _plasmoid_postinstall_hint() -> None:
         '       search "Cognitive Stress" and drop it in.\n'
         "  The widget runs `aicogstress --emit-html-card` on a timer; make sure that command\n"
         "  is on PATH, or set its full path in the widget's settings (Plasma may\n"
-        "  not inherit your shell PATH)."
+        "  not inherit your shell PATH).\n"
+        "  To remove it later, run `python install.py --plasmoid --uninstall` —\n"
+        '  NOT `kpackagetool6 --remove` or the GUI "Uninstall", which follow the\n'
+        "  live symlink and delete this repo's widget source."
     )
 
 
@@ -460,43 +463,38 @@ def install_plasmoid(required: bool = True) -> int:
 
 
 def _link_plasmoid() -> int:
-    """Build the live layout: a real package dir with metadata.json copied in
-    and contents/ symlinked to the repo. A remove (ours, kpackagetool6's, or
-    Plasma's GUI) then unlinks the pointer instead of following it into the
-    repo, so the source is never deleted."""
-    src_contents = PLASMOID_SRC / "contents"
-    src_metadata = PLASMOID_SRC / "metadata.json"
-    dest_contents = PLASMOID_DEST / "contents"
+    """Install the widget as a whole-package symlink into the plasmoids dir, so
+    edits and `git pull` update it live with no reinstall.
 
+    Why the whole package, not just contents/? KPackage refuses to load a
+    package whose files resolve outside the install dir ("Path traversal
+    detected"), so a contents-only symlink renders an empty/broken applet.
+    Symlinking the whole dir makes the canonical package root the repo itself,
+    which KPackage accepts. The trade-off: `kpackagetool6 --remove` and
+    Plasma's GUI "Uninstall" dereference this symlink and delete the target
+    (the repo source). install.py never does that — uninstall_plasmoid unlinks
+    the pointer instead — and the post-install note warns against doing it by
+    hand."""
     PLASMOID_DEST.parent.mkdir(parents=True, exist_ok=True)
 
-    # Already the live layout? Refresh metadata.json (it isn't symlinked, so
-    # it doesn't track `git pull` on its own) and report idempotently.
-    if (
-        PLASMOID_DEST.is_dir()
-        and not PLASMOID_DEST.is_symlink()
-        and dest_contents.is_symlink()
-        and dest_contents.resolve(strict=False) == src_contents.resolve()
-    ):
-        shutil.copy2(src_metadata, PLASMOID_DEST / "metadata.json")
-        print(f"Plasma widget: already linked — live ({PLASMOID_DEST}).")
-        _plasmoid_postinstall_hint()
-        return 0
-
-    # Clear any prior install we own: an old whole-package symlink, a
-    # kpackagetool6 copy, or a stale/partial dir. None of these IS the repo —
-    # unlink() drops a symlink without touching its target, and rmtree unlinks
-    # an inner contents/ symlink rather than following it — so the source is
-    # safe either way.
-    if PLASMOID_DEST.is_symlink() or PLASMOID_DEST.is_file():
+    # Already our symlink? Idempotent.
+    if PLASMOID_DEST.is_symlink():
+        if PLASMOID_DEST.resolve(strict=False) == PLASMOID_SRC.resolve():
+            print(f"Plasma widget: already linked — live ({PLASMOID_DEST}).")
+            _plasmoid_postinstall_hint()
+            return 0
+        PLASMOID_DEST.unlink()  # a stale symlink — drop the pointer, not its target
+    elif PLASMOID_DEST.is_file():
         PLASMOID_DEST.unlink()
     elif PLASMOID_DEST.exists():
+        # A real dir — an older kpackagetool6 copy, or the broken contents-
+        # symlink layout. It lives under the plasmoids dir, never the repo, so
+        # removing it is safe; rmtree unlinks any inner symlink rather than
+        # following it into the repo.
         shutil.rmtree(PLASMOID_DEST)
 
-    PLASMOID_DEST.mkdir(parents=True)
-    shutil.copy2(src_metadata, PLASMOID_DEST / "metadata.json")
-    dest_contents.symlink_to(src_contents, target_is_directory=True)
-    print(f"Plasma widget: linked — live ({dest_contents} -> {src_contents}).")
+    PLASMOID_DEST.symlink_to(PLASMOID_SRC, target_is_directory=True)
+    print(f"Plasma widget: linked — live ({PLASMOID_DEST} -> {PLASMOID_SRC}).")
     print("  Edits and `git pull` update the widget — no reinstall needed.")
     _plasmoid_postinstall_hint()
     return 0
