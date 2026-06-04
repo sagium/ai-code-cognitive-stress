@@ -386,19 +386,24 @@ def _remove_legacy_plasmoids() -> None:
     doesn't end up installed twice."""
     tool = shutil.which("kpackagetool6")
     for legacy in LEGACY_PLASMOID_IDS:
+        legacy_dest = PLASMOIDS_DIR / legacy
         removed = False
-        if tool:
+        # Unlink a symlinked legacy install ourselves first — never let
+        # kpackagetool6 dereference it (it would delete the symlink's target).
+        # Only a genuine copy install is safe to unregister with the tool.
+        contents = legacy_dest / "contents"
+        is_live = legacy_dest.is_symlink() or contents.is_symlink()
+        if not is_live and tool:
             res = subprocess.run(
                 [tool, "--type", "Plasma/Applet", "--remove", legacy],
                 capture_output=True, text=True,
             )
             removed = res.returncode == 0
-        legacy_dest = PLASMOIDS_DIR / legacy
         if legacy_dest.is_symlink() or legacy_dest.is_file():
             legacy_dest.unlink()
             removed = True
         elif legacy_dest.exists():
-            shutil.rmtree(legacy_dest)
+            shutil.rmtree(legacy_dest)  # unlinks inner contents/ symlink, safe
             removed = True
         if removed:
             print(
@@ -411,9 +416,17 @@ def _remove_legacy_plasmoids() -> None:
 
 
 def install_plasmoid(required: bool = True) -> int:
-    """Install the Plasma 6 widget. Prefers kpackagetool6; otherwise symlinks
-    the package into ~/.local/share/plasma/plasmoids (so `git pull` updates it
-    live). Best-effort and additive: a failure here never blocks the skill.
+    """Install the Plasma 6 widget as a *live* package, so `git pull` and local
+    edits update it with no reinstall. Best-effort and additive: a failure here
+    never blocks the skill.
+
+    The install dir is a real directory we own, with metadata.json copied in
+    and only contents/ symlinked back to the repo. We deliberately do NOT use
+    `kpackagetool6 --install` (it copies — no live updates) nor symlink the
+    whole package dir: kpackagetool6 and Plasma's GUI "uninstall" treat the
+    install dir as storage they own and recursively delete it, following a
+    whole-package symlink straight into the repo and wiping the source. See
+    _link_plasmoid / uninstall_plasmoid for the matching removal path.
 
     `required=False` is the full-install path: a non-KDE desktop downgrades
     to an informational skip instead of an error."""
@@ -443,43 +456,48 @@ def install_plasmoid(required: bool = True) -> int:
 
     _remove_legacy_plasmoids()
 
-    tool = shutil.which("kpackagetool6")
-    if tool:
-        res = None
-        for op in ("--install", "--upgrade"):  # --upgrade if already present
-            res = subprocess.run(
-                [tool, "--type", "Plasma/Applet", op, str(PLASMOID_SRC)],
-                capture_output=True, text=True,
-            )
-            if res.returncode == 0:
-                print(f"Plasma widget: installed via kpackagetool6 ({PLASMOID_ID}).")
-                _plasmoid_postinstall_hint()
-                return 0
-        stderr = (res.stderr or "").strip() if res else ""
-        print(
-            f"Plasma widget: kpackagetool6 failed ({stderr}); "
-            "falling back to a symlink.",
-            file=sys.stderr,
-        )
-    return _symlink_plasmoid()
+    return _link_plasmoid()
 
 
-def _symlink_plasmoid() -> int:
+def _link_plasmoid() -> int:
+    """Build the live layout: a real package dir with metadata.json copied in
+    and contents/ symlinked to the repo. A remove (ours, kpackagetool6's, or
+    Plasma's GUI) then unlinks the pointer instead of following it into the
+    repo, so the source is never deleted."""
+    src_contents = PLASMOID_SRC / "contents"
+    src_metadata = PLASMOID_SRC / "metadata.json"
+    dest_contents = PLASMOID_DEST / "contents"
+
     PLASMOID_DEST.parent.mkdir(parents=True, exist_ok=True)
-    if PLASMOID_DEST.is_symlink():
-        if PLASMOID_DEST.resolve(strict=False) == PLASMOID_SRC.resolve():
-            print(f"Plasma widget: already linked ({PLASMOID_DEST}).")
-            _plasmoid_postinstall_hint()
-            return 0
-    if PLASMOID_DEST.is_symlink() or PLASMOID_DEST.exists():
-        print(
-            f"Plasma widget: {PLASMOID_DEST} already exists and points "
-            "elsewhere; remove it to reinstall.",
-            file=sys.stderr,
-        )
-        return 1
-    PLASMOID_DEST.symlink_to(PLASMOID_SRC, target_is_directory=True)
-    print(f"Plasma widget: linked {PLASMOID_DEST} -> {PLASMOID_SRC}")
+
+    # Already the live layout? Refresh metadata.json (it isn't symlinked, so
+    # it doesn't track `git pull` on its own) and report idempotently.
+    if (
+        PLASMOID_DEST.is_dir()
+        and not PLASMOID_DEST.is_symlink()
+        and dest_contents.is_symlink()
+        and dest_contents.resolve(strict=False) == src_contents.resolve()
+    ):
+        shutil.copy2(src_metadata, PLASMOID_DEST / "metadata.json")
+        print(f"Plasma widget: already linked — live ({PLASMOID_DEST}).")
+        _plasmoid_postinstall_hint()
+        return 0
+
+    # Clear any prior install we own: an old whole-package symlink, a
+    # kpackagetool6 copy, or a stale/partial dir. None of these IS the repo —
+    # unlink() drops a symlink without touching its target, and rmtree unlinks
+    # an inner contents/ symlink rather than following it — so the source is
+    # safe either way.
+    if PLASMOID_DEST.is_symlink() or PLASMOID_DEST.is_file():
+        PLASMOID_DEST.unlink()
+    elif PLASMOID_DEST.exists():
+        shutil.rmtree(PLASMOID_DEST)
+
+    PLASMOID_DEST.mkdir(parents=True)
+    shutil.copy2(src_metadata, PLASMOID_DEST / "metadata.json")
+    dest_contents.symlink_to(src_contents, target_is_directory=True)
+    print(f"Plasma widget: linked — live ({dest_contents} -> {src_contents}).")
+    print("  Edits and `git pull` update the widget — no reinstall needed.")
     _plasmoid_postinstall_hint()
     return 0
 
@@ -488,24 +506,35 @@ def uninstall_plasmoid() -> int:
     if not sys.platform.startswith("linux"):
         return 0
     _remove_legacy_plasmoids()
+
+    if not PLASMOID_DEST.exists() and not PLASMOID_DEST.is_symlink():
+        print("Plasma widget: nothing to remove.")
+        return 0
+
+    # NEVER hand a symlinked layout to `kpackagetool6 --remove`: it
+    # dereferences the symlink and recursively deletes the target — for our
+    # live install that target is the repo source. Only a genuine copy install
+    # (an older install.py) is safe to unregister with the tool.
+    contents = PLASMOID_DEST / "contents"
+    is_live = PLASMOID_DEST.is_symlink() or contents.is_symlink()
     tool = shutil.which("kpackagetool6")
-    if tool:
+    if not is_live and tool:
         res = subprocess.run(
             [tool, "--type", "Plasma/Applet", "--remove", PLASMOID_ID],
             capture_output=True, text=True,
         )
-        if res.returncode == 0:
+        if res.returncode == 0 and not PLASMOID_DEST.exists():
             print(f"Plasma widget: removed via kpackagetool6 ({PLASMOID_ID}).")
             return 0
+
+    # shutil.rmtree unlinks the contents/ symlink rather than following it, and
+    # unlink() drops a whole-package symlink without touching its target — so
+    # the repo source is safe.
     if PLASMOID_DEST.is_symlink() or PLASMOID_DEST.is_file():
         PLASMOID_DEST.unlink()
-        print(f"Plasma widget: removed {PLASMOID_DEST}.")
-        return 0
-    if PLASMOID_DEST.exists():
+    else:
         shutil.rmtree(PLASMOID_DEST)
-        print(f"Plasma widget: removed {PLASMOID_DEST}.")
-        return 0
-    print("Plasma widget: nothing to remove.")
+    print(f"Plasma widget: removed {PLASMOID_DEST}.")
     return 0
 
 
