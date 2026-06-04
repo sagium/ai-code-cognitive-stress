@@ -35,6 +35,7 @@ from __future__ import annotations
 import argparse
 import datetime
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -115,6 +116,14 @@ def parse_args() -> argparse.Namespace:
             "Remove everything install.py created (skill, CLI, widget). "
             "Combine with --skill-only / --plasmoid / --ubersicht to remove "
             "a single component."
+        ),
+    )
+    parser.add_argument(
+        "--restart-shell", action="store_true",
+        help=(
+            "After installing the Plasma widget, restart plasmashell so the "
+            "updated widget loads immediately — but only inside a live Plasma "
+            "6 session. The git hook passes this; harmless elsewhere."
         ),
     )
     return parser.parse_args()
@@ -421,7 +430,7 @@ def _remove_legacy_plasmoids() -> None:
             )
 
 
-def install_plasmoid(required: bool = True) -> int:
+def install_plasmoid(required: bool = True, restart_shell: bool = False) -> int:
     """Install the Plasma 6 widget as a real copy in the plasmoids dir. Best-
     effort and additive: a failure here never blocks the skill.
 
@@ -432,6 +441,11 @@ def install_plasmoid(required: bool = True) -> int:
     those paths. The trade-off is that updates flow only through install.py:
     re-run `python install.py --plasmoid` after a pull (a git post-merge hook
     automates it). See _copy_plasmoid / uninstall_plasmoid.
+
+    `restart_shell=True` (what the git hook passes) reloads plasmashell after
+    the copy so the new QML shows at once — but only inside a live Plasma 6
+    session, so it's a no-op over SSH or on a non-Plasma desktop. A plain
+    manual install prints the restart step instead of forcing it.
 
     `required=False` is the full-install path: a non-KDE desktop downgrades
     to an informational skip instead of an error."""
@@ -464,6 +478,11 @@ def install_plasmoid(required: bool = True) -> int:
     rc = _copy_plasmoid()
     if rc == 0:
         _install_git_hook("--plasmoid")
+        if restart_shell:
+            if _plasma6_session_running():
+                _restart_plasmashell()
+        else:
+            _plasmoid_postinstall_hint()
     return rc
 
 
@@ -494,7 +513,6 @@ def _copy_plasmoid() -> int:
             )
             if res.returncode == 0:
                 print(f"Plasma widget: installed via kpackagetool6 ({PLASMOID_ID}).")
-                _plasmoid_postinstall_hint()
                 return 0
         stderr = (res.stderr or "").strip() if res else ""
         print(
@@ -508,7 +526,6 @@ def _copy_plasmoid() -> int:
         shutil.rmtree(PLASMOID_DEST)
     shutil.copytree(PLASMOID_SRC, PLASMOID_DEST)
     print(f"Plasma widget: installed (copy) {PLASMOID_DEST} <- {PLASMOID_SRC}.")
-    _plasmoid_postinstall_hint()
     return 0
 
 
@@ -529,66 +546,110 @@ def _git_hooks_dir() -> Path | None:
 
 
 def _install_git_hook(flag: str) -> None:
-    """Drop post-merge + post-checkout hooks that re-run `install.py <flag>`, so
-    the installed widget copy tracks the repo after a `git pull`/checkout.
-    Idempotent and non-clobbering: a pre-existing hook we didn't write is left
-    untouched, with a note on the one line to add by hand."""
+    """Drop a post-merge hook that re-runs `install.py <flag> --restart-shell`,
+    so the installed widget copy tracks the repo after a `git pull`/merge (the
+    only events we care about). Idempotent and quiet: a hook already matching is
+    left as-is with no output; a hook we didn't write is never clobbered, just
+    flagged with the one line to add by hand."""
     hooks = _git_hooks_dir()
     if hooks is None:
         return
-    run = f'exec python3 "$(git rev-parse --show-toplevel)/install.py" {flag}\n'
-    bodies = {
-        "post-merge": f"#!/bin/sh\n# {HOOK_MARK} (managed by install.py)\n{run}",
-        # post-checkout also fires on file checkouts ($3=0); only refresh on a
-        # branch switch or clone ($3=1).
-        "post-checkout": (
-            f"#!/bin/sh\n# {HOOK_MARK} (managed by install.py)\n"
-            f'[ "$3" = "1" ] || exit 0\n{run}'
-        ),
-    }
+    # Clean up the post-checkout hook older versions installed — we only refresh
+    # on merge/pull now, not on every branch switch.
+    _remove_hook_file(hooks / "post-checkout")
+
+    hook = hooks / "post-merge"
+    body = (
+        f"#!/bin/sh\n# {HOOK_MARK} (managed by install.py)\n"
+        f'exec python3 "$(git rev-parse --show-toplevel)/install.py" {flag} --restart-shell\n'
+    )
+    if hook.exists():
+        try:
+            current = hook.read_text(encoding="utf-8")
+        except OSError:
+            current = ""
+        if HOOK_MARK not in current:
+            print(
+                f"  Git hook: {hook} already exists and isn't ours — leaving it.\n"
+                "    To auto-refresh the widget on pull, add this line to it:\n"
+                f'      python3 "$(git rev-parse --show-toplevel)/install.py" {flag} --restart-shell'
+            )
+            return
+        if current == body:
+            return  # already correct — no churn, no noise on every pull
     hooks.mkdir(parents=True, exist_ok=True)
-    wrote = []
-    for name, body in bodies.items():
-        hook = hooks / name
-        if hook.exists():
-            try:
-                ours = HOOK_MARK in hook.read_text(encoding="utf-8")
-            except OSError:
-                ours = False
-            if not ours:
-                print(
-                    f"  Git hook: {hook} already exists and isn't ours — "
-                    "leaving it.\n"
-                    "    To auto-refresh the widget, add this line to it:\n"
-                    f'      python3 "$(git rev-parse --show-toplevel)/install.py" {flag}'
-                )
-                continue
-        hook.write_text(body, encoding="utf-8")
-        hook.chmod(0o755)
-        wrote.append(name)
-    if wrote:
-        print(
-            f"  Git hook: {'/'.join(wrote)} will refresh the widget after "
-            "`git pull`/checkout."
-        )
+    hook.write_text(body, encoding="utf-8")
+    hook.chmod(0o755)
+    print("  Git hook: post-merge will refresh the widget after `git pull`/merge.")
+
+
+def _remove_hook_file(hook: Path) -> None:
+    """Delete a hook only if we wrote it (leave the user's own hooks alone)."""
+    if not hook.is_file():
+        return
+    try:
+        ours = HOOK_MARK in hook.read_text(encoding="utf-8")
+    except OSError:
+        ours = False
+    if ours:
+        hook.unlink()
+        print(f"  Git hook: removed {hook}.")
 
 
 def _remove_git_hook() -> None:
-    """Remove the post-merge/post-checkout hooks we wrote (leave any others)."""
+    """Remove the hooks we wrote (post-merge, plus a post-checkout from older
+    versions); leave any others."""
     hooks = _git_hooks_dir()
     if hooks is None:
         return
-    for name in ("post-merge", "post-checkout"):
-        hook = hooks / name
-        if not hook.is_file():
-            continue
-        try:
-            ours = HOOK_MARK in hook.read_text(encoding="utf-8")
-        except OSError:
-            ours = False
-        if ours:
-            hook.unlink()
-            print(f"  Git hook: removed {hook}.")
+    _remove_hook_file(hooks / "post-merge")
+    _remove_hook_file(hooks / "post-checkout")
+
+
+def _plasma6_session_running() -> bool:
+    """True only inside a live Plasma 6 graphical session — so an auto-restart
+    reloads the real shell and never spawns one over SSH or on a non-Plasma
+    desktop."""
+    if "kde" not in os.environ.get("XDG_CURRENT_DESKTOP", "").lower():
+        return False
+    if not (os.environ.get("WAYLAND_DISPLAY") or os.environ.get("DISPLAY")):
+        return False
+    if not shutil.which("plasmashell"):
+        return False
+    try:
+        if subprocess.run(["pgrep", "-x", "plasmashell"],
+                          capture_output=True).returncode != 0:
+            return False
+        res = subprocess.run(["plasmashell", "--version"],
+                             capture_output=True, text=True)
+    except OSError:
+        return False
+    m = re.search(r"\b(\d+)\.", res.stdout)
+    return bool(m and m.group(1) == "6")
+
+
+def _restart_plasmashell() -> None:
+    """Reload the running shell so it picks up the updated widget QML. Prefer
+    the systemd user unit when it's the one running (clean restart, no double
+    shell); otherwise quit and relaunch by hand."""
+    sysctl = shutil.which("systemctl")
+    if sysctl and subprocess.run(
+        [sysctl, "--user", "--quiet", "is-active", "plasma-plasmashell.service"],
+        capture_output=True,
+    ).returncode == 0:
+        subprocess.run([sysctl, "--user", "restart", "plasma-plasmashell.service"],
+                       capture_output=True)
+        print("  Reloaded Plasma to show the updated widget.")
+        return
+    subprocess.run(["kquitapp6", "plasmashell"], capture_output=True)
+    kstart = shutil.which("kstart") or shutil.which("kstart6")
+    if kstart:
+        subprocess.Popen(
+            [kstart, "plasmashell"], stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    print("  Reloaded Plasma to show the updated widget.")
 
 
 def uninstall_plasmoid() -> int:
@@ -771,7 +832,9 @@ def main() -> int:
         rc = install_cli() or rc
     if args.plasmoid or (full and sys.platform.startswith("linux")):
         _step("Desktop widget (KDE Plasma 6)")
-        rc = install_plasmoid(required=args.plasmoid) or rc
+        rc = install_plasmoid(
+            required=args.plasmoid, restart_shell=args.restart_shell,
+        ) or rc
     if args.ubersicht or (full and sys.platform == "darwin"):
         _step("Desktop widget (Übersicht)")
         rc = install_ubersicht(required=args.ubersicht) or rc
