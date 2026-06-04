@@ -57,6 +57,10 @@ PLASMOID_SRC = REPO_DIR / "desktop" / "plasmoid" / PLASMOID_ID
 PLASMOIDS_DIR = Path.home() / ".local" / "share" / "plasma" / "plasmoids"
 PLASMOID_DEST = PLASMOIDS_DIR / PLASMOID_ID
 
+# Git hooks that re-run the widget install after `git pull`/checkout, so the
+# installed copy keeps tracking the repo. Marked so we only ever touch our own.
+HOOK_MARK = "ai-code-cognitive-stress widget refresh"
+
 # macOS Übersicht desktop widget. A single JSX file; installs into
 # Übersicht's widgets directory.
 UBERSICHT_SRC = REPO_DIR / "desktop" / "ubersicht" / "cognitive-stress.jsx"
@@ -457,7 +461,10 @@ def install_plasmoid(required: bool = True) -> int:
 
     _remove_legacy_plasmoids()
 
-    return _copy_plasmoid()
+    rc = _copy_plasmoid()
+    if rc == 0:
+        _install_git_hook("--plasmoid")
+    return rc
 
 
 def _copy_plasmoid() -> int:
@@ -505,10 +512,90 @@ def _copy_plasmoid() -> int:
     return 0
 
 
+def _git_hooks_dir() -> Path | None:
+    """The repo's hooks dir, or None when REPO_DIR isn't a git checkout (e.g. a
+    `--copy` skill install) or git isn't available."""
+    try:
+        res = subprocess.run(
+            ["git", "rev-parse", "--git-path", "hooks"],
+            cwd=REPO_DIR, capture_output=True, text=True,
+        )
+    except OSError:
+        return None
+    if res.returncode != 0:
+        return None
+    hooks = Path(res.stdout.strip())
+    return hooks if hooks.is_absolute() else REPO_DIR / hooks
+
+
+def _install_git_hook(flag: str) -> None:
+    """Drop post-merge + post-checkout hooks that re-run `install.py <flag>`, so
+    the installed widget copy tracks the repo after a `git pull`/checkout.
+    Idempotent and non-clobbering: a pre-existing hook we didn't write is left
+    untouched, with a note on the one line to add by hand."""
+    hooks = _git_hooks_dir()
+    if hooks is None:
+        return
+    run = f'exec python3 "$(git rev-parse --show-toplevel)/install.py" {flag}\n'
+    bodies = {
+        "post-merge": f"#!/bin/sh\n# {HOOK_MARK} (managed by install.py)\n{run}",
+        # post-checkout also fires on file checkouts ($3=0); only refresh on a
+        # branch switch or clone ($3=1).
+        "post-checkout": (
+            f"#!/bin/sh\n# {HOOK_MARK} (managed by install.py)\n"
+            f'[ "$3" = "1" ] || exit 0\n{run}'
+        ),
+    }
+    hooks.mkdir(parents=True, exist_ok=True)
+    wrote = []
+    for name, body in bodies.items():
+        hook = hooks / name
+        if hook.exists():
+            try:
+                ours = HOOK_MARK in hook.read_text(encoding="utf-8")
+            except OSError:
+                ours = False
+            if not ours:
+                print(
+                    f"  Git hook: {hook} already exists and isn't ours — "
+                    "leaving it.\n"
+                    "    To auto-refresh the widget, add this line to it:\n"
+                    f'      python3 "$(git rev-parse --show-toplevel)/install.py" {flag}'
+                )
+                continue
+        hook.write_text(body, encoding="utf-8")
+        hook.chmod(0o755)
+        wrote.append(name)
+    if wrote:
+        print(
+            f"  Git hook: {'/'.join(wrote)} will refresh the widget after "
+            "`git pull`/checkout."
+        )
+
+
+def _remove_git_hook() -> None:
+    """Remove the post-merge/post-checkout hooks we wrote (leave any others)."""
+    hooks = _git_hooks_dir()
+    if hooks is None:
+        return
+    for name in ("post-merge", "post-checkout"):
+        hook = hooks / name
+        if not hook.is_file():
+            continue
+        try:
+            ours = HOOK_MARK in hook.read_text(encoding="utf-8")
+        except OSError:
+            ours = False
+        if ours:
+            hook.unlink()
+            print(f"  Git hook: removed {hook}.")
+
+
 def uninstall_plasmoid() -> int:
     if not sys.platform.startswith("linux"):
         return 0
     _remove_legacy_plasmoids()
+    _remove_git_hook()
 
     if not PLASMOID_DEST.exists() and not PLASMOID_DEST.is_symlink():
         print("Plasma widget: nothing to remove.")
