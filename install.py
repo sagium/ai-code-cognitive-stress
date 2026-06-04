@@ -378,9 +378,8 @@ def _plasmoid_postinstall_hint() -> None:
         "  The widget runs `aicogstress --emit-html-card` on a timer; make sure that command\n"
         "  is on PATH, or set its full path in the widget's settings (Plasma may\n"
         "  not inherit your shell PATH).\n"
-        "  To remove it later, run `python install.py --plasmoid --uninstall` —\n"
-        '  NOT `kpackagetool6 --remove` or the GUI "Uninstall", which follow the\n'
-        "  live symlink and delete this repo's widget source."
+        "  The installed widget is a copy — re-run `python install.py --plasmoid`\n"
+        "  after `git pull` to update it (or wire that into a git post-merge hook)."
     )
 
 
@@ -419,17 +418,16 @@ def _remove_legacy_plasmoids() -> None:
 
 
 def install_plasmoid(required: bool = True) -> int:
-    """Install the Plasma 6 widget as a *live* package, so `git pull` and local
-    edits update it with no reinstall. Best-effort and additive: a failure here
-    never blocks the skill.
+    """Install the Plasma 6 widget as a real copy in the plasmoids dir. Best-
+    effort and additive: a failure here never blocks the skill.
 
-    The install dir is a real directory we own, with metadata.json copied in
-    and only contents/ symlinked back to the repo. We deliberately do NOT use
-    `kpackagetool6 --install` (it copies — no live updates) nor symlink the
-    whole package dir: kpackagetool6 and Plasma's GUI "uninstall" treat the
-    install dir as storage they own and recursively delete it, following a
-    whole-package symlink straight into the repo and wiping the source. See
-    _link_plasmoid / uninstall_plasmoid for the matching removal path.
+    The install is a copy we own, not a symlink into the repo. That's
+    deliberate: a whole-package symlink would update live on `git pull`, but
+    `kpackagetool6 --remove` and Plasma's GUI "Uninstall" dereference it and
+    delete the target — the repo source. A copy is safe to remove by any of
+    those paths. The trade-off is that updates flow only through install.py:
+    re-run `python install.py --plasmoid` after a pull (a git post-merge hook
+    automates it). See _copy_plasmoid / uninstall_plasmoid.
 
     `required=False` is the full-install path: a non-KDE desktop downgrades
     to an informational skip instead of an error."""
@@ -459,43 +457,50 @@ def install_plasmoid(required: bool = True) -> int:
 
     _remove_legacy_plasmoids()
 
-    return _link_plasmoid()
+    return _copy_plasmoid()
 
 
-def _link_plasmoid() -> int:
-    """Install the widget as a whole-package symlink into the plasmoids dir, so
-    edits and `git pull` update it live with no reinstall.
-
-    Why the whole package, not just contents/? KPackage refuses to load a
-    package whose files resolve outside the install dir ("Path traversal
-    detected"), so a contents-only symlink renders an empty/broken applet.
-    Symlinking the whole dir makes the canonical package root the repo itself,
-    which KPackage accepts. The trade-off: `kpackagetool6 --remove` and
-    Plasma's GUI "Uninstall" dereference this symlink and delete the target
-    (the repo source). install.py never does that — uninstall_plasmoid unlinks
-    the pointer instead — and the post-install note warns against doing it by
-    hand."""
+def _copy_plasmoid() -> int:
+    """Install a real copy via kpackagetool6 (a registered package), falling
+    back to a plain directory copy. Either way the install is a copy we own, so
+    removing it — by install.py, kpackagetool6, or Plasma's GUI — never touches
+    the repo source."""
     PLASMOID_DEST.parent.mkdir(parents=True, exist_ok=True)
 
-    # Already our symlink? Idempotent.
-    if PLASMOID_DEST.is_symlink():
-        if PLASMOID_DEST.resolve(strict=False) == PLASMOID_SRC.resolve():
-            print(f"Plasma widget: already linked — live ({PLASMOID_DEST}).")
-            _plasmoid_postinstall_hint()
-            return 0
-        PLASMOID_DEST.unlink()  # a stale symlink — drop the pointer, not its target
-    elif PLASMOID_DEST.is_file():
+    # Clear any prior *symlinked* install before invoking kpackagetool6:
+    # --install/--upgrade would dereference it and delete the repo source.
+    # unlink() drops a whole-package symlink's pointer; rmtree unlinks an inner
+    # contents/ symlink (the old broken layout) rather than following it. A
+    # real copy is left in place — kpackagetool6 --upgrade replaces it safely.
+    if PLASMOID_DEST.is_symlink() or PLASMOID_DEST.is_file():
         PLASMOID_DEST.unlink()
-    elif PLASMOID_DEST.exists():
-        # A real dir — an older kpackagetool6 copy, or the broken contents-
-        # symlink layout. It lives under the plasmoids dir, never the repo, so
-        # removing it is safe; rmtree unlinks any inner symlink rather than
-        # following it into the repo.
+    elif PLASMOID_DEST.is_dir() and (PLASMOID_DEST / "contents").is_symlink():
         shutil.rmtree(PLASMOID_DEST)
 
-    PLASMOID_DEST.symlink_to(PLASMOID_SRC, target_is_directory=True)
-    print(f"Plasma widget: linked — live ({PLASMOID_DEST} -> {PLASMOID_SRC}).")
-    print("  Edits and `git pull` update the widget — no reinstall needed.")
+    tool = shutil.which("kpackagetool6")
+    if tool:
+        res = None
+        for op in ("--install", "--upgrade"):  # --upgrade if already present
+            res = subprocess.run(
+                [tool, "--type", "Plasma/Applet", op, str(PLASMOID_SRC)],
+                capture_output=True, text=True,
+            )
+            if res.returncode == 0:
+                print(f"Plasma widget: installed via kpackagetool6 ({PLASMOID_ID}).")
+                _plasmoid_postinstall_hint()
+                return 0
+        stderr = (res.stderr or "").strip() if res else ""
+        print(
+            f"Plasma widget: kpackagetool6 failed ({stderr}); "
+            "falling back to a copy.",
+            file=sys.stderr,
+        )
+
+    # Manual copy fallback (no kpackagetool6): replace any existing real copy.
+    if PLASMOID_DEST.exists():
+        shutil.rmtree(PLASMOID_DEST)
+    shutil.copytree(PLASMOID_SRC, PLASMOID_DEST)
+    print(f"Plasma widget: installed (copy) {PLASMOID_DEST} <- {PLASMOID_SRC}.")
     _plasmoid_postinstall_hint()
     return 0
 
