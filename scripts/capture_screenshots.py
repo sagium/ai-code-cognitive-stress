@@ -129,8 +129,10 @@ def _pdf_to_svg(pdf_path: Path, out: Path, bbox: dict | None) -> None:
     subprocess.run(["pdftocairo", "-svg", str(pdf_path), str(out)], check=True)
     text = out.read_text(encoding="utf-8")
 
+    # The width/height carry a "pt" unit on older poppler and none on newer
+    # (the numbers are pt either way: px × PT_PER_PX); accept both.
     m = re.search(
-        r'<svg([^>]*?)width="([\d.]+)pt" height="([\d.]+)pt" '
+        r'<svg([^>]*?)width="([\d.]+)(?:pt)?" height="([\d.]+)(?:pt)?" '
         r'viewBox="0 0 ([\d.]+) ([\d.]+)"', text
     )
     if not m:

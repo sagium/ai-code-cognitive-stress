@@ -127,7 +127,7 @@ A compact header (the composite **/ 100**, a one-word read on the level —
 chart, *Year* a per-month one — each with the three axis tiles and zone range
 bars. Switching is instant and local (all four views are emitted up front) and
 the widget resizes to fit the active one; every tab shares one baseline window,
-so the "typical day" and optimum markers stay put as you switch.
+so the "median day" and optimum markers stay put as you switch.
 
 <table>
 <tr>
