@@ -55,6 +55,8 @@ calibration-report*.json
 # contain your own activity)
 desktop/ubersicht/dayview.json
 desktop/ubersicht/card.html
+# CI widget UI-render screenshot (scripts/ci_widget_ui_check.py)
+widget-card.png
 
 # Logs
 *.log

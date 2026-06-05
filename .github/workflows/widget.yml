@@ -1,0 +1,105 @@
+name: widget
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: widget-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # The macOS install path can't be tested without a Mac — these are real Macs.
+  install-macos:
+    runs-on: macos-latest
+    name: Übersicht install (macOS)
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      # The exact path install.py targets: Path.home()/Library/Application Support/…
+      - name: Resolve Übersicht widgets dir
+        run: echo "WIDGETS_DIR=$HOME/Library/Application Support/Übersicht/widgets" >> "$GITHUB_ENV"
+
+      - name: Install package (provides the aicogstress CLI the widget shells out to)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .
+
+      # install.py's "is Übersicht installed?" gate checks for the Application
+      # Support dir (created on Übersicht's first GUI launch), not the .app —
+      # so creating the dir is enough to exercise the real install path, and
+      # keeps the job hermetic (no flaky cask download / GUI-app install).
+      - name: Create Übersicht widgets dir
+        run: mkdir -p "$WIDGETS_DIR"
+
+      - name: Install the widget
+        run: python install.py --ubersicht
+
+      - name: Assert the widget is a symlink back to the repo source
+        run: |
+          DEST="$WIDGETS_DIR/cognitive-stress.jsx"
+          SRC="$PWD/desktop/ubersicht/cognitive-stress.jsx"
+          test -L "$DEST" || { echo "::error::not a symlink: $DEST"; ls -l "$DEST" || true; exit 1; }
+          got=$(python -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$DEST")
+          want=$(python -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$SRC")
+          [ "$got" = "$want" ] || { echo "::error::symlink target mismatch: $got != $want"; exit 1; }
+          echo "OK: widget linked -> $(readlink "$DEST")"
+
+      - name: Re-install is an idempotent no-op
+        run: python install.py --ubersicht
+
+      # A fresh runner has no agent-coding history, so the card would be empty.
+      # Seed deterministic Claude Code sessions so the CLI exercises the real
+      # ingest → aggregate → metrics → render pipeline on macOS.
+      - name: Seed synthetic session data
+        run: python scripts/ci_seed_session.py --today "$(date -u +%F)"
+
+      - name: The CLI the widget runs works on macOS and emits a card
+        run: aicogstress --emit-html-card | grep -q 'class="cogstress"'
+
+      - name: Uninstall removes the widget
+        run: |
+          python install.py --ubersicht --uninstall
+          DEST="$WIDGETS_DIR/cognitive-stress.jsx"
+          test ! -e "$DEST" || { echo "::error::still present after uninstall: $DEST"; exit 1; }
+          echo "OK: widget removed"
+
+  # The widget UI *is* the card HTML (stress_levels/widget_card.py), which the
+  # Übersicht host injects verbatim — so headless Chromium renders the real
+  # thing, no Mac required.
+  ui-render:
+    runs-on: ubuntu-latest
+    name: Widget UI render (headless Chromium)
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install package + Playwright
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .
+          python -m pip install playwright
+          python -m playwright install --with-deps chromium
+
+      - name: Generate the deterministic demo card
+        run: python scripts/generate_demo_report.py --dayview-card desktop/ubersicht/card.html
+
+      - name: Render preview.html, assert structure, screenshot
+        run: python scripts/ci_widget_ui_check.py
+
+      - name: Upload widget screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: widget-card
+          path: widget-card.png
+          if-no-files-found: warn
