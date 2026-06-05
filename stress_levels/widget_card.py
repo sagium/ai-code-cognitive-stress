@@ -45,9 +45,7 @@ CSS = """
     border-radius: 24px;
     padding: 20px 20px 14px;
     font-family: __FONT_UI__;
-    background: linear-gradient(178deg, rgba(34, 36, 32, .60), rgba(24, 26, 23, .52));
-    -webkit-backdrop-filter: blur(32px) saturate(150%);
-    backdrop-filter: blur(32px) saturate(150%);
+    background: linear-gradient(178deg, rgb(34, 36, 32), rgb(22, 24, 21));
     border: 1px solid rgba(255, 255, 255, .13);
     box-shadow:
       0 36px 80px -24px rgba(0, 0, 0, .70),

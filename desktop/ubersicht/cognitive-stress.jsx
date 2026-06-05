@@ -37,7 +37,7 @@ export const className = `
 const errorStyle = {
   width: 384, padding: "14px 18px", borderRadius: 16, boxSizing: "border-box",
   font: '600 10.5px/1.5 -apple-system, "Helvetica Neue", sans-serif',
-  color: "#d98c80", background: "rgba(24, 26, 23, .72)",
+  color: "#d98c80", background: "rgb(24, 26, 23)",
   border: "1px solid rgba(176, 74, 58, .26)",
 };
 
