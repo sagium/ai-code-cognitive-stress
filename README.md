@@ -120,21 +120,39 @@ rebuild.
 
 ### Live desktop widgets (KDE Plasma 6 · macOS)
 
-A desktop widget that tracks **today** live: a compact header — the composite
-**/ 100**, a one-word read on the level (*Chill* / *Heating up* / *Cooked*),
-and an intraday score-progression sparkline — above the full daily view: the
-per-hour concurrency chart and the three axis tiles with zone range bars.
+A desktop widget with four timeframe tabs — **Today / Week / Month / Year**.
+A compact header (the composite **/ 100**, a one-word read on the level —
+*Chill* / *Heating up* / *Cooked* — and a trend sparkline) sits above the body:
+*Today* shows the per-hour concurrency chart, *Week/Month* a per-day composite
+chart, *Year* a per-month one — each with the three axis tiles and zone range
+bars. Switching is instant and local (all four views are emitted up front) and
+the widget resizes to fit the active one; every tab shares one baseline window,
+so the "typical day" and optimum markers stay put as you switch.
 
-<p align="center">
-  <img src="docs/screenshots/ubersicht-widget.png" width="430"
-       alt="The macOS Übersicht widget on a desktop: glass card with the composite score 55 'Cooked', an off-hours nag banner, the per-hour concurrency chart with an evening session outside the shaded work window, and the three axis tiles with zone range bars (synthetic demo day)">
-</p>
+<table>
+<tr>
+<td align="center"><b>Today</b><br>
+<img src="docs/screenshots/widget-today.png" width="200"
+     alt="Today tab: composite 55 'Cooked', off-hours nag banner, per-hour concurrency chart, three axis tiles (synthetic demo data)"></td>
+<td align="center"><b>Week</b><br>
+<img src="docs/screenshots/widget-week.png" width="200"
+     alt="Week tab: composite over the last 7 days with a per-day composite-stress bar chart and the three axis tiles (synthetic demo data)"></td>
+<td align="center"><b>Month</b><br>
+<img src="docs/screenshots/widget-month.png" width="200"
+     alt="Month tab: composite 31 over the last 30 days with a per-day composite-stress bar chart and the three axis tiles (synthetic demo data)"></td>
+<td align="center"><b>Year</b><br>
+<img src="docs/screenshots/widget-year.png" width="200"
+     alt="Year tab: composite 30 over the last 12 months with a per-month composite-stress bar chart and the three axis tiles (synthetic demo data)"></td>
+</tr>
+</table>
 
 The card is rendered once, in Python (`stress_levels/widget_card.py`): both
 widgets run `aicogstress --emit-html-card` on a timer and inject the
 self-contained HTML it prints verbatim — they are thin hosts, pixel-identical
 on both OSes, and can't drift. Private, no network. Only today is recomputed
-each tick (past days are cached).
+each tick (past days are cached). The interactive tabs need the host to run the
+card's inline script: the KDE widget and the browser preview do; the macOS
+Übersicht host injects the markup without scripts, so it shows the Today view.
 
 **KDE Plasma 6** — installed by `python install.py` (`--plasmoid` reinstalls
 just it; `--uninstall --plasmoid` removes it). On the desktop it shows the
@@ -143,11 +161,16 @@ full card inline; in a panel, a compact score that expands on click. Plasma 6
 prints your distro's install command if it's missing. After updating, restart
 plasmashell (`kquitapp6 plasmashell && kstart plasmashell`).
 
-**macOS** — an [Übersicht](https://tracesof.net/uebersicht/) widget (pictured
-above), installed by `python install.py` when Übersicht is present
-(`brew install --cask ubersicht` first). `--uninstall --ubersicht` removes it.
-Not on a Mac? `desktop/ubersicht/preview.html` shows the widgets' exact card
-in any browser — handy for hacking on it from Linux.
+**macOS** — an [Übersicht](https://tracesof.net/uebersicht/) widget, installed
+by `python install.py` when Übersicht is present (`brew install --cask
+ubersicht` first). `--uninstall --ubersicht` removes it. Not on a Mac?
+`desktop/ubersicht/preview.html` shows the widgets' exact card in any browser —
+handy for hacking on it from Linux.
+
+<p align="center">
+  <img src="docs/screenshots/ubersicht-widget.png" width="430"
+       alt="The macOS Übersicht widget on a real desktop: glass card with the composite score 55 'Cooked', an off-hours nag banner, the per-hour concurrency chart with an evening session outside the shaded work window, and the three axis tiles with zone range bars (synthetic demo day)">
+</p>
 
 **Score stays blank?** `aicogstress` isn't on the widget's PATH (desktop
 shells often don't inherit yours) — set the absolute path in the Plasma

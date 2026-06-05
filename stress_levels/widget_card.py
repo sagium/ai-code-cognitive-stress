@@ -22,8 +22,8 @@ from __future__ import annotations
 
 from html import escape
 
-from .dayview import AxisTile, DailyPoint, DayView, TimeframeView
-from .i18n import t
+from .dayview import AxisTile, DailyPoint, DayView, MonthlyPoint, TimeframeView
+from .i18n import month_name, t
 
 CARD_WIDTH = 384  # px — fixed card width shared by every host
 
@@ -409,6 +409,55 @@ def _period_chart(daily: tuple[DailyPoint, ...], dv: DayView) -> str:
     )
 
 
+def _month_chart(monthly: tuple[MonthlyPoint, ...], dv: DayView) -> str:
+    """12 monthly-average composite bars (0–100) — the year view's body chart.
+    Labels every bar with its short month name."""
+    if not monthly or not dv.has_activity:
+        return ""
+    w, h, m_l, m_r, m_t, m_b = 344, 116, 16, 2, 10, 13
+    pw, ph = w - m_l - m_r, h - m_t - m_b
+    n = len(monthly)
+    bw = pw / n
+    out = ""
+
+    for frac, lab in ((0.0, "0"), (0.5, "50"), (1.0, "100")):
+        y = m_t + ph - frac * ph
+        out += (
+            f'<line x1="{m_l}" y1="{_num(y)}" x2="{m_l + pw}" y2="{_num(y)}" stroke="rgba(255,255,255,.07)"/>'
+            f'<text x="{m_l - 5}" y="{_num(y + 2.5)}" text-anchor="end" '
+            f"font-family='{FONT_MONO}' font-size=\"7.5\" fill=\"rgba(245,243,237,.38)\">{lab}</text>"
+        )
+
+    for i, p in enumerate(monthly):
+        x = m_l + i * bw + bw * 0.14
+        bwid = bw * 0.72
+        if p.composite > 0:
+            bh = max((min(100.0, p.composite) / 100) * ph, 1.5)
+            out += (
+                f'<rect x="{_num(x)}" y="{_num(m_t + ph - bh)}" width="{_num(bwid)}" '
+                f'height="{_num(bh)}" rx="2" fill="{p.color}" opacity=".9" '
+                f'style="filter: drop-shadow(0 0 6px {p.color}55)"/>'
+            )
+        else:
+            out += (
+                f'<rect x="{_num(x)}" y="{_num(m_t + ph - 1.5)}" width="{_num(bwid)}" '
+                f'height="1.5" rx="0.75" fill="{p.color}"/>'
+            )
+
+    out += f'<line x1="{m_l}" y1="{m_t + ph}" x2="{m_l + pw}" y2="{m_t + ph}" stroke="rgba(255,255,255,.22)"/>'
+    for i, p in enumerate(monthly):
+        cx = m_l + i * bw + bw * 0.5
+        out += (
+            f'<text x="{_num(cx)}" y="{h - 2}" text-anchor="middle" '
+            f"font-family='{FONT_MONO}' font-size=\"6.5\" fill=\"rgba(245,243,237,.38)\">{_esc(month_name(p.month, short=True))}</text>"
+        )
+
+    return (
+        f'<div class="chart"><div class="chart-title">{_esc(t("card.year_chart_title"))}</div>'
+        f'<svg viewBox="0 0 {w} {h}" width="100%">{out}</svg></div>'
+    )
+
+
 def _body(dv: DayView, period_chart: str = "") -> str:
     """Card body shared by the day and period views: header, the timeframe's
     chart (per-hour for today, per-day for a period), axis tiles, footer."""
@@ -471,9 +520,14 @@ def render_card_tabbed(views: list[TimeframeView]) -> str:
         f'{_esc(tv.tab_label)}</button>'
         for i, tv in enumerate(views)
     )
+    def _chart(tv: TimeframeView) -> str:
+        if tv.monthly:
+            return _month_chart(tv.monthly, tv.view)
+        return _period_chart(tv.daily, tv.view)
+
     bodies = "".join(
         f'<div class="view{"" if i == 0 else " hidden"}" data-view="{_esc(tv.key)}">'
-        f'{_body(tv.view, _period_chart(tv.daily, tv.view))}</div>'
+        f'{_body(tv.view, _chart(tv))}</div>'
         for i, tv in enumerate(views)
     )
     inner = (

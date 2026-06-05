@@ -333,14 +333,24 @@ class DailyPoint:
 
 
 @dataclass(frozen=True, slots=True)
+class MonthlyPoint:
+    year: int
+    month: int          # 1–12
+    composite: float    # mean over the month's active days; 0 when none
+    color: str          # zone colour for that level (dim neutral when 0)
+
+
+@dataclass(frozen=True, slots=True)
 class TimeframeView:
     """One selectable tab in the widget card: a label plus the DayView to draw.
-    `daily` carries the per-day composite series for a period's body chart; it
-    is empty for the live 'today' view (which draws the per-hour chart)."""
-    key: str            # "today" | "week" | "month"
+    `daily` carries the per-day composite series for the week/month body chart;
+    `monthly` carries the per-month series for the year chart. Both are empty
+    for the live 'today' view (which draws the per-hour chart)."""
+    key: str            # "today" | "week" | "month" | "year"
     tab_label: str      # localized short label for the tab button
     view: DayView
     daily: tuple[DailyPoint, ...] = ()
+    monthly: tuple[MonthlyPoint, ...] = ()
 
 
 def _truncate_aggregate(agg: DayAggregate, cutoff: datetime) -> DayAggregate:
@@ -640,6 +650,99 @@ def build_period_view(
     return view, tuple(daily)
 
 
+def _last_12_months(today: date) -> list[tuple[int, int]]:
+    """The 12 (year, month) pairs ending in today's month, oldest first."""
+    months: list[tuple[int, int]] = []
+    y, mo = today.year, today.month
+    for _ in range(12):
+        months.append((y, mo))
+        mo -= 1
+        if mo == 0:
+            mo, y = 12, y - 1
+    months.reverse()
+    return months
+
+
+def build_year_view(
+    data_profile: StressProfile,
+    marker_profile: StressProfile,
+    title: str,
+    today: date,
+) -> tuple[DayView, tuple[MonthlyPoint, ...]]:
+    """Summarise the last 12 calendar months. The per-month bars carry each
+    month's mean composite (over its active days); the headline composite and
+    axis tiles are the mean across every active day in those months.
+
+    `data_profile` supplies the per-day metrics across the year; `marker_profile`
+    (the recent baseline window) supplies the zones / 'typical day' / optimum, so
+    those markers match the Today/Week/Month tabs exactly."""
+    months = _last_12_months(today)
+    month_set = set(months)
+    p75, p90 = marker_profile.composite_p75, marker_profile.composite_p90
+
+    by_month: dict[tuple[int, int], list[float]] = {m: [] for m in months}
+    for d, m in data_profile.days.items():
+        key = (d.year, d.month)
+        if key in month_set and m.composite > 0:
+            by_month[key].append(m.composite)
+
+    monthly: list[MonthlyPoint] = []
+    progression: list[ScorePoint] = []
+    for yy, mm in months:
+        vals = by_month[(yy, mm)]
+        if vals:
+            mean = sum(vals) / len(vals)
+            color = composite_color(composite_status(mean, p75, p90))
+        else:
+            mean, color = 0.0, _ZERO_DAY_COLOR
+        monthly.append(MonthlyPoint(year=yy, month=mm, composite=mean, color=color))
+        progression.append(ScorePoint(value=mean, color=color))
+
+    active = [
+        m for d, m in data_profile.days.items()
+        if (d.year, d.month) in month_set and m.composite > 0
+    ]
+    has_activity = bool(active)
+    if has_activity:
+        n = len(active)
+        codl_avg = sum(m.codl_avg for m in active) / n
+        codl_peak = max(m.codl_peak for m in active)
+        interruption = sum(m.interruption_rate for m in active) / n
+        closures = [m.closure_deficit for m in active if m.closure_deficit is not None]
+        closure = sum(closures) / len(closures) if closures else None
+        composite = sum(m.composite for m in active) / n
+    else:
+        codl_avg = interruption = composite = 0.0
+        codl_peak = 0
+        closure = None
+
+    synthetic = DayMetrics(
+        day=today, codl_avg=codl_avg, codl_peak=codl_peak,
+        interruption_rate=interruption, closure_deficit=closure, composite=composite,
+    )
+    status = composite_status(composite, p75, p90)
+    view = DayView(
+        day=today,
+        day_label=title,
+        has_activity=has_activity,
+        composite=composite,
+        composite_label=f"{composite:.0f}" if has_activity else "—",
+        composite_status=status,
+        composite_color=composite_color(status),
+        advice=composite_advice(status),
+        work_window=None,
+        work_window_label=(
+            tn("period.active_days", len(active)) if has_activity else ""
+        ),
+        hours=[], hour_colors=[], peak_concurrent=0,
+        score_progression=progression if has_activity else [],
+        axes=[build_axis_tile(meta, synthetic, marker_profile) for meta in AXES],
+        off_hours_minutes=0,
+        off_hours_nag="",
+    )
+    return view, tuple(monthly)
+
+
 def compute_timeframe_views(
     baseline_days: int = 30,
     sources=None,
@@ -647,28 +750,46 @@ def compute_timeframe_views(
     cache_dir=None,
     now: datetime | None = None,
 ) -> list[TimeframeView]:
-    """Today + Week (7d) + Month (30d), all from a single aggregation pass so the
-    tabbed widget card needs only one CLI invocation. `now` is injectable for
-    tests."""
+    """Today + Week (7d) + Month (30d) + Year (12 months), all from a single
+    aggregation pass so the tabbed widget card needs only one CLI invocation.
+
+    Every tab's zones / 'typical day' baseline / optimum come from one reference
+    profile over the recent `baseline_days` window (so they're identical across
+    tabs and unchanged from the day-only widget); the year view's per-month bars
+    use a second profile spanning the whole year. `now` is injectable for tests.
+    """
     tz = _local_tz()
     today = (now or datetime.now(tz)).astimezone(tz).date()
-    # The month view needs 30 days of history; never aggregate less.
-    span = max(baseline_days, 30)
-    since = today - timedelta(days=span)
+    # A bit over a year so the oldest displayed month is fully covered.
+    since = today - timedelta(days=400)
     aggregates, _ = get_day_aggregates(
         since, today,
         projects_dir=projects_dir, cache_dir=cache_dir,
         sources=sources, local_tz=tz, now=now,
     )
-    profile = build_profile(
+    # Reference profile: the recent baseline window only. Drives the zones,
+    # "typical day" baseline and optimum for ALL tabs — so adding the year view
+    # never shifts the Today/Week/Month numbers.
+    ref_since = today - timedelta(days=max(baseline_days, 30))
+    ref_aggregates = {d: a for d, a in aggregates.items() if d >= ref_since}
+    ref_profile = build_profile(
+        ref_aggregates, baseline_days=baseline_days, local_tz=tz,
+    )
+    # Full-window profile: only its per-day metrics are used, for the year bars.
+    year_profile = build_profile(
         aggregates, baseline_days=baseline_days, local_tz=tz,
     )
-    today_metrics = profile.days.get(today) or DayMetrics(day=today)
-    today_view = build_dayview(today_metrics, aggregates.get(today), profile, tz)
-    week_view, week_daily = build_period_view(profile, 7, t("tab.week_title"), today)
-    month_view, month_daily = build_period_view(profile, 30, t("tab.month_title"), today)
+
+    today_metrics = ref_profile.days.get(today) or DayMetrics(day=today)
+    today_view = build_dayview(today_metrics, aggregates.get(today), ref_profile, tz)
+    week_view, week_daily = build_period_view(ref_profile, 7, t("tab.week_title"), today)
+    month_view, month_daily = build_period_view(ref_profile, 30, t("tab.month_title"), today)
+    year_view, year_monthly = build_year_view(
+        year_profile, ref_profile, t("tab.year_title"), today,
+    )
     return [
         TimeframeView(key="today", tab_label=t("tab.today"), view=today_view),
         TimeframeView(key="week", tab_label=t("tab.week"), view=week_view, daily=week_daily),
         TimeframeView(key="month", tab_label=t("tab.month"), view=month_view, daily=month_daily),
+        TimeframeView(key="year", tab_label=t("tab.year"), view=year_view, monthly=year_monthly),
     ]

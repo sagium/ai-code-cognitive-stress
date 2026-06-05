@@ -371,6 +371,48 @@ def write_dayview_card(path: Path) -> int:
     return 0
 
 
+# Anchor for the tabbed-card demo: a year-end day so the Year tab's 12 monthly
+# bars are all populated. (The single-day demo above stays mid-March, where the
+# per-hour chart is most interesting.)
+TABBED_DEMO_DAY = date(YEAR, 12, 17)
+
+
+def write_dayview_card_tabbed(path: Path) -> int:
+    """The demo day rendered as the TABBED widget card (Today / Week / Month /
+    Year) — the same HTML `aicogstress --emit-html-card` now prints. Anchored at
+    a year-end day so every tab, including Year, is populated. The Today tab uses
+    the hand-crafted rich day; Week/Month/Year aggregate the synthetic year."""
+    from stress_levels.dayview import (
+        TimeframeView, build_dayview, build_period_view, build_year_view,
+    )
+    from stress_levels.i18n import t
+    from stress_levels.metrics import per_day_metrics
+    from stress_levels.widget_card import render_card_tabbed
+
+    profile, _ = build_profile(YEAR)
+    today = TABBED_DEMO_DAY
+    agg = _demo_widget_aggregate(today)
+    m = per_day_metrics(agg, profile.work_windows[today.weekday()], timezone.utc)
+    today_view = build_dayview(m, agg, profile, timezone.utc)
+    week_view, week_daily = build_period_view(profile, 7, t("tab.week_title"), today)
+    month_view, month_daily = build_period_view(profile, 30, t("tab.month_title"), today)
+    year_view, year_monthly = build_year_view(
+        profile, profile, t("tab.year_title"), today,
+    )
+    views = [
+        TimeframeView(key="today", tab_label=t("tab.today"), view=today_view),
+        TimeframeView(key="week", tab_label=t("tab.week"), view=week_view, daily=week_daily),
+        TimeframeView(key="month", tab_label=t("tab.month"), view=month_view, daily=month_daily),
+        TimeframeView(key="year", tab_label=t("tab.year"), view=year_view, monthly=year_monthly),
+    ]
+    path.write_text(render_card_tabbed(views) + "\n", encoding="utf-8")
+    print(f"wrote {path}")
+    print(f"  anchor day: {today} (today composite {m.composite:.0f})")
+    print(f"  year active days: "
+          f"{sum(1 for mm in profile.days.values() if mm.composite > 0)}")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
@@ -384,11 +426,19 @@ def main() -> int:
              "card (the --emit-html-card payload, for the widget "
              "screenshots/preview) instead of the HTML report.",
     )
+    parser.add_argument(
+        "--dayview-card-tabbed", metavar="PATH", type=Path,
+        help="Write the demo day as the TABBED widget card (Today / Week / "
+             "Month / Year) — the current --emit-html-card payload — anchored "
+             "at a year-end day so every tab is populated.",
+    )
     args = parser.parse_args()
     if args.dayview_json:
         return write_dayview_json(args.dayview_json)
     if args.dayview_card:
         return write_dayview_card(args.dayview_card)
+    if args.dayview_card_tabbed:
+        return write_dayview_card_tabbed(args.dayview_card_tabbed)
 
     profile, aggregates = build_profile(YEAR)
 

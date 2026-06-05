@@ -8,7 +8,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from stress_levels.aggregate import DayAggregate, StreamDayActivity
 from stress_levels.dayview import (
-    TimeframeView, build_dayview, build_period_view,
+    TimeframeView, build_dayview, build_period_view, build_year_view,
 )
 from stress_levels.metrics import DayMetrics, StressProfile
 from stress_levels.widget_card import (
@@ -185,26 +185,56 @@ def test_build_period_view_no_activity():
     assert all(p.composite == 0.0 for p in daily)
 
 
+def test_build_year_view_monthly_bars():
+    today = date(2026, 6, 15)
+    days = {
+        date(2026, 6, 1): DayMetrics(
+            day=date(2026, 6, 1), codl_avg=1.0, codl_peak=2,
+            interruption_rate=2.0, closure_deficit=0.2, composite=20.0),
+        date(2026, 6, 10): DayMetrics(
+            day=date(2026, 6, 10), codl_avg=3.0, codl_peak=4,
+            interruption_rate=4.0, closure_deficit=0.4, composite=40.0),
+        date(2026, 5, 20): DayMetrics(
+            day=date(2026, 5, 20), codl_avg=2.0, codl_peak=3,
+            interruption_rate=3.0, closure_deficit=0.6, composite=60.0),
+    }
+    prof = _profile(days=days)
+    view, monthly = build_year_view(prof, prof, "Last 12 months", today)
+    assert len(monthly) == 12
+    # last bar = June 2026 = mean(20, 40) = 30; previous = May 2026 = 60
+    assert (monthly[-1].year, monthly[-1].month) == (2026, 6)
+    assert abs(monthly[-1].composite - 30.0) < 1e-6
+    assert (monthly[-2].year, monthly[-2].month) == (2026, 5)
+    assert abs(monthly[-2].composite - 60.0) < 1e-6
+    # headline = mean over all three active days = (20+40+60)/3 = 40
+    assert abs(view.composite - 40.0) < 1e-6
+    assert view.has_activity
+    # months with no activity render a zero-height bar
+    assert any(p.composite == 0.0 for p in monthly)
+
+
 def test_render_card_tabbed_structure():
     today = date(2026, 5, 29)
     prof = _multi_day_profile(today)
     week, week_daily = build_period_view(prof, 7, "Last 7 days", today)
     month, month_daily = build_period_view(prof, 30, "Last 30 days", today)
+    year, year_monthly = build_year_view(prof, prof, "Last 12 months", today)
     views = [
         TimeframeView(key="today", tab_label="Today", view=_active_dayview()),
         TimeframeView(key="week", tab_label="Week", view=week, daily=week_daily),
         TimeframeView(key="month", tab_label="Month", view=month, daily=month_daily),
+        TimeframeView(key="year", tab_label="Year", view=year, monthly=year_monthly),
     ]
     html = render_card_tabbed(views)
     assert html.count('class="cogstress"') == 1
-    # three tab buttons, today active; three panels, only today visible
-    assert html.count('<button class="tab') == 3
+    # four tab buttons, today active; four panels, only today visible
+    assert html.count('<button class="tab') == 4
     assert 'class="tab active" data-view="today"' in html
-    assert html.count('class="view hidden"') == 2
+    assert html.count('class="view hidden"') == 3
     # the tab switcher + height bridge live only in the tabbed card
     assert "<script" in html
     assert "cogstress:h:" in html
     assert "<script" not in render_card(_active_dayview())
-    # period body shows the per-day chart; root headline mirrors today
+    # period/year body shows the composite-by-day chart; headline mirrors today
     assert "Composite stress by day" in html
     assert f'data-composite-label="{views[0].view.composite_label}"' in html
