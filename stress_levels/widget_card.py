@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from html import escape
 
-from .dayview import AxisTile, DayView
+from .dayview import AxisTile, DailyPoint, DayView, TimeframeView
 from .i18n import t
 
 CARD_WIDTH = 384  # px — fixed card width shared by every host
@@ -120,6 +120,23 @@ CSS = """
     display: flex; justify-content: space-between; margin: 12px 2px 0;
     font-family: __FONT_MONO__; font-size: 8.5px; color: rgba(245,243,237,.38);
   }
+
+  /* Timeframe tabs (Today / Week / Month). In-page JS toggles .active on the
+     button and .hidden on the matching .view; with no JS (e.g. injected via
+     innerHTML) the first view stays visible and the rest stay hidden. */
+  .cogstress .tabs { display: flex; gap: 5px; margin-bottom: 14px; }
+  .cogstress .tab {
+    flex: 1; padding: 6px 4px 5px; border: 0; border-radius: 10px;
+    font-family: __FONT_UI__; font-size: 10.5px; font-weight: 650;
+    letter-spacing: .01em; cursor: pointer;
+    color: rgba(245,243,237,.50); background: rgba(255,255,255,.05);
+    -webkit-user-select: none; user-select: none; transition: background .12s, color .12s;
+  }
+  .cogstress .tab:hover { background: rgba(255,255,255,.09); color: rgba(245,243,237,.78); }
+  .cogstress .tab.active {
+    color: rgba(245,243,237,.95); background: rgba(255,255,255,.13);
+  }
+  .cogstress .view.hidden { display: none; }
 """.replace("__CARD_WIDTH__", str(CARD_WIDTH)) \
    .replace("__FONT_UI__", FONT_UI) \
    .replace("__FONT_MONO__", FONT_MONO)
@@ -340,19 +357,133 @@ def _wrap(inner: str, *, label: str, color: str, has_activity: bool) -> str:
     )
 
 
-def render_card(dv: DayView) -> str:
-    """The full day card as one self-contained HTML fragment."""
-    inner = "".join([
+# --- per-day composite chart (week / month body) ----------------------------
+
+def _period_chart(daily: tuple[DailyPoint, ...], dv: DayView) -> str:
+    """Per-day composite bars (0–100) — the period analogue of the day card's
+    per-hour concurrency chart."""
+    if not daily or not dv.has_activity:
+        return ""
+    w, h, m_l, m_r, m_t, m_b = 344, 116, 16, 2, 10, 13
+    pw, ph = w - m_l - m_r, h - m_t - m_b
+    n = len(daily)
+    bw = pw / n
+    out = ""
+
+    for frac, lab in ((0.0, "0"), (0.5, "50"), (1.0, "100")):
+        y = m_t + ph - frac * ph
+        out += (
+            f'<line x1="{m_l}" y1="{_num(y)}" x2="{m_l + pw}" y2="{_num(y)}" stroke="rgba(255,255,255,.07)"/>'
+            f'<text x="{m_l - 5}" y="{_num(y + 2.5)}" text-anchor="end" '
+            f"font-family='{FONT_MONO}' font-size=\"7.5\" fill=\"rgba(245,243,237,.38)\">{lab}</text>"
+        )
+
+    for i, p in enumerate(daily):
+        x = m_l + i * bw + bw * 0.12
+        bwid = bw * 0.76
+        if p.composite > 0:
+            bh = max((min(100.0, p.composite) / 100) * ph, 1.5)
+            out += (
+                f'<rect x="{_num(x)}" y="{_num(m_t + ph - bh)}" width="{_num(bwid)}" '
+                f'height="{_num(bh)}" rx="2" fill="{p.color}" opacity=".9" '
+                f'style="filter: drop-shadow(0 0 6px {p.color}55)"/>'
+            )
+        else:
+            out += (
+                f'<rect x="{_num(x)}" y="{_num(m_t + ph - 1.5)}" width="{_num(bwid)}" '
+                f'height="1.5" rx="0.75" fill="{p.color}"/>'
+            )
+
+    out += f'<line x1="{m_l}" y1="{m_t + ph}" x2="{m_l + pw}" y2="{m_t + ph}" stroke="rgba(255,255,255,.22)"/>'
+    step = max(1, round(n / 6))
+    for i in range(0, n, step):
+        cx = m_l + i * bw + bw * 0.5
+        out += (
+            f'<text x="{_num(cx)}" y="{h - 2}" text-anchor="middle" '
+            f"font-family='{FONT_MONO}' font-size=\"7.5\" fill=\"rgba(245,243,237,.38)\">{daily[i].day.day:02d}</text>"
+        )
+
+    return (
+        f'<div class="chart"><div class="chart-title">{_esc(t("card.period_chart_title"))}</div>'
+        f'<svg viewBox="0 0 {w} {h}" width="100%">{out}</svg></div>'
+    )
+
+
+def _body(dv: DayView, period_chart: str = "") -> str:
+    """Card body shared by the day and period views: header, the timeframe's
+    chart (per-hour for today, per-day for a period), axis tiles, footer."""
+    return "".join([
         _header(dv),
         f'<div class="nag">{_esc(dv.off_hours_nag)}</div>' if dv.off_hours_nag else "",
-        _hour_chart(dv),
+        period_chart or _hour_chart(dv),
         *(_axis_tile(a) for a in dv.axes),
         f'<div class="foot"><span>{_esc(t("card.footer"))}</span>'
         f'<span>{_esc(dv.day.isoformat()[:7])}</span></div>',
     ])
+
+
+def render_card(dv: DayView) -> str:
+    """The full day card as one self-contained HTML fragment."""
     return _wrap(
-        inner, label=dv.composite_label, color=dv.composite_color,
+        _body(dv), label=dv.composite_label, color=dv.composite_color,
         has_activity=dv.has_activity,
+    )
+
+
+# In-page tab switcher. Toggles .active / .hidden on click, and reports the
+# card's pixel height to the QML host via document.title (the host parses
+# 'cogstress:h:<n>' on titleChanged) so the widget resizes to each view. Runs
+# only where injected markup executes scripts (the plasmoid's loadHtml and the
+# browser preview); when injected via innerHTML (Übersicht) it's inert and the
+# first view stays shown.
+_TAB_SCRIPT = """<script>
+(function () {
+  var root = document.querySelector('.cogstress');
+  if (!root) return;
+  var tabs = root.querySelectorAll('.tab');
+  var views = root.querySelectorAll('.view');
+  function reportHeight() {
+    var h = Math.ceil(root.getBoundingClientRect().height);
+    if (h > 0) document.title = 'cogstress:h:' + h;
+  }
+  tabs.forEach(function (tab) {
+    tab.addEventListener('click', function () {
+      var key = tab.getAttribute('data-view');
+      tabs.forEach(function (t) { t.classList.toggle('active', t === tab); });
+      views.forEach(function (v) { v.classList.toggle('hidden', v.getAttribute('data-view') !== key); });
+      reportHeight();
+    });
+  });
+  reportHeight();
+  window.addEventListener('resize', reportHeight);
+})();
+</script>"""
+
+
+def render_card_tabbed(views: list[TimeframeView]) -> str:
+    """Today / Week / Month in one card with in-page tabs. The root data-*
+    attributes mirror the FIRST (today) view so the Plasma panel label keeps
+    showing today's headline."""
+    if not views:
+        return render_error_card(t("card.error_footer_right"))
+    tabs = "".join(
+        f'<button class="tab{" active" if i == 0 else ""}" data-view="{_esc(tv.key)}">'
+        f'{_esc(tv.tab_label)}</button>'
+        for i, tv in enumerate(views)
+    )
+    bodies = "".join(
+        f'<div class="view{"" if i == 0 else " hidden"}" data-view="{_esc(tv.key)}">'
+        f'{_body(tv.view, _period_chart(tv.daily, tv.view))}</div>'
+        for i, tv in enumerate(views)
+    )
+    inner = (
+        f'<div class="tabs" role="tablist">{tabs}</div>'
+        f'<div class="views">{bodies}</div>{_TAB_SCRIPT}'
+    )
+    head = views[0].view
+    return _wrap(
+        inner, label=head.composite_label, color=head.composite_color,
+        has_activity=head.has_activity,
     )
 
 

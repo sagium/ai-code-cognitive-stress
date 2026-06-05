@@ -433,9 +433,9 @@ def test_main_emit_json_prints_dayview(monkeypatch, capsys):
     assert isinstance(payload, dict)
 
 
-def test_main_emit_html_card_prints_card(monkeypatch, capsys):
+def test_main_emit_html_card_prints_tabbed_card(monkeypatch, capsys):
     import stress_levels.dayview as dayview_mod
-    from stress_levels.dayview import build_dayview
+    from stress_levels.dayview import TimeframeView, build_dayview
     from stress_levels.metrics import DayMetrics, StressProfile
 
     prof = StressProfile(
@@ -446,13 +446,22 @@ def test_main_emit_html_card_prints_card(monkeypatch, capsys):
     dv = build_dayview(
         DayMetrics(day=date(2026, 5, 29), composite=10.0), None, prof, timezone.utc,
     )
-    monkeypatch.setattr(dayview_mod, "compute_today_dayview", lambda **kw: dv)
+    views = [
+        TimeframeView(key="today", tab_label="Today", view=dv),
+        TimeframeView(key="week", tab_label="Week", view=dv),
+        TimeframeView(key="month", tab_label="Month", view=dv),
+    ]
+    monkeypatch.setattr(dayview_mod, "compute_timeframe_views", lambda **kw: views)
     rc = main(["--emit-html-card"])
     assert rc == 0
     out = capsys.readouterr().out
     assert out.startswith("<style>")
     assert 'class="cogstress"' in out
+    # Root headline mirrors the first (today) view; all three tabs are present.
     assert 'data-composite-label="10"' in out
+    assert 'data-view="today"' in out
+    assert 'data-view="week"' in out
+    assert 'data-view="month"' in out
 
 
 def test_main_rebuild_cache_clears_before_running(tmp_path, monkeypatch):

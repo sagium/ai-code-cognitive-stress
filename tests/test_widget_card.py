@@ -4,12 +4,16 @@ renderer behind both desktop widgets (`aicogstress --emit-html-card`)."""
 from __future__ import annotations
 
 import re
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from stress_levels.aggregate import DayAggregate, StreamDayActivity
-from stress_levels.dayview import build_dayview
+from stress_levels.dayview import (
+    TimeframeView, build_dayview, build_period_view,
+)
 from stress_levels.metrics import DayMetrics, StressProfile
-from stress_levels.widget_card import CARD_WIDTH, render_card, render_error_card
+from stress_levels.widget_card import (
+    CARD_WIDTH, render_card, render_card_tabbed, render_error_card,
+)
 
 
 def _profile(**over) -> StressProfile:
@@ -134,3 +138,73 @@ def test_render_error_card_escapes_message():
     assert "&amp; more" in html
     assert 'class="cogstress"' in html
     assert 'data-has-activity="false"' in html
+
+
+# --- period views + tabbed card ----------------------------------------------
+
+def _multi_day_profile(today):
+    """A profile with four active days inside the last week (composites
+    20/40/60/30; one day has no closure data)."""
+    specs = [
+        (today - timedelta(days=1), 1.0, 2.0, 0.1, 20.0, 2),
+        (today - timedelta(days=2), 2.0, 3.0, 0.3, 40.0, 3),
+        (today - timedelta(days=4), 3.0, 1.0, 0.5, 60.0, 4),
+        (today - timedelta(days=6), 2.0, 2.0, None, 30.0, 2),
+    ]
+    days = {
+        d: DayMetrics(day=d, codl_avg=codl, codl_peak=peak,
+                      interruption_rate=intr, closure_deficit=clos, composite=comp)
+        for d, codl, intr, clos, comp, peak in specs
+    }
+    return _profile(days=days)
+
+
+def test_build_period_view_averages_active_days():
+    today = date(2026, 5, 29)
+    view, daily = build_period_view(_multi_day_profile(today), 7, "Last 7 days", today)
+    assert view.has_activity
+    # composite = mean over the 4 active days = (20+40+60+30)/4 = 37.5 -> "38"
+    assert abs(view.composite - 37.5) < 1e-6
+    assert view.composite_label == "38"
+    assert view.day_label == "Last 7 days"
+    assert "4 active days" in view.work_window_label
+    # one point per calendar day in the window; no per-hour data on a period
+    assert len(daily) == 7
+    assert view.hours == []
+    # axis tiles built from the period mean: codl avg = (1+2+3+2)/4 = 2.0
+    codl = next(a for a in view.axes if a.key == "codl")
+    assert abs(codl.value - 2.0) < 1e-6
+
+
+def test_build_period_view_no_activity():
+    today = date(2026, 5, 29)
+    view, daily = build_period_view(_profile(), 30, "Last 30 days", today)
+    assert not view.has_activity
+    assert view.composite_label == "—"
+    assert len(daily) == 30
+    assert all(p.composite == 0.0 for p in daily)
+
+
+def test_render_card_tabbed_structure():
+    today = date(2026, 5, 29)
+    prof = _multi_day_profile(today)
+    week, week_daily = build_period_view(prof, 7, "Last 7 days", today)
+    month, month_daily = build_period_view(prof, 30, "Last 30 days", today)
+    views = [
+        TimeframeView(key="today", tab_label="Today", view=_active_dayview()),
+        TimeframeView(key="week", tab_label="Week", view=week, daily=week_daily),
+        TimeframeView(key="month", tab_label="Month", view=month, daily=month_daily),
+    ]
+    html = render_card_tabbed(views)
+    assert html.count('class="cogstress"') == 1
+    # three tab buttons, today active; three panels, only today visible
+    assert html.count('<button class="tab') == 3
+    assert 'class="tab active" data-view="today"' in html
+    assert html.count('class="view hidden"') == 2
+    # the tab switcher + height bridge live only in the tabbed card
+    assert "<script" in html
+    assert "cogstress:h:" in html
+    assert "<script" not in render_card(_active_dayview())
+    # period body shows the per-day chart; root headline mirrors today
+    assert "Composite stress by day" in html
+    assert f'data-composite-label="{views[0].view.composite_label}"' in html

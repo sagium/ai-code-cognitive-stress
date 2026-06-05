@@ -256,13 +256,30 @@ PlasmoidItem {
                     if (loadingInfo.status === WebEngineView.LoadSucceededStatus) {
                         // Measure the card's border-box (CSS px; ceil — the card
                         // has no margins) so the cell is exactly as tall as the
-                        // card. The 2× render box derives from this.
+                        // card. The 2× render box derives from this. The tabbed
+                        // card also pushes its height live via document.title
+                        // (see onTitleChanged); this is the initial/fallback
+                        // measure for that and the only one for a plain card.
                         runJavaScript(
                             "Math.ceil(document.querySelector('.cogstress').getBoundingClientRect().height)",
                             function (h) {
                                 if (h && h > 0)
                                     cardCell.cardHeight = h;
                             });
+                    }
+                }
+
+                // Height bridge: the tabbed card sets document.title to
+                // 'cogstress:h:<px>' on load and whenever a tab switch changes
+                // its height, so the widget grows/shrinks to the active view
+                // without a CLI round-trip. (No QWebChannel needed — title is
+                // the lightest one-way page→host channel QtWebEngine exposes.)
+                onTitleChanged: {
+                    var m = /^cogstress:h:(\d+)$/.exec(cardView.title);
+                    if (m) {
+                        var hh = parseInt(m[1], 10);
+                        if (hh > 0)
+                            cardCell.cardHeight = hh;
                     }
                 }
             }

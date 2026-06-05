@@ -17,7 +17,7 @@ from datetime import date, datetime, time, timedelta, timezone, tzinfo
 
 from .aggregate import DayAggregate, get_day_aggregates
 from . import i18n
-from .i18n import t
+from .i18n import t, tn
 from .metrics import (
     CODL_NORMALISATION_CEILING,
     OFF_HOURS_LOAD_CEILING_MIN,
@@ -313,6 +313,36 @@ class ScorePoint:
     color: str          # zone colour for that level (drives the gradient)
 
 
+# ---------------------------------------------------------------------------
+# Period (week / month) model. A period reuses the DayView container — the same
+# header, axis tiles, and sparkline — but its composite is the mean over the
+# window's ACTIVE days, its axis tiles are built from the period-mean of each
+# axis (so they share the day card's zones / optimum / baseline), and its body
+# shows a per-day composite chart instead of the per-hour concurrency chart.
+
+# Colour for a no-activity day in the per-day series — a dim neutral so empty
+# days don't read as a (green) low-stress score.
+_ZERO_DAY_COLOR = "rgba(245,243,237,.16)"
+
+
+@dataclass(frozen=True, slots=True)
+class DailyPoint:
+    day: date
+    composite: float    # 0–100; 0 on a day with no activity
+    color: str          # zone colour for that level (dim neutral when 0)
+
+
+@dataclass(frozen=True, slots=True)
+class TimeframeView:
+    """One selectable tab in the widget card: a label plus the DayView to draw.
+    `daily` carries the per-day composite series for a period's body chart; it
+    is empty for the live 'today' view (which draws the per-hour chart)."""
+    key: str            # "today" | "week" | "month"
+    tab_label: str      # localized short label for the tab button
+    view: DayView
+    daily: tuple[DailyPoint, ...] = ()
+
+
 def _truncate_aggregate(agg: DayAggregate, cutoff: datetime) -> DayAggregate:
     """Copy of `agg` containing only activity at or before `cutoff` (UTC) — the
     day as it existed at that instant. Streams born later are dropped; surviving
@@ -528,3 +558,117 @@ def compute_today_dayview(
     )
     metrics = profile.days.get(today) or DayMetrics(day=today)
     return build_dayview(metrics, aggregates.get(today), profile, tz)
+
+
+# ---------------------------------------------------------------------------
+# Period views + the multi-timeframe bundle the tabbed widget card renders.
+
+def build_period_view(
+    profile: StressProfile,
+    days_back: int,
+    title: str,
+    today: date,
+) -> tuple[DayView, tuple[DailyPoint, ...]]:
+    """Summarise the last `days_back` days (ending today) as a DayView.
+
+    Composite is the mean over ACTIVE days; the axis tiles are built from the
+    period-mean of each axis through the same `build_axis_tile` the day card
+    uses (so zones / optimum / baseline match exactly). The header sparkline and
+    the returned `daily` series both carry one point per calendar day in the
+    window (0 on days with no activity)."""
+    window = [today - timedelta(days=i) for i in range(days_back - 1, -1, -1)]
+
+    daily: list[DailyPoint] = []
+    progression: list[ScorePoint] = []
+    for d in window:
+        m = profile.days.get(d)
+        comp = m.composite if m else 0.0
+        if comp > 0:
+            color = composite_color(
+                composite_status(comp, profile.composite_p75, profile.composite_p90)
+            )
+        else:
+            color = _ZERO_DAY_COLOR
+        daily.append(DailyPoint(day=d, composite=comp, color=color))
+        progression.append(ScorePoint(value=comp, color=color))
+
+    active = [
+        profile.days[d] for d in window
+        if d in profile.days and profile.days[d].composite > 0
+    ]
+    has_activity = bool(active)
+    if has_activity:
+        n = len(active)
+        codl_avg = sum(m.codl_avg for m in active) / n
+        codl_peak = max(m.codl_peak for m in active)
+        interruption = sum(m.interruption_rate for m in active) / n
+        closures = [m.closure_deficit for m in active if m.closure_deficit is not None]
+        closure = sum(closures) / len(closures) if closures else None
+        composite = sum(m.composite for m in active) / n
+    else:
+        codl_avg = interruption = composite = 0.0
+        codl_peak = 0
+        closure = None
+
+    # Synthetic "average day" — only the fields the three axis tiles read.
+    synthetic = DayMetrics(
+        day=today, codl_avg=codl_avg, codl_peak=codl_peak,
+        interruption_rate=interruption, closure_deficit=closure,
+        composite=composite,
+    )
+    status = composite_status(composite, profile.composite_p75, profile.composite_p90)
+
+    view = DayView(
+        day=today,
+        day_label=title,
+        has_activity=has_activity,
+        composite=composite,
+        composite_label=f"{composite:.0f}" if has_activity else "—",
+        composite_status=status,
+        composite_color=composite_color(status),
+        advice=composite_advice(status),
+        work_window=None,
+        work_window_label=(
+            tn("period.active_days", len(active)) if has_activity else ""
+        ),
+        hours=[], hour_colors=[], peak_concurrent=0,
+        score_progression=progression if has_activity else [],
+        axes=[build_axis_tile(meta, synthetic, profile) for meta in AXES],
+        off_hours_minutes=0,
+        off_hours_nag="",
+    )
+    return view, tuple(daily)
+
+
+def compute_timeframe_views(
+    baseline_days: int = 30,
+    sources=None,
+    projects_dir=None,
+    cache_dir=None,
+    now: datetime | None = None,
+) -> list[TimeframeView]:
+    """Today + Week (7d) + Month (30d), all from a single aggregation pass so the
+    tabbed widget card needs only one CLI invocation. `now` is injectable for
+    tests."""
+    tz = _local_tz()
+    today = (now or datetime.now(tz)).astimezone(tz).date()
+    # The month view needs 30 days of history; never aggregate less.
+    span = max(baseline_days, 30)
+    since = today - timedelta(days=span)
+    aggregates, _ = get_day_aggregates(
+        since, today,
+        projects_dir=projects_dir, cache_dir=cache_dir,
+        sources=sources, local_tz=tz, now=now,
+    )
+    profile = build_profile(
+        aggregates, baseline_days=baseline_days, local_tz=tz,
+    )
+    today_metrics = profile.days.get(today) or DayMetrics(day=today)
+    today_view = build_dayview(today_metrics, aggregates.get(today), profile, tz)
+    week_view, week_daily = build_period_view(profile, 7, t("tab.week_title"), today)
+    month_view, month_daily = build_period_view(profile, 30, t("tab.month_title"), today)
+    return [
+        TimeframeView(key="today", tab_label=t("tab.today"), view=today_view),
+        TimeframeView(key="week", tab_label=t("tab.week"), view=week_view, daily=week_daily),
+        TimeframeView(key="month", tab_label=t("tab.month"), view=month_view, daily=month_daily),
+    ]

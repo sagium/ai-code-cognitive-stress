@@ -260,14 +260,18 @@ def main(argv: list[str] | None = None) -> int:
     # span and the report pipeline. Only the payload goes to stdout;
     # diagnostics to stderr.
     if args.emit_json or args.emit_html_card:
-        from .dayview import compute_today_dayview, dayview_to_dict
-        view = compute_today_dayview(
-            baseline_days=args.baseline_days, sources=sources,
-        )
         if args.emit_html_card:
-            from .widget_card import render_card
-            print(render_card(view))
+            from .dayview import compute_timeframe_views
+            from .widget_card import render_card_tabbed
+            views = compute_timeframe_views(
+                baseline_days=args.baseline_days, sources=sources,
+            )
+            print(render_card_tabbed(views))
         else:
+            from .dayview import compute_today_dayview, dayview_to_dict
+            view = compute_today_dayview(
+                baseline_days=args.baseline_days, sources=sources,
+            )
             print(json.dumps(dayview_to_dict(view), default=str))
         return 0
 
