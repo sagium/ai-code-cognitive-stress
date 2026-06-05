@@ -46,6 +46,13 @@ CSS = """
     padding: 20px 20px 14px;
     font-family: __FONT_UI__;
     background: linear-gradient(178deg, rgb(34, 36, 32), rgb(22, 24, 21));
+    /* The fill is fully opaque (wallpaper-independent), but we keep the
+       backdrop-filter: on QtWebEngine at fractional display scaling (X11,
+       1.5x) it forces the card onto a single composited layer, which avoids
+       the GPU tile-seam / text-resampling artifacts the plain raster path
+       shows. The blur has no visible effect through the opaque fill. */
+    -webkit-backdrop-filter: blur(32px) saturate(150%);
+    backdrop-filter: blur(32px) saturate(150%);
     border: 1px solid rgba(255, 255, 255, .13);
     box-shadow:
       0 36px 80px -24px rgba(0, 0, 0, .70),

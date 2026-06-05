@@ -24,6 +24,7 @@
  */
 import QtQuick
 import QtQuick.Layouts
+import QtQuick.Window
 import QtWebEngine
 import org.kde.plasma.plasmoid
 import org.kde.plasma.core as PlasmaCore
@@ -161,22 +162,37 @@ PlasmoidItem {
 
         // Error banner — shown instead of (or before the first) card.
         PlasmaComponents.Label {
-            Layout.preferredWidth: cardView.cardWidth
-            Layout.maximumWidth: cardView.cardWidth
+            Layout.preferredWidth: cardCell.cardWidth
+            Layout.maximumWidth: cardCell.cardWidth
             visible: root.errorText.length > 0
             wrapMode: Text.WordWrap
             color: Kirigami.Theme.negativeTextColor
             text: root.errorText
         }
 
-        WebEngineView {
-            id: cardView
-
-            // The card is fixed-width (widget_card.CARD_WIDTH); height follows
-            // the content, measured from the page after each load so the view
-            // is exactly as tall as the card — no scrolling, no dead space.
+        // Supersampling host — crisp text on fractionally-scaled displays.
+        // On a fractional display scale (e.g. 1.5×) QtWebEngine rasterizes web
+        // content at the fractional device-pixel ratio and the result gets
+        // resampled, giving pixelated text and faint tile-seam lines through
+        // the card. We dodge it by rendering the card larger internally
+        // (zoomFactor + a proportionally larger pixel box) and scaling the view
+        // back down to the card's true size for display: the on-screen size is
+        // unchanged, but the card is backed by more pixels and downsampled, so
+        // text stays crisp. Integer scales (1×, 2×, 3×) rasterize cleanly, so
+        // there superSample is 1 and this is a no-op with zero overhead. This
+        // layout cell carries the *display* size; the WebEngineView inside is
+        // the (super-sampled) render target.
+        Item {
+            id: cardCell
+            // The display's device-pixel ratio (1.0 = unscaled, 1.5 = 150% …),
+            // re-evaluated if the widget moves to a screen with a different
+            // scale. Only fractional ratios need the supersample; render at the
+            // next whole multiple (1.5×→2, 2.5×→3) and downsample.
+            readonly property real dpr: Screen.devicePixelRatio
+            readonly property real superSample: (Math.abs(dpr - Math.round(dpr)) > 0.01)
+                                                 ? Math.ceil(dpr) : 1.0
             readonly property int cardWidth: 384
-            property int cardHeight: 0
+            property int cardHeight: 0   // card's CSS height, measured after load
 
             Layout.preferredWidth: cardWidth
             Layout.minimumWidth: cardWidth
@@ -185,41 +201,69 @@ PlasmoidItem {
             Layout.minimumHeight: cardHeight
             Layout.maximumHeight: cardHeight
             visible: root.cardHtml.length > 0 && cardHeight > 0
+            clip: true
 
-            backgroundColor: "transparent"
-            settings.showScrollBars: false
-            settings.localContentCanAccessRemoteUrls: false
-            settings.localContentCanAccessFileUrls: false
+            WebEngineView {
+                id: cardView
+                // Render box is the display size × superSample; the page is
+                // zoomed by the same factor so the (fixed-width) card fills it
+                // exactly, then a top-left Scale shrinks the whole view back to
+                // the display size. getBoundingClientRect (CSS px) is unaffected
+                // by zoomFactor, so the measured height stays in card CSS px.
+                width: cardCell.cardWidth * cardCell.superSample
+                height: cardCell.cardHeight * cardCell.superSample
+                zoomFactor: cardCell.superSample
+                transform: Scale {
+                    xScale: 1.0 / cardCell.superSample
+                    yScale: 1.0 / cardCell.superSample
+                }
 
-            Connections {
-                target: root
-                function onCardHtmlChanged() { cardView.showCard() }
-            }
-            Component.onCompleted: if (root.cardHtml.length > 0) showCard()
+                // When supersampling, downsample through a mipmapped layer.
+                // A plain transform-scale only does bilinear filtering, which
+                // thins glyph edges (descenders/serifs look clipped); a
+                // mipmapped layer picks the right texture level and downsamples
+                // cleanly. No layer at 1× (integer scaling) — zero overhead.
+                smooth: true
+                antialiasing: true
+                layer.enabled: cardCell.superSample > 1
+                layer.smooth: true
+                layer.mipmap: true
 
-            function showCard() {
-                // The wrapper strips the card's drop shadow: this view hugs
-                // the card exactly, so the shadow would be clipped to a faint
-                // corner spill anyway — without it the corners are pure
-                // desktop pass-through. (Übersicht and the browser preview
-                // keep the full shadow; they render unclipped.)
-                loadHtml("<!doctype html><html><head><meta charset='utf-8'>"
-                         + "<style>.cogstress { box-shadow: none !important; }</style>"
-                         + "</head><body style='margin:0;background:transparent'>"
-                         + root.cardHtml + "</body></html>");
-            }
+                backgroundColor: "transparent"
+                settings.showScrollBars: false
+                settings.localContentCanAccessRemoteUrls: false
+                settings.localContentCanAccessFileUrls: false
 
-            onLoadingChanged: function (loadingInfo) {
-                if (loadingInfo.status === WebEngineView.LoadSucceededStatus) {
-                    // Size the view to the card itself (ceil of its border-box;
-                    // the card has no margins) so the widget is exactly as tall
-                    // as the card — nothing scrolls, no dead space.
-                    runJavaScript(
-                        "Math.ceil(document.querySelector('.cogstress').getBoundingClientRect().height)",
-                        function (h) {
-                            if (h && h > 0)
-                                cardView.cardHeight = h;
-                        });
+                Connections {
+                    target: root
+                    function onCardHtmlChanged() { cardView.showCard() }
+                }
+                Component.onCompleted: if (root.cardHtml.length > 0) showCard()
+
+                function showCard() {
+                    // The wrapper strips the card's drop shadow: this view hugs
+                    // the card exactly, so the shadow would be clipped to a faint
+                    // corner spill anyway — without it the corners are pure
+                    // desktop pass-through. (Übersicht and the browser preview
+                    // keep the full shadow; they render unclipped.)
+                    loadHtml("<!doctype html><html><head><meta charset='utf-8'>"
+                             + "<style>.cogstress { box-shadow: none !important; }</style>"
+                             + "</head><body style='margin:0;background:transparent'>"
+                             + root.cardHtml + "</body></html>");
+                }
+
+                onLoadingChanged: function (loadingInfo) {
+                    if (loadingInfo.status === WebEngineView.LoadSucceededStatus) {
+                        // Measure the card's border-box (CSS px; ceil — the card
+                        // has no margins) so the cell is exactly as tall as the
+                        // card. The 2× render box derives from this.
+                        runJavaScript(
+                            "Math.ceil(document.querySelector('.cogstress').getBoundingClientRect().height)",
+                            function (h) {
+                                if (h && h > 0)
+                                    cardCell.cardHeight = h;
+                            });
+                    }
                 }
             }
         }
