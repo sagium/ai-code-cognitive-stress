@@ -392,17 +392,27 @@ e_s(t) =
 That is, a session counts fully only within $g$ of one of the operator's own
 messages (\emph{foreground}, actively driven); otherwise, while live, it is
 ``cooking'' in the background at weight $\beta$; and across a closed-tool gap, or
-before it opened or after it closed, it counts nothing. Weighted concurrency and
-the two CODL summaries are
-\begin{multline}
-C(t)=\sum_{s} e_s(t),\quad
-\overline{\mathrm{CODL}}=\frac{1}{|T|}\sum_{t\in T} C(t),\\
-\mathrm{CODL}^{\star}=\max_{t} C(t).
-\end{multline}
-A raw headcount $H(t)=\sum_s \mathbf{1}[t \in L_s]$ and its peak
-$\max_t H(t)$ are retained as a descriptive ``sessions open at once,'' counting a
-session only while its tool was plausibly open, but the \emph{scored} quantities
-use the weighted form.
+before it opened or after it closed, it counts nothing. Weighted concurrency at
+instant $t$ is $C(t)=\sum_{s} e_s(t)$. The \emph{scored} CODL axis is a graded
+\emph{capacity-dose}: each minute is charged by its instantaneous capacity
+utilisation, capped at full, and the day's charges accumulate against a fixed
+horizon,
+\begin{equation}
+\varphi(t)=\min\!\Big(1,\tfrac{C(t)}{\kappa}\Big),\qquad
+\mathrm{CODL}=\min\!\Big(1,\ \tfrac{1}{D}\sum_{t\in T}\varphi(t)\Big),
+\end{equation}
+where $\kappa$ is working-memory capacity (Cowan's $\approx 4$~\cite{cowan2001},
+used as an \emph{instantaneous} saturation point) and $D$ is the dose horizon in
+capacity-equivalent minutes (default $240$). A minute spent at or above capacity
+contributes one full unit of dose and an idle minute contributes nothing, so
+empty stretches neither dilute nor inflate the axis and the cost grows with
+\emph{sustained} exposure rather than being read off a single instant; charging
+each instant by $\min(1,C(t)/\kappa)$ also keeps a brief spike from saturating
+the day. A descriptive mean $\overline{\mathrm{CODL}}=\frac{1}{|T|}\sum_{t\in T}
+C(t)$ and peak $\mathrm{CODL}^{\star}=\max_{t} C(t)$ are retained (the mean drives
+the personal optimum, \S\ref{sec:optimum}; the peak, the fan-out recommendation),
+as is a raw headcount $H(t)=\sum_s \mathbf{1}[t \in L_s]$ and its peak for a
+descriptive ``sessions open at once.''
 
 \paragraph{Choosing $\beta$.} A background locus is neither cost-free nor
 equivalent to a foreground locus.
@@ -520,7 +530,7 @@ Deficit is defined on every active day (\S\ref{sec:closure}), so all three axes
 contribute to the score on every day with activity:
 \begin{multline}
 \mathrm{Composite} = \frac{100}{3}\bigg(
-\min\!\Big(1,\tfrac{\overline{\mathrm{CODL}}}{5}\Big) +
+\mathrm{CODL} +
 \min\!\Big(1,\tfrac{I}{10}\Big) \\
 +\ \mathrm{clip}(\mathrm{ClosureDeficit},0,1)
 \bigg).
@@ -530,9 +540,12 @@ sum of the weights) so that a calibrated, non-equal weight vector still maps ont
 the same $0$--$100$ scale (\S\ref{sec:validation}); under the equal weights above
 it reduces to the simple mean of the three axes. A day with no activity at all
 defines none of the axes and is not scored.
-The CODL ceiling is set to $5$, one above Cowan's $\approx 4$ capacity limit.
-A day operating \emph{at} the working-memory boundary therefore scores $0.8$
-(the warning band) rather than saturating the axis at $1.0$.
+The CODL term is the capacity-dose of \S\ref{sec:codl}, already in $[0,1]$.
+Scoring the dose rather than the mean concurrency keeps Cowan's $\approx 4$ as an
+\emph{instantaneous} capacity, the quantity it actually measures, and lets a long
+stretch of near-capacity supervision register where a window-average would be
+pulled down by every idle minute. The horizon $D$ that fixes the saturation point
+is a citation-anchored prior, calibratable like the others (\S\ref{sec:validation}).
 Off-hours work then adds an \emph{additive} load to this base. Let $o$ be the
 day's off-hours \emph{engaged} minutes: one-minute instants during which the
 operator was actively driving a session (within the foreground grace $g$ of one
@@ -856,29 +869,32 @@ streams without a shared error and session-boundary convention still risks
 systematic bias, and establishing that convention is left to a multi-tool
 sample.
 
-\paragraph{Single subject and borrowed thresholds.} The capacity threshold
-($\approx 4$~\cite{cowan2001}) and interruption ceiling ($10$/hour) are
-literature values, not fitted to the population of agentic-coding software engineers, who
-may differ. The illustrative behaviour comes from one author ($n{=}1$). The reference
+\paragraph{Single subject and borrowed thresholds.} The working-memory capacity
+($\kappa\approx 4$~\cite{cowan2001}), the CODL dose horizon ($D$), and the
+interruption ceiling ($10$/hour) are literature-anchored priors, not fitted to
+the population of agentic-coding software engineers, who
+may differ. All reported behaviour is $n{=}1$ and from an author. The reference
 implementation provides the machinery to move beyond this (an anonymized
-per-user export and a population-calibration step that refits the ceilings to
-the pooled distribution, \S\ref{sec:impl}). What remains is a multi-participant
-sample in which each participant runs the private tool locally and only derived
-metrics and optional grades are pooled. That step
+per-user export and a population-calibration step that refits the axis scales to
+the pooled distribution, \S\ref{sec:impl}), so what remains is collecting the
+multi-participant sample, each participant running the private tool on their
+own machine and only derived metrics and optional grades pooled. That step
 calibrates the axis \emph{scales} to how the population actually behaves; it is
 a distinct achievement from validating the thresholds against felt load, which
 additionally requires the felt-stress self-report of \S\ref{sec:validation}.
 The export carries that self-report for graded days, but validation needs it
-pooled at sufficient scale; a population-fitted ceiling is otherwise
-population-relative, not construct-validated. Until that labeled sample exists,
-the thresholds remain borrowed and the evidence remains $n{=}1$
-(\S\ref{sec:validation}).
+pooled at sufficient scale; a population-fitted scale is otherwise
+population-relative, not construct-validated. Until that labeled sample exists
+the thresholds stay borrowed and the data stays $n{=}1$ (\S\ref{sec:validation}).
 
 \paragraph{Modelling and boundary choices.} One-minute sampling, the residual
 over-approximation of liveness (a stream counts as open across a run even through
 sub-$\theta$ idle, discounted to $\beta$ but not to zero), and timezone handling
 are all defaults that could materially move scores for shift workers or bursty
-users. Timezone is always the operator's own local zone and the tool is
+users. The capacity-dose (\S\ref{sec:codl}) treats instantaneous load as linear
+in concurrency up to the capacity $\kappa$ and accumulates it against a fixed
+horizon $D$; both the linear shape and the value of $D$ are priors, not fitted.
+Timezone is always the operator's own local zone and the tool is
 single-subject by design, so cross-timezone teams are out of scope rather than a
 threat to this index. The work window is inferred per operator from the
 $p_{10}$--$p_{90}$ of message hours rather than fixed to a universal band,
@@ -978,12 +994,13 @@ make the design falsifiable.
   if the load does not track reduced recovery, its magnitude
   ($+30$ points, $90$-minute saturation) is mis-specified and should be
   refit or dropped.
-  \item \textbf{Population threshold check.} With multi-participant data, the
-  $\approx 4$ capacity ceiling~\cite{cowan2001} and $10$/hour interruption
-  ceiling can be checked and, if warranted, refit to the agentic-coding
-  population; large divergence would mean the borrowed values mis-set the axis
-  scales. The calibration step computes exactly this from pooled exports
-  (\S\ref{sec:impl}); what remains is collecting the population.
+  \item \textbf{Population scale check.} With multi-participant data, the CODL
+  dose horizon $D$ and the $10$/hour interruption ceiling can be refit to the
+  agentic-coding population, and the working-memory capacity $\kappa\approx
+  4$~\cite{cowan2001} checked against it; large divergence would mean the
+  borrowed values mis-set the axis scales. The calibration step fits $D$ from a
+  high quantile of the pooled per-day dose, and the interruption ceiling
+  likewise (\S\ref{sec:impl}); what remains is collecting the population.
 \end{enumerate}
 A modest multi-participant study with experience sampling is the primary
 outstanding work. Each participant would run the private tool locally, with only

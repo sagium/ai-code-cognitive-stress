@@ -756,11 +756,20 @@ def test_composite_score_none_closure_matches_present_zero_when_axes_equal():
 
 
 def test_live_day_score_excludes_future_work_window_hours():
+    # A live day must score off the hours that have actually elapsed, not the
+    # full inferred window. The CODL axis is the capacity-dose, which is
+    # window-length-independent (idle/future minutes add no dose), so the live
+    # protection shows up on the axis that IS per-elapsed-hour: the interruption
+    # rate. With one tool error inside the active span, the same error count over
+    # 7 elapsed hours (live) outweighs it over the full 10-hour window
+    # (completed).
     day = date(2026, 5, 15)
     agg = _agg(day, [
         _stream(
             "live", _utc(2026, 5, 15, 17), _utc(2026, 5, 15, 18),
             user_msg_timestamps=(_utc(2026, 5, 15, 17),),
+            tool_error_count=1,
+            tool_error_timestamps=(_utc(2026, 5, 15, 17, 30),),
         ),
     ])
     window = WorkWindow(weekday=day.weekday(), start=time(11), end=time(21))
@@ -768,7 +777,13 @@ def test_live_day_score_excludes_future_work_window_hours():
     completed = per_day_metrics(agg, window, UTC)
     live = per_day_metrics(agg, window, UTC, as_of=_utc(2026, 5, 15, 18))
 
+    # The dose is identical (same active minutes, no future dilution either way)…
+    assert live.codl_dose == completed.codl_dose
+    # …but the per-hour interruption rate is higher over the shorter elapsed
+    # window, so the live composite is strictly higher.
+    assert live.interruption_rate > completed.interruption_rate
     assert live.composite > completed.composite
+    # codl_avg stays descriptive and still reflects the shorter denominator.
     assert live.codl_avg > completed.codl_avg
     assert live.work_window_local == (time(11), time(21))
 
