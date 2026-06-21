@@ -1,0 +1,10 @@
+# Default: let git auto-detect text vs binary and normalize line endings.
+* text=auto
+
+# Keep shell and Python scripts with LF so they work on Linux/macOS after
+# cloning on Windows.
+*.sh    text eol=lf
+*.py    text eol=lf
+
+# Windows batch files are fine with CRLF.
+*.cmd   text eol=crlf

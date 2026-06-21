@@ -1,0 +1,105 @@
+<!doctype html>
+<!--
+  Browser preview of the desktop widget card — works on any OS, no Mac needed.
+
+  The card itself is rendered by the CLI (stress_levels/widget_card.py — the
+  single renderer both desktop widgets inject verbatim); this page just loads
+  that output, so what you see here IS the widgets' own markup — no duplicated
+  rendering to drift. The simulated macOS desktop (wallpaper, grain) and the
+  entry animation are the only preview-side additions; on a real desktop the
+  glass sits over your actual wallpaper.
+
+  Run from this directory:
+    aicogstress --emit-html-card > card.html   # your live data (or use
+                                               # scripts/generate_demo_report.py
+                                               # --dayview-card card.html)
+    python3 -m http.server 8731                # file:// can't fetch; serve it
+    # open http://localhost:8731/preview.html
+
+  No webfonts, no external requests — system fonts throughout.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Cognitive Stress — widget preview</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    display: grid; place-items: center; overflow: hidden;
+    background: /* "kiln & moss" — a dusk wallpaper in the project's palette */
+      radial-gradient(120% 90% at 12% 95%, rgba(176, 74, 58, .42) 0%, transparent 55%),
+      radial-gradient(110% 80% at 88% 4%,  rgba(108, 154, 139, .38) 0%, transparent 52%),
+      radial-gradient(70% 55% at 70% 80%,  rgba(197, 180, 138, .14) 0%, transparent 60%),
+      linear-gradient(165deg, #181b18 0%, #121511 38%, #1a1410 100%);
+  }
+  body::before { /* film grain */
+    content: ""; position: fixed; inset: 0; pointer-events: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='.55'/%3E%3C/svg%3E");
+    opacity: .05; mix-blend-mode: overlay;
+  }
+  body::after { /* vignette */
+    content: ""; position: fixed; inset: 0; pointer-events: none;
+    background: radial-gradient(120% 120% at 50% 45%, transparent 55%, rgba(0,0,0,.45) 100%);
+  }
+  .cogstress { animation: rise .7s cubic-bezier(.2, .9, .25, 1) both; }
+  @keyframes rise { from { opacity: 0; transform: translateY(14px) scale(.985); } }
+  .hint {
+    max-width: 420px; padding: 18px 22px; border-radius: 16px;
+    font: 13px/1.6 ui-monospace, monospace; color: rgba(245,243,237,.85);
+    background: rgba(24, 26, 23, .6); border: 1px solid rgba(255,255,255,.12);
+    white-space: pre-wrap;
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+(async () => {
+  const root = document.getElementById("root");
+  const hint = (msg) => { root.innerHTML = `<div class="hint">${msg}</div>`; };
+
+  let card;
+  try {
+    const resp = await fetch("card.html");
+    if (!resp.ok) throw new Error(resp.status);
+    card = await resp.text();
+  } catch (e) {
+    return hint("No card.html found next to this file.\nGenerate one:\n" +
+      "  aicogstress --emit-html-card &gt; card.html\n" +
+      "or, for the deterministic demo day:\n" +
+      "  python3 ../../scripts/generate_demo_report.py --dayview-card card.html\n" +
+      "(and serve this directory over HTTP:  python3 -m http.server 8731)");
+  }
+  if (!card.includes('class="cogstress"'))
+    return hint("card.html doesn't look like a widget card — regenerate it:\n" +
+      "  aicogstress --emit-html-card &gt; card.html");
+  root.innerHTML = card;
+  // innerHTML never runs the card's embedded <script>, so wire the timeframe
+  // tabs here — the same delegated toggle the Übersicht host uses, keeping the
+  // preview faithful to the real widget.
+  root.addEventListener("click", (e) => {
+    // Expand/collapse toggle — flip data-compact for an instant visual resize.
+    // (The preview has no widget host/CLI, so it only demonstrates the toggle;
+    // a real host also persists it via `aicogstress --set-compact`.)
+    const rt = e.target.closest(".resize-toggle");
+    if (rt) {
+      const r = rt.closest(".cogstress");
+      if (r) r.setAttribute("data-compact",
+        r.getAttribute("data-compact") === "true" ? "false" : "true");
+      return;
+    }
+    const tab = e.target.closest(".tab");
+    if (!tab) return;
+    const r = tab.closest(".cogstress");
+    if (!r) return;
+    const key = tab.getAttribute("data-view");
+    r.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t === tab));
+    r.querySelectorAll(".view").forEach((v) =>
+      v.classList.toggle("hidden", v.getAttribute("data-view") !== key)
+    );
+  });
+})();
+</script>
+</body>
+</html>

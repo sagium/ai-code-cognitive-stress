@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Cognitive Stress
+Comment=AI code cognitive stress monitor — live desktop widget
+Exec=python3 INSTALL_PATH/cognitive-stress.py
+Icon=utilities-system-monitor
+Terminal=false
+Categories=Utility;
+X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Delay=5

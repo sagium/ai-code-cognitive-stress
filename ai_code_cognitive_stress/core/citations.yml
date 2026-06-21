@@ -1,0 +1,444 @@
+# Citations registry — single source of truth for all research references
+# surfaced in the rendered stress-profile report.
+#
+# Every metric threshold, weight, and recommendation in the output must be
+# traceable to an entry here. Add new entries before referencing them in
+# code; never let a metric appear in the UI with a bare number.
+#
+# Schema:
+#   - key:       short identifier used in code and the rendered HTML
+#     authors:   "Last, F. & Last, F."
+#     year:      <int>
+#     title:     "..."
+#     venue:     "Journal name, vol(issue), pages"
+#     doi:       "10...." or null
+#     supports:  list of one-line claims this citation backs
+
+- key: cowan-2001
+  authors: "Cowan, N."
+  year: 2001
+  title: "The magical number 4 in short-term memory: A reconsideration of mental storage capacity"
+  venue: "Behavioral and Brain Sciences, 24(1), 87–114"
+  doi: "10.1017/S0140525X01003922"
+  supports:
+    - "CODL ≥ 4 threshold (working-memory capacity for concurrent decision tracking)"
+
+- key: cummings-mitchell-2008
+  authors: "Cummings, M. L. & Mitchell, P. J."
+  year: 2008
+  title: "Predicting controller capacity in supervisory control of multiple UAVs"
+  venue: "IEEE Trans. Systems, Man, and Cybernetics — Part A, 38(2), 451–460"
+  doi: "10.1109/TSMCA.2007.914757"
+  supports:
+    - "Supervisory-control fan-out limits — PSC canary threshold"
+    - "Non-linear performance degradation past personal capacity"
+
+- key: crandall-cummings-2007
+  authors: "Crandall, J. W. & Cummings, M. L."
+  year: 2007
+  title: "Identifying predictive metrics for supervisory control of multiple robots"
+  venue: "IEEE Trans. Robotics, 23(5), 942–951"
+  doi: "10.1109/TRO.2007.907480"
+  supports:
+    - "Neglect-time / interaction-time / fan-out vocabulary"
+
+- key: csikszentmihalyi-1990
+  authors: "Csíkszentmihályi, M."
+  year: 1990
+  title: "Flow: The Psychology of Optimal Experience"
+  venue: "Harper & Row"
+  doi: null
+  supports:
+    - "Flow channel — optimum cognitive load between boredom and anxiety"
+    - "Anchors the optimum-line target on the daily chart"
+
+- key: demerouti-2001
+  authors: "Demerouti, E., Bakker, A. B., Nachreiner, F. & Schaufeli, W. B."
+  year: 2001
+  title: "The Job Demands–Resources Model of Burnout"
+  venue: "Journal of Applied Psychology, 86(3), 499–512"
+  doi: "10.1037/0021-9010.86.3.499"
+  supports:
+    - "Closure Deficit framing — burnout = demands without recoverable resources"
+
+- key: hart-staveland-1988
+  authors: "Hart, S. G. & Staveland, L. E."
+  year: 1988
+  title: "Development of NASA-TLX (Task Load Index): Results of Empirical and Theoretical Research"
+  venue: "In P. A. Hancock & N. Meshkati (Eds.), Human Mental Workload (Advances in Psychology, Vol. 52, pp. 139–183). North-Holland"
+  doi: "10.1016/S0166-4115(08)62386-9"
+  supports:
+    - "Subjective workload instrument referenced in caveats — pairs with our taskload measure"
+
+- key: leroy-2009
+  authors: "Leroy, S."
+  year: 2009
+  title: "Why is it so hard to do my work? The challenge of attention residue when switching between work tasks"
+  venue: "Organizational Behavior and Human Decision Processes, 109(2), 168–181"
+  doi: "10.1016/j.obhdp.2009.04.002"
+  supports:
+    - "Attention residue from unclosed switches"
+    - "Closure events as a cognitive resource"
+
+- key: gonzalez-mark-2004
+  authors: "González, V. M. & Mark, G."
+  year: 2004
+  title: '"Constant, constant, multi-tasking craziness": Managing multiple working spheres'
+  venue: "Proceedings of the SIGCHI Conference on Human Factors in Computing Systems (CHI '04), pp. 113–120"
+  doi: "10.1145/985692.985707"
+  supports:
+    - "Field baseline for knowledge-worker switching — a working sphere about every ~11 min (≈5/hour); anchors the interruption-ceiling comparison"
+
+- key: mark-gudith-klocke-2008
+  authors: "Mark, G., Gudith, D. & Klocke, U."
+  year: 2008
+  title: "The cost of interrupted work: more speed and stress"
+  venue: "Proceedings of the SIGCHI Conference on Human Factors in Computing Systems (CHI '08), pp. 107–110"
+  doi: "10.1145/1357054.1357072"
+  supports:
+    - "Interruption Index — interrupted work is faster but more stressful"
+    - "Justifies treating interruptions as load even when productivity holds"
+
+- key: mark-gonzalez-harris-2005
+  authors: "Mark, G., Gonzalez, V. M. & Harris, J."
+  year: 2005
+  title: "No task left behind? Examining the nature of fragmented work"
+  venue: "Proceedings of the SIGCHI Conference on Human Factors in Computing Systems (CHI '05), pp. 321–330"
+  doi: "10.1145/1054972.1055017"
+  supports:
+    - "~23-minute task-recovery figure after interruption"
+    - "External-vs-self interruption weighting (external ~25% costlier)"
+
+- key: mark-2023
+  authors: "Mark, G."
+  year: 2023
+  title: "Attention Span: A Groundbreaking Way to Restore Balance, Happiness and Productivity"
+  venue: "Hanover Square Press"
+  doi: null
+  supports:
+    - "Population baseline for screen-attention duration (~47s)"
+
+- key: masicampo-baumeister-2011
+  authors: "Masicampo, E. J. & Baumeister, R. F."
+  year: 2011
+  title: "Consider it done! Plan making can eliminate the cognitive effects of unfulfilled goals"
+  venue: "Journal of Personality and Social Psychology, 101(4), 667–683"
+  doi: "10.1037/a0024192"
+  supports:
+    - "Background-session weight is > 0: open/unfulfilled goals consume attention and working memory until closed or planned"
+
+# Task resumption & goal-activation decay — the resumption-based Closure Deficit.
+# These ground the axis on the cost of picking a parked loop back up, scaled by
+# how long it sat, rather than on the (weakly-replicating) memory-persistence of
+# open goals.
+- key: monk-trafton-boehmdavis-2008
+  authors: "Monk, C. A., Trafton, J. G. & Boehm-Davis, D. A."
+  year: 2008
+  title: "The effect of interruption duration and demand on resuming suspended goals"
+  venue: "Journal of Experimental Psychology: Applied, 14(4), 299–313"
+  doi: "10.1037/a0014402"
+  supports:
+    - "Resumption time rises with interruption DURATION — the warrant for grading each resume by its gap length"
+    - "Decay governs the resumption-cost profile (rehearsal mitigates) — supports a duration→cost severity curve"
+
+- key: altmann-trafton-2002
+  authors: "Altmann, E. M. & Trafton, J. G."
+  year: 2002
+  title: "Memory for goals: an activation-based model"
+  venue: "Cognitive Science, 26(1), 39–83"
+  doi: "10.1207/s15516709cog2601_2"
+  supports:
+    - "A suspended goal's activation decays over the gap and must be re-strengthened to be retrieved — the mechanism behind resumption cost"
+    - "Retrieval cues lower reconstruction cost — an agent transcript is such a cue"
+
+- key: parnin-rugaber-2011
+  authors: "Parnin, C. & Rugaber, S."
+  year: 2011
+  title: "Resumption strategies for interrupted programming tasks"
+  venue: "Software Quality Journal, 19(1), 5–34"
+  doi: "10.1007/s11219-010-9104-9"
+  supports:
+    - "In-domain field evidence: resuming an interrupted programming task incurs a context-reconstruction tax (only 10% resume coding within 1 min; only 7% resume without navigating to rebuild context)"
+    - "The closest field bridge for gaps beyond the sub-minute lab regime"
+
+- key: ghibellini-meier-2025
+  authors: "Ghibellini, R. & Meier, B."
+  year: 2025
+  title: "Interruption, recall and resumption: a meta-analysis of the Zeigarnik and Ovsiankina effects"
+  venue: "Humanities and Social Sciences Communications, 12(1), 1–13"
+  doi: "10.1057/s41599-025-05000-w"
+  supports:
+    - "The tendency to resume interrupted tasks (Ovsiankina effect) replicates — grounds resumption as a real, measurable behaviour"
+    - "The memory advantage for unfinished tasks (Zeigarnik effect) does NOT reliably replicate — so the axis is grounded on resumption cost, not open-goal memory persistence"
+
+- key: maslach-jackson-1981
+  authors: "Maslach, C. & Jackson, S. E."
+  year: 1981
+  title: "The measurement of experienced burnout"
+  # British spelling — the journal was titled "Journal of Occupational
+  # Behaviour" in 1981; renamed to "Journal of Organizational Behavior"
+  # (American spelling) in 1988.
+  venue: "Journal of Occupational Behaviour, 2(2), 99–113"
+  doi: "10.1002/job.4030020205"
+  supports:
+    - "Maslach Burnout Inventory — validated diagnostic referenced in disclaimer"
+
+- key: mcewen-1998
+  authors: "McEwen, B. S."
+  year: 1998
+  title: "Protective and damaging effects of stress mediators"
+  venue: "New England Journal of Medicine, 338(3), 171–179"
+  doi: "10.1056/NEJM199801153380307"
+  supports:
+    - "Allostatic load — within-day shape matters as much as totals"
+    - "Sustained-overload recommendation"
+
+- key: sheridan-1992
+  authors: "Sheridan, T. B."
+  year: 1992
+  title: "Telerobotics, Automation, and Human Supervisory Control"
+  venue: "MIT Press"
+  doi: null
+  supports:
+    - "Supervisory-control framework — the parent paradigm for LLM oversight"
+
+- key: smith-2003
+  authors: "Smith, R. E."
+  year: 2003
+  title: "The cost of remembering to remember in event-based prospective memory: Investigating the capacity demands of delayed intention performance"
+  venue: "Journal of Experimental Psychology: Learning, Memory, and Cognition, 29(3), 347–361"
+  doi: "10.1037/0278-7393.29.3.347"
+  supports:
+    - "Background-session weight magnitude (~0.15–0.25): holding a pending intention slows the ongoing task by ~15–20% — the cost of monitoring, not full engagement"
+
+- key: sonnentag-fritz-2007
+  authors: "Sonnentag, S. & Fritz, C."
+  year: 2007
+  title: "The Recovery Experience Questionnaire: Development and Validation of a Measure for Assessing Recuperation and Unwinding From Work"
+  venue: "Journal of Occupational Health Psychology, 12(3), 204–221"
+  doi: "10.1037/1076-8998.12.3.204"
+  supports:
+    - "Closure as recovery resource"
+    - "Recovery dimensions (detachment, relaxation, mastery, control)"
+
+- key: sonnentag-binnewies-mojza-2010
+  authors: "Sonnentag, S., Binnewies, C. & Mojza, E. J."
+  year: 2010
+  title: "Staying Well and Engaged When Demands Are High: The Role of Psychological Detachment"
+  venue: "Journal of Applied Psychology, 95(5), 965–976"
+  doi: "10.1037/a0020032"
+  supports:
+    - "Off-hours engagement signal — detachment failure predicts next-day exhaustion"
+
+- key: wickens-2008
+  authors: "Wickens, C. D."
+  year: 2008
+  title: "Multiple resources and mental workload"
+  venue: "Human Factors, 50(3), 449–455"
+  doi: "10.1518/001872008X288394"
+  supports:
+    - "Cross-tool / cross-modality switches cost more than within-tool switches"
+
+- key: yerkes-dodson-1908
+  authors: "Yerkes, R. M. & Dodson, J. D."
+  year: 1908
+  title: "The relation of strength of stimulus to rapidity of habit-formation"
+  venue: "Journal of Comparative Neurology and Psychology, 18(5), 459–482"
+  doi: "10.1002/cne.920180503"
+  supports:
+    - "Inverted-U law — performance peaks at moderate arousal/load"
+    - "Underpins the personal-optimum target line"
+
+# Supervisory-control / automation-monitoring analogues — the closest-fitting
+# regime for the background weight β: a human who mostly steers but periodically
+# lets a semi-autonomous process run unsupervised, then resumes control.
+- key: endsley-kiris-1995
+  authors: "Endsley, M. R. & Kiris, E. O."
+  year: 1995
+  title: "The out-of-the-loop performance problem and level of control in automation"
+  venue: "Human Factors, 37(2), 381–394"
+  doi: "10.1518/001872095779064555"
+  supports:
+    - "Out-of-the-loop cost of letting a process run unsupervised — grounds β > 0 in-domain"
+
+- key: warm-parasuraman-matthews-2008
+  authors: "Warm, J. S., Parasuraman, R. & Matthews, G."
+  year: 2008
+  title: "Vigilance requires hard mental work and is stressful"
+  venue: "Human Factors, 50(3), 433–441"
+  doi: "10.1518/001872008X312152"
+  supports:
+    - "Sustained monitoring is effortful and stressful — a background locus is not free"
+
+- key: parasuraman-manzey-2010
+  authors: "Parasuraman, R. & Manzey, D. H."
+  year: 2010
+  title: "Complacency and bias in human use of automation: An attentional integration"
+  venue: "Human Factors, 52(3), 381–410"
+  doi: "10.1177/0018720810376055"
+  supports:
+    - "Attentional cost of monitoring automation under concurrent task load"
+
+- key: eriksson-stanton-2017
+  authors: "Eriksson, A. & Stanton, N. A."
+  year: 2017
+  title: "Takeover time in highly automated vehicles: Noncritical transitions to and from manual control"
+  venue: "Human Factors, 59(4), 689–705"
+  doi: "10.1177/0018720816685832"
+  supports:
+    - "Cost of resuming control after letting an automated process run"
+
+# Span-of-control precedents across professions — prior regimes where automation
+# did NOT reduce a single human's work but multiplied the concurrent
+# output/processes they must review and steer, each with a documented fatigue or
+# quality-loss cost. These ground the "one operator, many parallel agents"
+# framing by analogy: the fan-out ceiling is a recurring, cross-domain finding.
+- key: bainbridge-1983
+  authors: "Bainbridge, L."
+  year: 1983
+  title: "Ironies of automation"
+  venue: "Automatica, 19(6), 775–779"
+  doi: "10.1016/0005-1098(83)90046-8"
+  supports:
+    - "Umbrella irony — the more capable the automation, the more demanding and critical the residual human monitoring role becomes; the parent observation for every span-of-control precedent below"
+
+- key: wiener-curry-1980
+  authors: "Wiener, E. L. & Curry, R. E."
+  year: 1980
+  title: "Flight-deck automation: promises and problems"
+  venue: "Ergonomics, 23(10), 995–1011"
+  doi: "10.1080/00140138008924809"
+  supports:
+    - "Aviation precedent — cockpit automation shifted pilots from flying to monitoring, with vigilance decrement and automation surprises rather than reduced load"
+
+- key: burns-2022
+  authors: "Burns, M. L., Saager, L., Cassidy, R. B., Mentz, G., Mashour, G. A. & Kheterpal, S."
+  year: 2022
+  title: "Association of anesthesiologist staffing ratio with surgical patient morbidity and mortality"
+  venue: "JAMA Surgery, 157(9), 807–815"
+  doi: "10.1001/jamasurg.2022.2804"
+  supports:
+    - "Anesthesiology concurrency — higher staffing ratios (one anesthesiologist directing more concurrent operating rooms) are associated with worse patient outcomes; a span-of-control ceiling in a literal 'more juniors to oversee' regime"
+
+- key: mcdonald-2015
+  authors: "McDonald, R. J., Schwartz, K. M., Eckel, L. J., Diehn, F. E., Hunt, C. H., Bartholmai, B. J., Erickson, B. J. & Kallmes, D. F."
+  year: 2015
+  title: "The effects of changes in utilization and technological advancements of cross-sectional imaging on radiologist workload"
+  venue: "Academic Radiology, 22(9), 1191–1198"
+  doi: "10.1016/j.acra.2015.05.007"
+  supports:
+    - "Radiology volume — cross-sectional imaging raised images-per-study by orders of magnitude, so each radiologist now interprets an image every few seconds; escalating oversight volume per human"
+
+- key: loft-2007
+  authors: "Loft, S., Sanderson, P., Neal, A. & Mooij, M."
+  year: 2007
+  title: "Modeling and predicting mental workload in en route air traffic control: Critical review and broader implications"
+  venue: "Human Factors, 49(3), 376–399"
+  doi: "10.1518/001872007X197017"
+  supports:
+    - "Air traffic control — controller mental workload scales with the number of aircraft managed; automation is introduced to raise the manageable count, with workload as the binding constraint"
+
+- key: krings-2001
+  authors: "Krings, H. P."
+  year: 2001
+  title: "Repairing Texts: Empirical Investigations of Machine Translation Post-Editing Processes"
+  venue: "Kent State University Press"
+  doi: null
+  supports:
+    - "Translation post-editing — foundational empirical study of the cognitive effort of repairing machine output; the human becomes a high-throughput reviewer of generated text rather than its author"
+
+- key: toral-2019
+  authors: "Toral, A."
+  year: 2019
+  title: "Post-editese: an exacerbated translationese"
+  venue: "Proc. Machine Translation Summit XVII (Research Track), 273–281"
+  doi: null
+  supports:
+    - "Translation quality homogenization — post-edited output is simpler, more normalised, and more source-interfered than from-scratch translation ('post-editese'); quality flattening under high-volume review"
+
+# --- AI-assisted coding and developer cognition. Direct, in-domain evidence
+# --- that the supervisory burden this index measures is real, not speculative.
+# --- These motivate the index rather than back a specific threshold; they
+# --- mirror the paper's references.bib so the report's Research basis and the
+# --- paper cite the same works.
+
+- key: mozannar-2024
+  authors: "Mozannar, H., Bansal, G., Fourney, A. & Horvitz, E."
+  year: 2024
+  title: "Reading between the lines: Modeling user behavior and costs in AI-assisted programming"
+  venue: "Proc. CHI Conf. on Human Factors in Computing Systems (CHI '24)"
+  doi: "10.1145/3613904.3641936"
+  supports:
+    - "Effort shifts from writing to verification — programmers spend ~51.5% of session time in suggestion-specific states (verifying, deferring, prompt-crafting)"
+
+- key: perry-2023
+  authors: "Perry, N., Srivastava, M., Kumar, D. & Boneh, D."
+  year: 2023
+  title: "Do users write more insecure code with AI assistants?"
+  venue: "Proc. ACM SIGSAC Conf. on Computer and Communications Security (CCS '23), 2785–2799"
+  doi: "10.1145/3576915.3623157"
+  supports:
+    - "Over-reliance / false sense of security — assistant users write less secure but more confidently-trusted code"
+
+- key: qian-wexler-2024
+  authors: "Qian, C. & Wexler, J."
+  year: 2024
+  title: "Take it, leave it, or fix it: Measuring productivity and trust in human–AI collaboration"
+  venue: "Proc. 29th Int. Conf. on Intelligent User Interfaces (IUI '24)"
+  doi: "10.1145/3640543.3645198"
+  supports:
+    - "Automation complacency and rising reliance over a single task in professional engineers — in-domain support for the supervisory fan-out/neglect analogy"
+
+- key: tang-2024
+  authors: "Tang, N., Chen, M., Ning, Z., Bansal, A., Huang, Y., McMillan, C. & Li, T. J.-J."
+  year: 2024
+  title: "Developer behaviors in validating and repairing LLM-generated code using IDE and eye tracking"
+  venue: "IEEE Symp. on Visual Languages and Human-Centric Computing (VL/HCC), 40–46"
+  doi: "10.1109/VL/HCC60511.2024.00015"
+  supports:
+    - "Merely informing developers that code is LLM-generated raises their measured NASA-TLX workload"
+
+- key: barke-james-polikarpova-2023
+  authors: "Barke, S., James, M. B. & Polikarpova, N."
+  year: 2023
+  title: "Grounded Copilot: How programmers interact with code-generating models"
+  venue: "Proc. ACM on Programming Languages, 7(OOPSLA1)"
+  doi: "10.1145/3586030"
+  supports:
+    - "Interaction is bimodal — fast acceleration alternating with slow, validation-heavy exploration"
+
+- key: feng-afroz-sarma-2026
+  authors: "Feng, Z., Afroz, S. & Sarma, A."
+  year: 2026
+  title: "From gains to strains: Modeling developer burnout with GenAI adoption"
+  venue: "Proc. 48th Int. Conf. on Software Engineering, Software Engineering in Society Track (ICSE-SEIS '26); arXiv:2510.07435"
+  doi: null
+  supports:
+    - "First peer-reviewed link from GenAI adoption to burnout via intensified job demands (Job Demands–Resources model)"
+
+- key: sergeyuk-2026
+  authors: "Sergeyuk, A., Huang, E., Karaeva, D., Serova, A., Golubev, Y. & Ahmed, I."
+  year: 2026
+  title: "Evolving with AI: A longitudinal analysis of developer logs"
+  venue: "Proc. 48th Int. Conf. on Software Engineering (ICSE '26)"
+  doi: "10.1145/3744916.3787811"
+  supports:
+    - "Longitudinal telemetry of AI-assisted developers — motivates continuous behavioural measurement over one-off laboratory studies"
+
+- key: becker-2025
+  authors: "Becker, J., Rush, N., Barnes, B. & Rein, D."
+  year: 2025
+  title: "Measuring the impact of early-2025 AI on experienced open-source developer productivity"
+  venue: "METR technical report; arXiv:2507.09089 (preprint, not peer-reviewed)"
+  doi: null
+  supports:
+    - "Perception–reality gap — experienced developers were slowed ~19% by AI tooling yet believed it had sped them up"
+
+- key: stackoverflow-2025
+  authors: "Stack Overflow"
+  year: 2025
+  title: "2025 Developer Survey"
+  venue: "Industry survey, 49,000+ respondents (not peer-reviewed)"
+  doi: null
+  supports:
+    - "Large-scale corroboration of the developer perception–reality gap in AI tooling"

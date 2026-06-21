@@ -1,0 +1,16 @@
+{
+    "KPackageStructure": "Plasma/Applet",
+    "KPlugin": {
+        "Id": "org.ai-code-cognitive-stress.plasmoid",
+        "Name": "Cognitive Stress",
+        "Description": "Today's agent-coding cognitive stress — composite score plus the three axes (CODL, interruptions, closure deficit) against your personal optimum.",
+        "Icon": "utilities-system-monitor",
+        "Category": "System Information",
+        "License": "MIT",
+        "Authors": [
+            { "Name": "Marinos Prevenios" }
+        ],
+        "Version": "0.2.0"
+    },
+    "X-Plasma-API-Minimum-Version": "6.0"
+}

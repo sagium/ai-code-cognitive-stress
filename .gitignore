@@ -1,0 +1,69 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+.env
+.python-version
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Coverage
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# uv (this tool is stdlib-only; uv is an optional convenience, not pinned)
+uv.lock
+
+# LaTeX build artifacts (paper/)
+*.aux
+*.bbl
+*.blg
+*.log
+*.out
+*.toc
+*.synctex.gz
+paper/*.pdf
+# …except the rendered paper, which is committed and linked from the README.
+!paper/ai-code-cognitive-stress-paper.pdf
+
+# Build artifacts
+/dist/
+/build/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Live, user-editable runtime config. The tracked defaults live in
+# config.default.json; load_config falls back to it when this file is absent.
+ai_code_cognitive_stress/core/config.json
+
+# Generated reports + exports (run locally, not for committing; may contain
+# your own data even when anonymized)
+out/
+*.report.html
+stress-profile*.html
+stress-profile*.json
+stress-levels-research-*.json
+calibration-report*.json
+# Widget-preview data (generated next to desktop/ubersicht/preview.html; may
+# contain your own activity)
+desktop/ubersicht/dayview.json
+desktop/ubersicht/card.html
+# CI widget UI-render screenshot (scripts/ci_widget_ui_check.py)
+widget-card.png
+
+# Logs
+*.log
+
+# Playwright MCP scratch dir (screenshots, console logs)
+.playwright-mcp/

@@ -1,0 +1,22 @@
+This directory is populated at install time by fetch-webview2.ps1.
+
+Run from the desktop/windows/ directory (or via install.py):
+
+    powershell -ExecutionPolicy Bypass -File fetch-webview2.ps1
+
+Files placed here by the script:
+    net45/Microsoft.Web.WebView2.Core.dll
+    net45/Microsoft.Web.WebView2.WinForms.dll
+    runtimes/win-x64/native/WebView2Loader.dll   (if present in the package)
+    runtimes/win-arm64/native/WebView2Loader.dll  (if present)
+
+These are the vendored .NET Framework (net45) builds of the WebView2 managed
+SDK, required because the widget host (cognitive-stress.ps1) targets Windows
+PowerShell 5.1 (.NET Framework), not PowerShell 7 / .NET Core.
+
+The binaries are NOT committed to git — they are fetched from NuGet at install
+time. The fetch script pins a specific version for reproducible installs.
+
+The DLLs themselves make no network calls; they are only loaded by the widget
+host (cognitive-stress.ps1), which is private and makes no network calls at
+runtime.

@@ -1,0 +1,24 @@
+{
+  "locale": "en",
+  "codl": {
+    "foreground_grace_minutes": 5,
+    "background_weight": 0.20
+  },
+  "resumption": {
+    "threshold_minutes": 30,
+    "full_decay_minutes": 120,
+    "daily_ceiling": 4.0
+  },
+  "compact_widget": false,
+  "widget_view": "today",
+  "idle_close_minutes": 180,
+  "scoring": {
+    "codl_ceiling": 5.0,
+    "interruption_ceiling": 10.0,
+    "weights": [
+      0.3333333333333333,
+      0.3333333333333333,
+      0.3333333333333333
+    ]
+  }
+}
