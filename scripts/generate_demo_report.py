@@ -27,6 +27,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from ai_code_cognitive_stress.pipeline.aggregate import DayAggregate, StreamDayActivity  # noqa: E402
 from ai_code_cognitive_stress.core.markdown_min import to_html as md_to_html  # noqa: E402
 from ai_code_cognitive_stress.pipeline.metrics import (  # noqa: E402
+    CODL_CAPACITY,
+    CODL_DOSE_HORIZON_MINUTES,
     DayMetrics,
     RESUME_FULL_DECAY_MINUTES,
     RESUMPTION_DAILY_CEILING,
@@ -116,12 +118,23 @@ def _gen_day_metrics(
     if rng.random() < OFFHOURS_PROB:
         off_hours_minutes = rng.randint(*OFFHOURS_RANGE)
 
-    composite = _composite_score(codl_avg, interruption_rate, closure_deficit)
+    # Synthesize codl_dose from codl_avg for the demo: approximate the
+    # capacity-dose as if every in-window minute had the average engagement-
+    # weighted concurrency (a simplification; real dose is per-minute).
+    # This keeps the demo visually plausible without running the full sweep.
+    work_minutes = 9 * 60  # 09:00–18:00
+    phi_avg = min(1.0, codl_avg / CODL_CAPACITY)
+    raw_dose = phi_avg * work_minutes
+    codl_dose = min(1.0, raw_dose / CODL_DOSE_HORIZON_MINUTES)
+
+    composite = _composite_score(codl_dose, interruption_rate, closure_deficit)
 
     return DayMetrics(
         day=d,
         codl_avg=round(codl_avg, 3),
         codl_peak=codl_peak,
+        codl_raw_dose=round(raw_dose, 1),
+        codl_dose=round(codl_dose, 3),
         interruption_rate=round(interruption_rate, 3),
         closure_deficit=round(closure_deficit, 3),
         off_hours_minutes=off_hours_minutes,

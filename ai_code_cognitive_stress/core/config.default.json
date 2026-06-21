@@ -13,7 +13,8 @@
   "widget_view": "today",
   "idle_close_minutes": 180,
   "scoring": {
-    "codl_ceiling": 5.0,
+    "codl_capacity": 4.0,
+    "codl_dose_horizon_minutes": 240.0,
     "interruption_ceiling": 10.0,
     "weights": [
       0.3333333333333333,

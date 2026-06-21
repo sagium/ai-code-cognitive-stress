@@ -20,7 +20,7 @@ from ..core import i18n
 from ..core.config import load_config
 from ..core.i18n import t, tn
 from ..pipeline.metrics import (
-    CODL_NORMALISATION_CEILING,
+    CODL_CAPACITY,
     OFF_HOURS_LOAD_CEILING_MIN,
     OFF_HOURS_LOAD_MAX_POINTS,
     DayMetrics,
@@ -68,7 +68,7 @@ class AxisMeta:
 AXES: tuple[AxisMeta, ...] = (
     AxisMeta(
         key="codl",
-        range_max=CODL_NORMALISATION_CEILING,
+        range_max=CODL_CAPACITY,
         zones=CODL_ZONES,
         has_optimum=True,
     ),

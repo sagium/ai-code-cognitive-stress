@@ -70,6 +70,8 @@ class DayRecord:
     participant: str
     weekday: str
     codl_avg: float
+    codl_raw_dose: float | None             # capacity-equivalent minutes (v5+; None if absent)
+    codl_dose: float | None                 # normalised dose [0,1] (v5+; None if absent)
     interruption_rate: float
     closure_deficit: float | None  # resumption load; None → day had no activity
     composite: float
@@ -137,10 +139,16 @@ def pool_day_records(exports: list[dict]) -> list[DayRecord]:
             subjective_rating = (
                 int(raw_rating) if isinstance(raw_rating, int) else None
             )
+            raw_raw_dose = d.get("codl_raw_dose")
+            raw_dose_val = float(raw_raw_dose) if raw_raw_dose is not None else None
+            raw_dose_field = d.get("codl_dose")
+            dose_val = float(raw_dose_field) if raw_dose_field is not None else None
             records.append(DayRecord(
                 participant=participant,
                 weekday=d.get("weekday", ""),
                 codl_avg=float(d.get("codl_avg", 0.0)),
+                codl_raw_dose=raw_dose_val,
+                codl_dose=dose_val,
                 interruption_rate=float(d.get("interruption_rate", 0.0)),
                 closure_deficit=(
                     float(d["closure_deficit"])
@@ -206,7 +214,8 @@ def _corr(xs: list[float], ys: list[float]) -> float | None:
 def calibrate(
     records: list[DayRecord],
     *,
-    current_codl_ceiling: float = 5.0,
+    current_codl_capacity: float = 4.0,
+    current_codl_dose_horizon_minutes: float = 240.0,
     current_interruption_ceiling: float = 10.0,
     current_weights: tuple[float, float, float] = (1 / 3, 1 / 3, 1 / 3),
     ceiling_pct: float = 0.95,
@@ -216,12 +225,21 @@ def calibrate(
 ) -> dict:
     """Crunch pooled day records into calibration suggestions + descriptives.
 
-    The fitted ceilings/weights are always reported under ``ceilings.suggested``
+    The fitted horizon/weights are always reported under ``ceilings.suggested``
     and ``weights.suggested`` for inspection, but ``suggested_scoring_config`` —
     the block the operator is invited to paste — only advises a change when the
     pool clears the sample-size floor (see ``reliability``). Below it the block
-    keeps the current literature priors, because a p95/inverse-stdev fit from a
-    thin sample can be worse than the prior it would replace.
+    keeps the current calibration priors, because a p95 fit from a thin sample
+    can be worse than the prior it would replace.
+
+    The CODL axis now uses a graded capacity-dose. ``codl_capacity`` (Cowan 2001
+    instantaneous WM limit) is NOT calibrated — it is a theoretical anchor.
+    The dose horizon ``codl_dose_horizon_minutes`` IS the calibration target:
+    H_suggested = p95 of the per-day raw_dose (capacity-equivalent minutes) from
+    the pooled exports. When exports carry ``codl_raw_dose`` that is used directly;
+    when they only carry ``codl_dose`` (the already-normalised axis) or ``codl_avg``
+    (old exports), the suggested horizon falls back to the current prior with a
+    note in the report.
     """
     codl = [r.codl_avg for r in records]
     interr = [r.interruption_rate for r in records]
@@ -231,27 +249,48 @@ def calibrate(
     composite = [r.composite for r in records]
     off_hours = [r.off_hours_minutes for r in records]
 
-    # 1. Ceilings — set each axis scale to a high population quantile so the
-    #    [0,1] map covers the real spread without saturating most users.
-    sugg_codl_ceiling = _percentile(codl, ceiling_pct) or current_codl_ceiling
+    # 1a. CODL dose horizon — fitted from p95 of raw_dose when available.
+    raw_doses = [r.codl_raw_dose for r in records if r.codl_raw_dose is not None]
+    if raw_doses:
+        sugg_dose_horizon = _percentile(raw_doses, ceiling_pct) or current_codl_dose_horizon_minutes
+        sugg_dose_horizon = round(max(sugg_dose_horizon, 1.0), 1)
+        dose_horizon_note = None
+    else:
+        # Old exports lack codl_raw_dose; keep the prior and flag it.
+        sugg_dose_horizon = current_codl_dose_horizon_minutes
+        dose_horizon_note = (
+            "No codl_raw_dose field found in the pooled exports (pre-v5 data). "
+            "Cannot fit the dose horizon from this pool; keeping the current prior. "
+            "Re-export after upgrading to get calibratable data."
+        )
+
+    # 1b. Interruption ceiling — set to a high population quantile.
     sugg_int_ceiling = _percentile(interr, ceiling_pct) or current_interruption_ceiling
-    sugg_codl_ceiling = round(max(sugg_codl_ceiling, 0.1), 3)
     sugg_int_ceiling = round(max(sugg_int_ceiling, 0.1), 3)
 
     # 2. Redundancy-informed weights — normalize each axis with the suggested
-    #    ceilings, then weight for equal variance contribution (∝ 1/stdev). A
+    #    scales, then weight for equal variance contribution (∝ 1/stdev). A
     #    no-variance axis carries no discriminative info → weight 0. Correlations
     #    are reported so redundancy is visible. Heuristic, not felt-load-fitted.
-    codl_n = [min(1.0, v / sugg_codl_ceiling) for v in codl]
+    #    The CODL dose is already in [0,1]; use it directly when available,
+    #    else fall back to min(1, codl_avg / codl_capacity) as an approximation.
+    codl_n = [
+        r.codl_dose if r.codl_dose is not None
+        else min(1.0, r.codl_avg / current_codl_capacity)
+        for r in records
+    ]
     int_n = [min(1.0, v / sugg_int_ceiling) for v in interr]
     clo_n = [max(0.0, min(1.0, v)) for v in closure]
     # Correlations with closure need axis values PAIRED on the same day, so they
     # use only the days that have closure data (clo_n's length differs from the
     # full codl_n/int_n otherwise).
     paired = [
-        (min(1.0, r.codl_avg / sugg_codl_ceiling),
-         min(1.0, r.interruption_rate / sugg_int_ceiling),
-         max(0.0, min(1.0, r.closure_deficit)))
+        (
+            r.codl_dose if r.codl_dose is not None
+            else min(1.0, r.codl_avg / current_codl_capacity),
+            min(1.0, r.interruption_rate / sugg_int_ceiling),
+            max(0.0, min(1.0, r.closure_deficit)),
+        )
         for r in records if r.closure_deficit is not None
     ]
     codl_cp = [p[0] for p in paired]
@@ -335,14 +374,16 @@ def calibrate(
     current_weights_r = [round(w, 4) for w in current_weights]
     if meets_minimums:
         scoring_config = {
-            "codl_ceiling": sugg_codl_ceiling,
+            "codl_capacity": current_codl_capacity,  # Cowan anchor; never calibrated
+            "codl_dose_horizon_minutes": sugg_dose_horizon,
             "interruption_ceiling": sugg_int_ceiling,
             "weights": sugg_weights,
         }
     else:
         # Too thin to recommend a change — keep the current priors.
         scoring_config = {
-            "codl_ceiling": current_codl_ceiling,
+            "codl_capacity": current_codl_capacity,
+            "codl_dose_horizon_minutes": current_codl_dose_horizon_minutes,
             "interruption_ceiling": current_interruption_ceiling,
             "weights": current_weights_r,
         }
@@ -352,7 +393,11 @@ def calibrate(
     n_labeled = len(labeled)
     if n_labeled >= _MIN_LABELED_RECORDS:
         fl_ratings = [float(r.subjective_rating) for r in labeled]
-        fl_codl_n = [min(1.0, r.codl_avg / sugg_codl_ceiling) for r in labeled]
+        fl_codl_n = [
+            r.codl_dose if r.codl_dose is not None
+            else min(1.0, r.codl_avg / current_codl_capacity)
+            for r in labeled
+        ]
         fl_int_n = [min(1.0, r.interruption_rate / sugg_int_ceiling) for r in labeled]
         fl_clo_n = [
             max(0.0, min(1.0, r.closure_deficit)) if r.closure_deficit is not None
@@ -394,15 +439,21 @@ def calibrate(
         "reliability": reliability,
         "n_participants": n_participants,
         "n_day_records": n_records,
-        "ceilings": {
+        "dose_horizon": {
             "percentile": ceiling_pct,
-            "current": {
-                "codl": current_codl_ceiling,
-                "interruption": current_interruption_ceiling,
-            },
-            "suggested": {"codl": sugg_codl_ceiling, "interruption": sugg_int_ceiling},
+            "current_horizon_minutes": current_codl_dose_horizon_minutes,
+            "suggested_horizon_minutes": sugg_dose_horizon,
+            "note": dose_horizon_note,
             "distribution": {
-                "codl_avg": _dist(codl),
+                "codl_raw_dose": _dist(raw_doses) if raw_doses else None,
+                "codl_avg": _dist(codl),  # kept for reference / legacy exports
+            },
+        },
+        "interruption_ceiling": {
+            "percentile": ceiling_pct,
+            "current": current_interruption_ceiling,
+            "suggested": sugg_int_ceiling,
+            "distribution": {
                 "interruption_rate": _dist(interr),
                 "off_hours_minutes": _dist(off_hours),
             },
@@ -419,6 +470,7 @@ def calibrate(
         "felt_load": felt_load,
         "reference_percentiles": {
             "codl_avg": _dist(codl, (0.5, 0.75, 0.9)),
+            "codl_raw_dose": _dist(raw_doses, (0.5, 0.75, 0.9)) if raw_doses else None,
             "interruption_rate": _dist(interr, (0.5, 0.75, 0.9)),
             "closure_deficit": _dist(closure, (0.5, 0.75, 0.9)),
             "composite": _dist(composite, (0.5, 0.75, 0.9)),
@@ -455,7 +507,8 @@ def render_report(result: dict) -> tuple[dict, str]:
     pasteable ``scoring`` config block."""
     scoring_block = {"scoring": result["suggested_scoring_config"]}
     w = result["weights"]
-    c = result["ceilings"]
+    dh = result.get("dose_horizon", {})
+    ic = result.get("interruption_ceiling", {})
     rel = result["reliability"]
     fl = result.get("felt_load", {})
     lines = [
@@ -465,10 +518,18 @@ def render_report(result: dict) -> tuple[dict, str]:
         "",
         f"NOTE: {result['caveat']}",
         "",
-        "Normalization ceilings "
-        f"(at p{int(c['percentile'] * 100)} of the population):",
-        f"  CODL          current {c['current']['codl']}  -> suggested {c['suggested']['codl']}",
-        f"  Interruption  current {c['current']['interruption']}  -> suggested {c['suggested']['interruption']}",
+        "CODL dose horizon "
+        f"(fitted at p{int(dh.get('percentile', 0.95) * 100)} of per-day raw_dose):",
+        f"  current  {dh.get('current_horizon_minutes')} min  "
+        f"-> suggested {dh.get('suggested_horizon_minutes')} min",
+    ]
+    if dh.get("note"):
+        lines.append(f"  NOTE: {dh['note']}")
+    lines += [
+        "",
+        "Interruption ceiling "
+        f"(at p{int(ic.get('percentile', 0.95) * 100)} of the population):",
+        f"  current {ic.get('current')}  -> suggested {ic.get('suggested')}",
         "",
         f"Composite weights [codl, interruption, closure] — {w['method']}:",
         f"  current   {w['current']}",

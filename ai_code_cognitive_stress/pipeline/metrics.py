@@ -66,10 +66,21 @@ from ..core.config import load_config
 # ---------------------------------------------------------------------------
 # Citation-anchored constants. Bump tunables here, not at call sites.
 
-# Cowan (2001) — WM cap ≈ 4. We use 5 as the CODL normalisation ceiling so
-# values at the working-memory limit land at 0.8 (warning band) rather than
-# saturating at 1.0.
-CODL_NORMALISATION_CEILING: float = 5.0
+# Cowan (2001) — WM capacity ≈ 4 concurrent items. Used as the per-instant
+# saturation point for capacity-utilisation: phi(t) = min(1, C(t) / CODL_CAPACITY).
+# When a single sample hits 4 engagement-weighted concurrent streams, that
+# sample is at full capacity (phi=1.0). Intentionally NOT used as a
+# normalisation ceiling for a time-average (that was the prior mismatch).
+CODL_CAPACITY: float = 4.0
+
+# Dose horizon: the number of capacity-equivalent minutes in a day that
+# saturates the CODL axis to 1.0.  A "capacity-equivalent minute" is one
+# minute spent at phi(t)=1 (all 4 slots occupied); idle minutes contribute 0.
+# codl_dose = min(1, raw_dose / CODL_DOSE_HORIZON_MINUTES) where
+# raw_dose = Σ phi(t) over all 1-minute work-window samples.
+# Value is a prior fitted to observed data (calibration target); override via
+# config.json scoring.codl_dose_horizon_minutes.
+CODL_DOSE_HORIZON_MINUTES: float = 240.0
 
 # González & Mark (2004) found knowledge workers switch working sphere about
 # every ~11 minutes (≈5/hour) in the field; Mark, Gonzalez & Harris (2005)
@@ -238,8 +249,11 @@ class DayMetrics:
     """The three axes plus composite, computed for a single UTC day."""
     day: date
     codl_avg: float = 0.0            # engagement-weighted (foreground 1.0, background w_bg)
+                                     # DESCRIPTIVE mean — used for personal-optimum bucketing
     codl_peak: int = 0               # peak headcount of sessions alive at once
     codl_peak_active: float = 0.0    # peak engagement-weighted load (drives fan-out rec)
+    codl_raw_dose: float = 0.0       # capacity-equivalent minutes: Σ min(1, C(t)/κ) * 1 min
+    codl_dose: float = 0.0           # SCORED axis: min(1, raw_dose / dose_horizon) ∈ [0,1]
     interruption_rate: float = 0.0   # per work hour
     closure_deficit: float | None = None  # 0..1 resumption load (severity-summed
                                      # resumes / ceiling); 0 = closed in one sitting.
@@ -299,7 +313,8 @@ def build_profile(
             agg, window, local_tz,
             foreground_grace_minutes=codl_cfg.foreground_grace_minutes,
             background_weight=codl_cfg.background_weight,
-            codl_ceiling=scoring.codl_ceiling,
+            codl_capacity=scoring.codl_capacity,
+            codl_dose_horizon_minutes=scoring.codl_dose_horizon_minutes,
             interruption_ceiling=scoring.interruption_ceiling,
             weights=scoring.weights,
             resume_threshold_minutes=resumption.threshold_minutes,
@@ -424,7 +439,8 @@ def per_day_metrics(
     local_tz: tzinfo,
     foreground_grace_minutes: int = FOREGROUND_GRACE_MINUTES_DEFAULT,
     background_weight: float = BACKGROUND_WEIGHT_DEFAULT,
-    codl_ceiling: float = CODL_NORMALISATION_CEILING,
+    codl_capacity: float = CODL_CAPACITY,
+    codl_dose_horizon_minutes: float = CODL_DOSE_HORIZON_MINUTES,
     interruption_ceiling: float = INTERRUPTION_NORMALISATION_CEILING,
     weights: tuple[float, float, float] = COMPOSITE_WEIGHTS,
     resume_threshold_minutes: int = RESUME_THRESHOLD_MINUTES,
@@ -494,10 +510,16 @@ def per_day_metrics(
         codl_avg = sum(weighted) / len(weighted)
         codl_peak = max(headcounts)
         codl_peak_active = max(weighted)
+        # Capacity-dose: each 1-minute sample contributes phi(t) = min(1, C(t)/κ).
+        # raw_dose is capacity-equivalent minutes; idle samples (weight=0) contribute 0.
+        raw_dose = sum(min(1.0, c / codl_capacity) for c in weighted)
+        codl_dose = min(1.0, raw_dose / codl_dose_horizon_minutes)
     else:
         codl_avg = 0.0
         codl_peak = 0
         codl_peak_active = 0.0
+        raw_dose = 0.0
+        codl_dose = 0.0
 
     # Closure Deficit: resumption load — severity-summed resumes (parked loops
     # picked back up) normalised to [0, 1]. 0 means every loop closed in one
@@ -543,8 +565,8 @@ def per_day_metrics(
     # Additive off-hours toll: off-hours interaction always counts, even when
     # the in-window base is zero (a day worked entirely outside the window).
     base_composite = _composite_score(
-        codl_avg, interruption_rate, closure_deficit,
-        codl_ceiling=codl_ceiling, interruption_ceiling=interruption_ceiling,
+        codl_dose, interruption_rate, closure_deficit,
+        interruption_ceiling=interruption_ceiling,
         weights=weights,
     )
     composite = min(100.0, base_composite + _off_hours_load_points(off_hours_minutes))
@@ -554,6 +576,8 @@ def per_day_metrics(
         codl_avg=round(codl_avg, 3),
         codl_peak=codl_peak,
         codl_peak_active=round(codl_peak_active, 3),
+        codl_raw_dose=round(raw_dose, 1),
+        codl_dose=round(codl_dose, 3),
         interruption_rate=round(interruption_rate, 3),
         closure_deficit=(
             round(closure_deficit, 3) if closure_deficit is not None else None
@@ -750,10 +774,9 @@ def _resumption_load(
 
 
 def _composite_score(
-    codl_avg: float,
+    codl_dose: float,
     interruption_rate: float,
     closure_deficit: float | None,
-    codl_ceiling: float = CODL_NORMALISATION_CEILING,
     interruption_ceiling: float = INTERRUPTION_NORMALISATION_CEILING,
     weights: tuple[float, float, float] = COMPOSITE_WEIGHTS,
 ) -> float:
@@ -761,12 +784,16 @@ def _composite_score(
     clamped to [0, 1] before weighting; weights are normalized by their sum, so
     a calibrated weight vector that doesn't sum to 1 still yields a 0..100 score.
 
+    ``codl_dose`` is already in [0, 1] (the graded capacity-dose, computed in
+    ``per_day_metrics``). ``interruption_rate`` is normalised here by
+    ``interruption_ceiling``.
+
     When ``closure_deficit is None`` the Closure axis has no data for the day
     (``_resumption_load`` returns None only when the day has no activity at
     all), so it is dropped and the blend renormalises over the remaining axes —
     i.e. its weight is redistributed to CODL and Interruption rather than
     imputed as a perfect-closure 0."""
-    codl_norm = min(1.0, codl_avg / codl_ceiling)
+    codl_norm = max(0.0, min(1.0, codl_dose))  # already [0,1]; clamp for safety
     int_norm = min(1.0, interruption_rate / interruption_ceiling)
     w_codl, w_int, w_clo = weights
     terms = [(w_codl, codl_norm), (w_int, int_norm)]

@@ -87,13 +87,18 @@ class ResumptionConfig:
 class ScoringConfig:
     """Composite-scoring scales and weights.
 
-    Defaults are the v1 literature / null-hypothesis values (mirroring the
-    constants in ``metrics.py``): each axis is mapped to [0,1] by dividing by a
-    ceiling, then blended with equal weights. Population calibration
-    (``calibrate.py``) can suggest data-fitted overrides that the operator opts
-    into here. ``weights`` is (codl, interruption, closure) and need not sum to
-    1 — the composite normalizes by their sum."""
-    codl_ceiling: float = 5.0
+    Defaults are the v1 literature / calibration-prior values (mirroring the
+    constants in ``metrics.py``). The CODL axis uses a graded capacity-dose:
+    phi(t) = min(1, C(t) / codl_capacity) per minute, summed into a raw_dose
+    (capacity-equivalent minutes), then normalised by codl_dose_horizon_minutes
+    to [0,1]. ``codl_capacity`` is the Cowan (2001) working-memory limit (an
+    instantaneous saturation anchor, not a time-average ceiling). The horizon is
+    a calibration target fitted to observed data. Population calibration
+    (``calibrate.py``) can suggest a data-fitted horizon override that the
+    operator opts into here. ``weights`` is (codl, interruption, closure) and
+    need not sum to 1 — the composite normalizes by their sum."""
+    codl_capacity: float = 4.0
+    codl_dose_horizon_minutes: float = 240.0
     interruption_ceiling: float = 10.0
     weights: tuple[float, float, float] = (1 / 3, 1 / 3, 1 / 3)
 
@@ -253,13 +258,18 @@ def set_widget_view(value: str) -> str:
 
 def _parse_scoring(raw: dict) -> ScoringConfig:
     """Parse + validate the composite-scoring block, falling back to the
-    literature defaults for any missing key. Ceilings must be > 0; weights must
-    be three non-negative numbers that don't all sum to zero."""
+    calibration-prior defaults for any missing key. All numeric parameters must
+    be > 0; weights must be three non-negative numbers that don't all sum to zero."""
     d = ScoringConfig()
-    codl_c = raw.get("codl_ceiling", d.codl_ceiling)
+    codl_cap = raw.get("codl_capacity", d.codl_capacity)
+    codl_horizon = raw.get("codl_dose_horizon_minutes", d.codl_dose_horizon_minutes)
     int_c = raw.get("interruption_ceiling", d.interruption_ceiling)
     weights = raw.get("weights", list(d.weights))
-    for name, c in (("codl_ceiling", codl_c), ("interruption_ceiling", int_c)):
+    for name, c in (
+        ("codl_capacity", codl_cap),
+        ("codl_dose_horizon_minutes", codl_horizon),
+        ("interruption_ceiling", int_c),
+    ):
         if not isinstance(c, (int, float)) or c <= 0:
             raise ValueError(f"scoring.{name} must be > 0, got {c!r}")
     if (not isinstance(weights, (list, tuple)) or len(weights) != 3
@@ -270,7 +280,8 @@ def _parse_scoring(raw: dict) -> ScoringConfig:
     if sum(weights) <= 0:
         raise ValueError("scoring.weights must not sum to zero")
     return ScoringConfig(
-        codl_ceiling=float(codl_c),
+        codl_capacity=float(codl_cap),
+        codl_dose_horizon_minutes=float(codl_horizon),
         interruption_ceiling=float(int_c),
         weights=(float(weights[0]), float(weights[1]), float(weights[2])),
     )

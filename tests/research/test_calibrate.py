@@ -72,12 +72,18 @@ def test_load_missing_path_warns(tmp_path):
 # ceilings
 
 def test_suggested_ceiling_tracks_population_p95():
-    # codl_avg 1..20 → p95 sits near the top of the range.
-    days = [_day(float(c), 1.0) for c in range(1, 21)]
+    # When exports carry codl_raw_dose, the suggested horizon is fitted from it.
+    # Here we supply codl_raw_dose directly on the day records.
+    days = []
+    for c in range(1, 21):
+        d = _day(float(c), 1.0)
+        d["codl_raw_dose"] = float(c * 10)  # synthetic raw doses 10..200
+        days.append(d)
     result = calibrate(pool_day_records([_export(days)]))
-    sugg = result["ceilings"]["suggested"]["codl"]
-    dist = result["ceilings"]["distribution"]["codl_avg"]
-    assert dist["p90"] <= sugg <= dist["max"]
+    dh = result["dose_horizon"]
+    # p95 of 10,20,...,200 = 195 (interpolated)
+    assert dh["suggested_horizon_minutes"] > 100
+    assert dh["note"] is None  # raw_dose was present, no fallback note
 
 
 # ---------------------------------------------------------------------------
@@ -158,13 +164,12 @@ def test_thin_sample_keeps_current_priors_and_warns():
     rel = result["reliability"]
     assert rel["meets_minimums"] is False
     assert rel["warnings"]  # explains why
-    # The pasteable block keeps the literature priors verbatim...
+    # The pasteable block keeps the calibration priors verbatim...
     cfg = result["suggested_scoring_config"]
-    assert cfg["codl_ceiling"] == 5.0
+    assert cfg["codl_capacity"] == 4.0
+    assert cfg["codl_dose_horizon_minutes"] == 240.0
     assert cfg["interruption_ceiling"] == 10.0
     assert cfg["weights"] == pytest.approx([1 / 3, 1 / 3, 1 / 3], abs=1e-3)
-    # ...while the fitted values stay visible for inspection.
-    assert result["ceilings"]["suggested"]["codl"] != 5.0
     _, text = render_report(result)
     assert "INSUFFICIENT SAMPLE" in text
 
@@ -178,7 +183,10 @@ def test_sufficient_sample_graduates_suggestions():
     assert rel["meets_minimums"] is True
     assert rel["warnings"] == []
     cfg = result["suggested_scoring_config"]
-    assert cfg["codl_ceiling"] == result["ceilings"]["suggested"]["codl"]
+    # codl_capacity is the Cowan anchor — never calibrated, always 4.0
+    assert cfg["codl_capacity"] == 4.0
+    # interruption ceiling comes from the fitted population p95
+    assert cfg["interruption_ceiling"] == result["interruption_ceiling"]["suggested"]
     assert cfg["weights"] == result["weights"]["suggested"]
     _, text = render_report(result)
     assert "INSUFFICIENT SAMPLE" not in text
@@ -214,23 +222,28 @@ def _config(tmp_path, body: dict):
 
 def test_scoring_defaults_when_absent(tmp_path):
     cfg = _config(tmp_path, {})
-    assert cfg.scoring.codl_ceiling == 5.0
+    assert cfg.scoring.codl_capacity == 4.0
+    assert cfg.scoring.codl_dose_horizon_minutes == 240.0
     assert cfg.scoring.interruption_ceiling == 10.0
     assert cfg.scoring.weights == pytest.approx((1 / 3, 1 / 3, 1 / 3))
 
 
 def test_scoring_parsed_from_block(tmp_path):
     cfg = _config(tmp_path, {"scoring": {
-        "codl_ceiling": 6.5, "interruption_ceiling": 8.0,
+        "codl_capacity": 4.0, "codl_dose_horizon_minutes": 180.0,
+        "interruption_ceiling": 8.0,
         "weights": [0.5, 0.3, 0.2],
     }})
-    assert cfg.scoring.codl_ceiling == 6.5
+    assert cfg.scoring.codl_capacity == 4.0
+    assert cfg.scoring.codl_dose_horizon_minutes == 180.0
     assert cfg.scoring.weights == (0.5, 0.3, 0.2)
 
 
 def test_scoring_rejects_bad_values(tmp_path):
-    with pytest.raises(ValueError, match="codl_ceiling"):
-        _config(tmp_path, {"scoring": {"codl_ceiling": 0}})
+    with pytest.raises(ValueError, match="codl_capacity"):
+        _config(tmp_path, {"scoring": {"codl_capacity": 0}})
+    with pytest.raises(ValueError, match="codl_dose_horizon_minutes"):
+        _config(tmp_path, {"scoring": {"codl_dose_horizon_minutes": 0}})
     with pytest.raises(ValueError, match="weights"):
         _config(tmp_path, {"scoring": {"weights": [0.5, 0.5]}})
 
@@ -238,24 +251,26 @@ def test_scoring_rejects_bad_values(tmp_path):
 # ---------------------------------------------------------------------------
 # metrics consume the scoring overrides
 
-def test_composite_score_default_matches_legacy():
+def test_composite_score_default_matches_dose_formula():
     from ai_code_cognitive_stress.pipeline.metrics import _composite_score
-    # codl 0.5, int 0.5, closure 0, equal weights → 33.33
-    assert _composite_score(2.5, 5.0, 0.0) == pytest.approx(100.0 / 3)
+    # codl_dose=0.5 (already in [0,1]), int_norm=0.5, closure=0, equal weights
+    # blend = (0.5 + 0.5 + 0.0) / 3 → 100/3
+    assert _composite_score(0.5, 5.0, 0.0) == pytest.approx(100.0 / 3)
 
 
-def test_composite_score_respects_ceiling_override():
+def test_composite_score_dose_saturates_at_one():
     from ai_code_cognitive_stress.pipeline.metrics import _composite_score
-    base = _composite_score(2.5, 5.0, 0.0)
-    lower = _composite_score(2.5, 5.0, 0.0, codl_ceiling=2.5)  # codl_norm → 1.0
-    assert lower > base
-    assert lower == pytest.approx(50.0)
+    # codl_dose > 1 is clamped to 1.0 before blending
+    base = _composite_score(0.5, 5.0, 0.0)
+    saturated = _composite_score(1.0, 5.0, 0.0)   # codl_norm → 1.0
+    assert saturated > base
+    assert saturated == pytest.approx(100.0 * (1.0 + 0.5) / (3.0))
 
 
 def test_composite_score_normalizes_arbitrary_weights():
     from ai_code_cognitive_stress.pipeline.metrics import _composite_score
     # all axes saturated, weights don't sum to 1 → still 100
-    assert _composite_score(99, 99, 1.0, weights=(2, 2, 2)) == pytest.approx(100.0)
+    assert _composite_score(1.0, 99, 1.0, weights=(2, 2, 2)) == pytest.approx(100.0)
 
 
 # ---------------------------------------------------------------------------

@@ -103,6 +103,8 @@ def _day_metrics_dict(m: DayMetrics) -> dict[str, Any]:
         "codl_avg": m.codl_avg,
         "codl_peak": m.codl_peak,
         "codl_peak_active": m.codl_peak_active,
+        "codl_raw_dose": m.codl_raw_dose,
+        "codl_dose": m.codl_dose,
         "interruption_rate": m.interruption_rate,
         "closure_deficit": m.closure_deficit,
         "off_hours_minutes": m.off_hours_minutes,

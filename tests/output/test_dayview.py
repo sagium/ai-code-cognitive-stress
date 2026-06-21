@@ -6,6 +6,8 @@ from __future__ import annotations
 import json
 from datetime import date, datetime, time, timedelta, timezone
 
+import pytest
+
 from ai_code_cognitive_stress.pipeline.aggregate import DayAggregate, StreamDayActivity
 from ai_code_cognitive_stress.output.dayview import (
     AXES,
@@ -19,7 +21,7 @@ from ai_code_cognitive_stress.output.dayview import (
     personal_baseline,
     score_progression,
 )
-from ai_code_cognitive_stress.pipeline.metrics import CODL_NORMALISATION_CEILING, DayMetrics, StressProfile
+from ai_code_cognitive_stress.pipeline.metrics import CODL_CAPACITY, DayMetrics, StressProfile
 
 
 def _profile(**over) -> StressProfile:
@@ -121,11 +123,13 @@ def test_codl_tile_optimum_segments_and_ticks():
     t = build_axis_tile(AXES[0], m, _profile(personal_optimum=2.0))
     assert t.name == "CODL"
     assert t.value_label == "2.40"
-    assert t.range_max == CODL_NORMALISATION_CEILING
-    assert t.optimum == 2.0 and t.optimum_fraction == 0.4
+    assert t.range_max == CODL_CAPACITY
+    # optimum_fraction = optimum / range_max = 2.0 / CODL_CAPACITY(4.0) = 0.5
+    assert t.optimum == 2.0 and t.optimum_fraction == pytest.approx(2.0 / CODL_CAPACITY)
     assert "peak 4 streams" in t.unit_text
-    # Inner zone-boundary ticks for CODL are 1.5, 3, 4 (same as the report).
-    assert [tick.label for tick in t.boundary_ticks] == ["1.5", "3", "4"]
+    # Inner zone-boundary ticks for CODL within range_max=4.0: 1.5 and 3.0.
+    # The 4.0 boundary equals range_max so it is not emitted as an inner tick.
+    assert [tick.label for tick in t.boundary_ticks] == ["1.5", "3"]
     # Zone segments tile the full 0..1 range.
     assert t.segments[0].start == 0.0
     assert abs(t.segments[-1].end - 1.0) < 1e-9

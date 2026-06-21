@@ -1017,14 +1017,15 @@ def _render_methodology(profile: StressProfile, stats: AggregateStats | None) ->
     wsum = sum(sc.weights) or 1.0
     wpct = tuple(round(100 * w / wsum) for w in sc.weights)
     default_w = abs(sc.weights[0] - sc.weights[1]) < 1e-9 and abs(sc.weights[1] - sc.weights[2]) < 1e-9
-    default_c = sc.codl_ceiling == 5.0 and sc.interruption_ceiling == 10.0
+    default_c = sc.codl_capacity == 4.0 and sc.codl_dose_horizon_minutes == 240.0 and sc.interruption_ceiling == 10.0
     if default_w and default_c:
         scoring_note = t("methodology.scoring_default")
     else:
         scoring_note = t(
             "methodology.scoring_custom",
             w_codl=wpct[0], w_interruption=wpct[1], w_closure=wpct[2],
-            codl_ceiling=f"{sc.codl_ceiling:g}",
+            codl_capacity=f"{sc.codl_capacity:g}",
+            codl_horizon=f"{sc.codl_dose_horizon_minutes:g}min",
             interruption_ceiling=f"{sc.interruption_ceiling:g}",
         )
     registry = load_registry()

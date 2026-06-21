@@ -8,7 +8,8 @@ import pytest
 
 from ai_code_cognitive_stress.pipeline.aggregate import DayAggregate, StreamDayActivity
 from ai_code_cognitive_stress.pipeline.metrics import (
-    CODL_NORMALISATION_CEILING,
+    CODL_CAPACITY,
+    CODL_DOSE_HORIZON_MINUTES,
     COMPOSITE_WEIGHTS,
     INTERRUPTION_NORMALISATION_CEILING,
     LITERATURE_WORK_WINDOW,
@@ -707,15 +708,16 @@ def test_resumption_is_independent_of_concurrency_shape():
 # Composite
 
 def test_composite_score_low_load_is_low():
-    # codl=0.5, interruption=1, closure=0
-    s = _composite_score(0.5, 1.0, 0.0)
-    # codl_norm=0.1, int_norm=0.1, closure=0 → blend ≈ 0.0667 → 6.67
+    # codl_dose=0.1, interruption=1, closure=0
+    # codl_norm=0.1 (already), int_norm=0.1 → blend ≈ 0.0667 → 6.67
+    s = _composite_score(0.1, 1.0, 0.0)
     assert 5.0 <= s <= 10.0
 
 
 def test_composite_score_all_max_caps_at_100():
+    # codl_dose > 1.0 is clamped to 1.0; interruption >> ceiling normalises to 1.0
     s = _composite_score(
-        CODL_NORMALISATION_CEILING * 2,
+        2.0,  # will be clamped to 1.0
         INTERRUPTION_NORMALISATION_CEILING * 2,
         1.5,
     )
@@ -734,15 +736,15 @@ def test_composite_score_none_closure_renormalises_over_two_axes():
     """When closure is None (a no-activity day), the blend drops the Closure axis
     and renormalises over CODL + Interruption — its weight is redistributed, NOT
     imputed as a perfect-closure 0."""
-    codl_n, int_n = 0.6, 0.3
-    codl = codl_n * CODL_NORMALISATION_CEILING
+    codl_dose = 0.6
+    int_n = 0.3
     interr = int_n * INTERRUPTION_NORMALISATION_CEILING
-    with_none = _composite_score(codl, interr, None)
+    with_none = _composite_score(codl_dose, interr, None)
     # Equal weights → 2-axis mean.
-    assert with_none == pytest.approx(100.0 * (codl_n + int_n) / 2)
+    assert with_none == pytest.approx(100.0 * (codl_dose + int_n) / 2)
     # And it is strictly higher than imputing closure=0 (the old behaviour),
     # because the 0 no longer drags the blend down.
-    as_zero = _composite_score(codl, interr, 0.0)
+    as_zero = _composite_score(codl_dose, interr, 0.0)
     assert with_none > as_zero
 
 
@@ -1329,7 +1331,7 @@ def test_per_day_metrics_no_off_hours_composite_unchanged():
     # passed through verbatim, whatever its value). Tolerance absorbs the rounding
     # of the stored codl_avg vs the unrounded value the composite came from.
     from ai_code_cognitive_stress.pipeline.metrics import _composite_score
-    expected = _composite_score(m.codl_avg, m.interruption_rate, m.closure_deficit)
+    expected = _composite_score(m.codl_dose, m.interruption_rate, m.closure_deficit)
     assert m.composite == pytest.approx(expected, abs=0.1)
 
 
@@ -1439,3 +1441,104 @@ def test_detect_work_windows_infers_band_from_weekend_only_data():
     assert all(w.is_default is False for w in windows.values())
     assert all(w.start <= time(10, 0) for w in windows.values())
     assert all(w.end >= time(16, 0) for w in windows.values())
+
+
+# ---------------------------------------------------------------------------
+# CODL dose tests (graded capacity-dose formula)
+
+def test_codl_dose_idle_dilution():
+    """Idle minutes do NOT dilute the dose. Adding extra idle time at the end
+    of the window changes codl_avg (mean over more samples) but leaves
+    codl_dose unchanged because idle samples contribute 0 to the raw_dose
+    and the dose horizon H is a fixed constant (not window-length normalised).
+
+    Scenario: one active stream with user messages in hour 10, window either
+    09:00–11:00 or 09:00–17:00. The dose-relevant activity is the same; only
+    the tail of idle samples changes.
+    """
+    d = date(2026, 5, 4)
+    msgs = tuple(_utc(2026, 5, 4, 10, m) for m in range(0, 60, 5))
+    streams = [_stream("s1", _utc(2026, 5, 4, 10, 0), _utc(2026, 5, 4, 10, 59),
+                       user_msg_timestamps=msgs)]
+    agg = _agg(d, streams)
+
+    # Short window: 09:00–11:00 (2 h)
+    window_short = WorkWindow(weekday=0, start=time(9, 0), end=time(11, 0))
+    m_short = per_day_metrics(agg, window_short, UTC)
+
+    # Long window: 09:00–17:00 (8 h) — lots of idle tail
+    window_long = WorkWindow(weekday=0, start=time(9, 0), end=time(17, 0))
+    m_long = per_day_metrics(agg, window_long, UTC)
+
+    # codl_avg must be lower in the long window (same activity, more idle minutes)
+    assert m_long.codl_avg < m_short.codl_avg, (
+        "extra idle time must reduce codl_avg (it dilutes the mean)"
+    )
+    # codl_dose must be the same (idle samples add 0 to raw_dose; horizon H is fixed)
+    assert m_short.codl_dose == pytest.approx(m_long.codl_dose, abs=1e-3), (
+        "codl_dose must not change when idle tail is added"
+    )
+
+
+def test_codl_dose_spike_cap():
+    """A single minute at very high concurrency (C=8) contributes at most
+    1.0 capacity-equivalent minute to the raw_dose (phi is capped at 1.0).
+    Two such minutes contribute 2.0, not 4.0.
+    """
+    d = date(2026, 5, 4)
+    window = WorkWindow(weekday=0, start=time(9, 0), end=time(18, 0))
+    # 8 parallel foreground streams, each with a user message right at 10:00.
+    # Each stream covers exactly 1 minute (10:00–10:01).
+    t_start = _utc(2026, 5, 4, 10, 0)
+    t_end = _utc(2026, 5, 4, 10, 1)
+    msgs = (t_start,)
+    streams = [
+        _stream(f"s{i}", t_start, t_end, user_msg_timestamps=msgs)
+        for i in range(8)
+    ]
+    agg = _agg(d, streams)
+    m = per_day_metrics(agg, window, UTC)
+    # Peak weighted sample would be 8 * 1.0 = 8.0 (all in foreground).
+    # But phi(t) = min(1, 8 / 4) = 1.0 → raw_dose contribution is 1.0 * 1 minute,
+    # not 2.0.
+    # The raw_dose should be ≤ 2.0 (1 or 2 samples can hit that minute boundary).
+    assert m.codl_raw_dose <= 2.0, (
+        f"raw_dose={m.codl_raw_dose} should be ≤ 2.0 (phi capped at 1)"
+    )
+    # And definitely greater than 0.
+    assert m.codl_raw_dose > 0
+
+
+def test_codl_dose_range_and_monotonicity():
+    """codl_dose is in [0,1], zero on an inactive day, and (weakly) non-decreasing
+    as sustained concurrency rises."""
+    d = date(2026, 5, 4)
+    window = WorkWindow(weekday=0, start=time(9, 0), end=time(18, 0))
+
+    # Inactive day: no streams.
+    m0 = per_day_metrics(_agg(d, []), window, UTC)
+    assert m0.codl_dose == 0.0
+
+    doses = []
+    for n_streams in range(1, 6):
+        # n_streams running all day, each with user messages throughout.
+        msgs = tuple(
+            _utc(2026, 5, 4, h, m)
+            for h in range(9, 18) for m in range(0, 60, 20)
+        )
+        streams = [
+            _stream(f"s{i}", _utc(2026, 5, 4, 9, 0), _utc(2026, 5, 4, 17, 59),
+                    user_msg_timestamps=msgs)
+            for i in range(n_streams)
+        ]
+        m = per_day_metrics(_agg(d, streams), window, UTC)
+        assert 0.0 <= m.codl_dose <= 1.0, (
+            f"codl_dose={m.codl_dose} out of [0,1] for n_streams={n_streams}"
+        )
+        doses.append(m.codl_dose)
+
+    # Monotonically non-decreasing: more concurrent streams → higher dose
+    for i in range(len(doses) - 1):
+        assert doses[i] <= doses[i + 1], (
+            f"dose not non-decreasing: doses[{i}]={doses[i]} > doses[{i+1}]={doses[i+1]}"
+        )
