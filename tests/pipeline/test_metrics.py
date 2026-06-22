@@ -12,10 +12,12 @@ from ai_code_cognitive_stress.pipeline.metrics import (
     CODL_DOSE_HORIZON_MINUTES,
     COMPOSITE_WEIGHTS,
     INTERRUPTION_NORMALISATION_CEILING,
+    INTERRUPTION_WARMUP_HOURS,
     LITERATURE_WORK_WINDOW,
     OFF_HOURS_LOAD_CEILING_MIN,
     OFF_HOURS_LOAD_MAX_POINTS,
     OPTIMUM_MIN_DAYS_OF_DATA,
+    W_TOOL_ERROR,
     WORK_WINDOW_MIN_SAMPLES,
     DayMetrics,
     StressProfile,
@@ -786,6 +788,53 @@ def test_live_day_score_excludes_future_work_window_hours():
     # codl_avg stays descriptive and still reflects the shorter denominator.
     assert live.codl_avg > completed.codl_avg
     assert live.work_window_local == (time(11), time(21))
+
+
+def test_live_day_interruption_rate_floored_by_warmup_horizon():
+    # Early in a live day the elapsed-hours denominator tends to zero, so a
+    # single event would explode the per-hour rate (the start-of-day spike).
+    # The warm-up floor holds the denominator at INTERRUPTION_WARMUP_HOURS while
+    # elapsed work is below it, so one early error reads as its weight-per-hour
+    # rather than a 10x+ spike.
+    day = date(2026, 5, 15)
+    agg = _agg(day, [
+        _stream(
+            "early", _utc(2026, 5, 15, 9), _utc(2026, 5, 15, 9, 6),
+            user_msg_timestamps=(_utc(2026, 5, 15, 9),),
+            tool_error_count=1,
+            tool_error_timestamps=(_utc(2026, 5, 15, 9, 5),),
+        ),
+    ])
+    window = WorkWindow(weekday=day.weekday(), start=time(9), end=time(17))
+
+    # 6 minutes elapsed → raw denominator 0.1h would give 15/hr, past the
+    # ceiling. The floor (1.0h) holds it to the event weight itself.
+    live = per_day_metrics(agg, window, UTC, as_of=_utc(2026, 5, 15, 9, 6))
+    elapsed_hours = 6 / 60.0
+    unfloored = W_TOOL_ERROR / elapsed_hours
+    assert unfloored > INTERRUPTION_NORMALISATION_CEILING  # the spike we avoid
+    assert live.interruption_rate == pytest.approx(W_TOOL_ERROR / INTERRUPTION_WARMUP_HOURS)
+    assert live.interruption_rate < unfloored
+
+
+def test_interruption_warmup_hours_is_configurable():
+    # The floor honours the per-call override (threaded from scoring config).
+    day = date(2026, 5, 15)
+    agg = _agg(day, [
+        _stream(
+            "early", _utc(2026, 5, 15, 9), _utc(2026, 5, 15, 9, 6),
+            user_msg_timestamps=(_utc(2026, 5, 15, 9),),
+            tool_error_count=1,
+            tool_error_timestamps=(_utc(2026, 5, 15, 9, 5),),
+        ),
+    ])
+    window = WorkWindow(weekday=day.weekday(), start=time(9), end=time(17))
+
+    live = per_day_metrics(
+        agg, window, UTC, as_of=_utc(2026, 5, 15, 9, 6),
+        interruption_warmup_hours=2.0,
+    )
+    assert live.interruption_rate == pytest.approx(W_TOOL_ERROR / 2.0)
 
 
 # ---------------------------------------------------------------------------

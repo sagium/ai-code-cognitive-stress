@@ -9,6 +9,38 @@ dynamically by the build.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-06-22
+
+### Fixed
+- Interruption Index no longer spikes at the start of a live day. The rate is
+  events per work-hour, and early in the day the elapsed-hours denominator
+  tends to zero, so a single event exploded the rate and then decayed as
+  ~1/elapsed — a small-sample artifact, not real context switching.
+
+### Added
+- `scoring.interruption_warmup_hours` (default `1.0`): floors the
+  interruption-rate denominator while elapsed work is below it, so an early
+  event reads as its weight-per-hour instead of a 10x+ spike. Binds only below
+  the floor, so completed-day scores are unchanged.
+
+## [0.2.0] - 2026-06-21
+
+### Changed
+- CODL is now scored as a graded capacity-dose instead of a windowed
+  time-average. Per minute `phi(t) = min(1, C(t) / codl_capacity)` (with
+  `codl_capacity = 4`, Cowan's working-memory limit used as an instantaneous
+  saturation anchor), summed and normalised by a dose horizon to `[0, 1]`. Idle
+  minutes no longer dilute the score, and duration is preserved — a day peaking
+  at 4 concurrent sessions now contributes meaningfully to the composite.
+- `codl_avg` / `codl_peak_active` are retained as descriptive fields; the
+  personal optimum still buckets by `codl_avg`.
+
+### Added
+- `scoring.codl_capacity` and `scoring.codl_dose_horizon_minutes` config keys
+  (replacing the former `codl_ceiling`). `--calibrate` fits the horizon from the
+  p95 of observed raw dose; `codl_capacity` is the theory anchor and is never
+  calibrated. Exports and the JSON sibling carry `codl_raw_dose` / `codl_dose`.
+
 ## [0.1.0] - 2026-06-21
 
 First public release.
@@ -42,5 +74,7 @@ First public release.
 - Pure Python standard library at runtime — zero third-party dependencies.
 - No network calls: the tool reads local logs and writes a report to disk.
 
-[Unreleased]: https://github.com/sagium/ai-code-cognitive-stress/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/sagium/ai-code-cognitive-stress/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/sagium/ai-code-cognitive-stress/compare/v0.2.0...v0.2.1
+[0.2.0]: https://github.com/sagium/ai-code-cognitive-stress/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/sagium/ai-code-cognitive-stress/releases/tag/v0.1.0

@@ -85,6 +85,7 @@ corresponding file and follow its instructions precisely.
 | `crisp-screenshots` | `.claude/skills/crisp-screenshots/SKILL.md` | Regenerating screenshots or visual artifacts in `docs/screenshots/` |
 | `paper-current-state` | `.claude/skills/paper-current-state/SKILL.md` | Every paper edit — apply before committing any change under `paper/` |
 | `reconcile-critique` | `.claude/skills/reconcile-critique/SKILL.md` | User asks to reconcile a self-critique from §7 of the paper |
+| `release` | `.claude/skills/release/SKILL.md` | Maintainer asks to cut a release: bump version, stamp changelog, tag, publish a GitHub release |
 
 ### One definition, both tools
 

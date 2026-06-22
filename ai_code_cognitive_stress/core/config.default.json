@@ -16,6 +16,7 @@
     "codl_capacity": 4.0,
     "codl_dose_horizon_minutes": 240.0,
     "interruption_ceiling": 10.0,
+    "interruption_warmup_hours": 1.0,
     "weights": [
       0.3333333333333333,
       0.3333333333333333,

@@ -91,6 +91,19 @@ CODL_DOSE_HORIZON_MINUTES: float = 240.0
 # interruption rate.)
 INTERRUPTION_NORMALISATION_CEILING: float = 10.0
 
+# Warm-up floor for the interruption-rate denominator (hours). The rate is
+# events-per-work-hour, with the denominator being the work hours elapsed so
+# far on a live day. Near the start of a day that denominator tends to zero, so
+# a single early event yields an enormous rate that then decays as ~1/elapsed —
+# a small-sample artifact, not a real burst of context switching. Flooring the
+# denominator at this many hours holds an early event to a sane per-hour reading
+# (e.g. one cross-stream switch reads as W_CROSS_STREAM/hr, not 30+/hr) and lets
+# the estimate stabilise as real hours accumulate. It binds only while elapsed
+# work is below the floor: any full or even half day clears it, so completed-day
+# scores and the legitimate live-vs-completed difference are untouched.
+# Override via config.json scoring.interruption_warmup_hours.
+INTERRUPTION_WARMUP_HOURS: float = 1.0
+
 # Interruption-event weights — source-by-source.
 #
 # tool_use events are deliberately NOT counted as interruptions. When Claude
@@ -316,6 +329,7 @@ def build_profile(
             codl_capacity=scoring.codl_capacity,
             codl_dose_horizon_minutes=scoring.codl_dose_horizon_minutes,
             interruption_ceiling=scoring.interruption_ceiling,
+            interruption_warmup_hours=scoring.interruption_warmup_hours,
             weights=scoring.weights,
             resume_threshold_minutes=resumption.threshold_minutes,
             resume_full_decay_minutes=resumption.full_decay_minutes,
@@ -442,6 +456,7 @@ def per_day_metrics(
     codl_capacity: float = CODL_CAPACITY,
     codl_dose_horizon_minutes: float = CODL_DOSE_HORIZON_MINUTES,
     interruption_ceiling: float = INTERRUPTION_NORMALISATION_CEILING,
+    interruption_warmup_hours: float = INTERRUPTION_WARMUP_HOURS,
     weights: tuple[float, float, float] = COMPOSITE_WEIGHTS,
     resume_threshold_minutes: int = RESUME_THRESHOLD_MINUTES,
     resume_full_decay_minutes: int = RESUME_FULL_DECAY_MINUTES,
@@ -547,7 +562,11 @@ def per_day_metrics(
         in_window_errors * W_TOOL_ERROR
         + cross_starts * W_CROSS_STREAM
     )
-    interruption_rate = interruption_count / work_hours
+    # Floor the denominator at the warm-up horizon so an early event on a live
+    # day reads as a sane per-hour rate rather than exploding as elapsed → 0
+    # (see INTERRUPTION_WARMUP_HOURS). Binds only while elapsed work is below
+    # the floor; any real fraction of a day clears it.
+    interruption_rate = interruption_count / max(work_hours, interruption_warmup_hours)
 
     # Off-hours ENGAGED minutes = minutes outside the work window during which
     # the operator was actively driving a session (within the foreground grace

@@ -96,10 +96,16 @@ class ScoringConfig:
     a calibration target fitted to observed data. Population calibration
     (``calibrate.py``) can suggest a data-fitted horizon override that the
     operator opts into here. ``weights`` is (codl, interruption, closure) and
-    need not sum to 1 — the composite normalizes by their sum."""
+    need not sum to 1 — the composite normalizes by their sum.
+
+    ``interruption_warmup_hours`` floors the interruption-rate denominator so an
+    early event on a live day does not explode the per-hour rate as elapsed work
+    hours tend to zero (a small-sample artifact). It binds only while elapsed
+    work is below the floor."""
     codl_capacity: float = 4.0
     codl_dose_horizon_minutes: float = 240.0
     interruption_ceiling: float = 10.0
+    interruption_warmup_hours: float = 1.0
     weights: tuple[float, float, float] = (1 / 3, 1 / 3, 1 / 3)
 
 
@@ -264,11 +270,13 @@ def _parse_scoring(raw: dict) -> ScoringConfig:
     codl_cap = raw.get("codl_capacity", d.codl_capacity)
     codl_horizon = raw.get("codl_dose_horizon_minutes", d.codl_dose_horizon_minutes)
     int_c = raw.get("interruption_ceiling", d.interruption_ceiling)
+    int_warmup = raw.get("interruption_warmup_hours", d.interruption_warmup_hours)
     weights = raw.get("weights", list(d.weights))
     for name, c in (
         ("codl_capacity", codl_cap),
         ("codl_dose_horizon_minutes", codl_horizon),
         ("interruption_ceiling", int_c),
+        ("interruption_warmup_hours", int_warmup),
     ):
         if not isinstance(c, (int, float)) or c <= 0:
             raise ValueError(f"scoring.{name} must be > 0, got {c!r}")
@@ -283,6 +291,7 @@ def _parse_scoring(raw: dict) -> ScoringConfig:
         codl_capacity=float(codl_cap),
         codl_dose_horizon_minutes=float(codl_horizon),
         interruption_ceiling=float(int_c),
+        interruption_warmup_hours=float(int_warmup),
         weights=(float(weights[0]), float(weights[1]), float(weights[2])),
     )
 
