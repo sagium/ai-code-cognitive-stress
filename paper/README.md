@@ -7,6 +7,9 @@ treatment of its own validity plus a validation roadmap.
 - `main.tex` — the paper (two-column, self-contained `article` class).
 - `references.bib` — bibliography (mirrors `ai_code_cognitive_stress/core/citations.yml`, plus a
   software citation for this repo as the proof of concept).
+- `presentation.tex` — the companion slide deck (16:9 beamer/metropolis, themed
+  to the report's dark palette): the problem, the adjacent-professions story,
+  the method, the tool with its screenshots, and the community call to action.
 
 ## Build
 
@@ -15,7 +18,15 @@ Needs a TeX distribution (`pdflatex` + `bibtex`):
 ```bash
 cd paper
 make pdf          # → ai-code-cognitive-stress-paper.pdf
+make slides       # → ai-code-cognitive-stress-slides.pdf
 ```
+
+`make slides` additionally needs `inkscape` and ImageMagick's `convert` the
+first time (and after the screenshots change): the `assets` target derives
+embeddable assets from `docs/screenshots/` — vector PDFs for the simple
+graphics, high-res PNG rasterizations for the report screenshots (whose SVG
+filters do not survive a PDF conversion). The widget PNG photos are embedded
+directly.
 
 Manual fallback (no `make`):
 
