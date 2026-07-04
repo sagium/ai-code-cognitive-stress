@@ -32,7 +32,9 @@ with its own ``type`` discriminator:
                  | "custom_tool_call_output"                 → ToolResultEvent
 
 Error detection: ``local_shell_call`` with ``status != "completed"``; or
-``function_call_output`` with ``output.success == False`` (dict output).
+``function_call_output`` with ``output.success == False`` (dict output); or,
+for list-shaped ``output`` (the custom exec wrapper), a non-zero ``exit_code``
+recovered from the trailing block's JSON ``text``.
 
 Backward compatibility: the older TypeScript codex-cli wrote records with
 ``role`` at the top level (``{"role": "user", …}``). Those files are still
@@ -204,6 +206,29 @@ def _events_from_record(
                 )
 
 
+def _exit_code_from_output(output) -> int | None:
+    """Best-effort recovery of a shell exit code from a list-shaped tool
+    output. The custom exec wrapper emits ``output`` as a list of blocks,
+    with the last block's ``text`` sometimes carrying a JSON string like
+    ``{"exit_code": 127, ...}``. Returns None on any shape mismatch or
+    parse failure — never raises."""
+    if not isinstance(output, list) or not output:
+        return None
+    last = output[-1]
+    if not isinstance(last, dict):
+        return None
+    text = last.get("text")
+    if not isinstance(text, str):
+        return None
+    try:
+        parsed = json.loads(text)
+    except (json.JSONDecodeError, ValueError):
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    return parsed.get("exit_code")
+
+
 def _events_from_response_item(
     payload: dict,
     ts: datetime,
@@ -249,8 +274,10 @@ def _events_from_response_item(
     if ptype in ("function_call_output", "custom_tool_call_output"):
         call_id = payload.get("call_id")
         output = payload.get("output")
+        code = _exit_code_from_output(output)
         is_error = (
             bool(payload.get("is_error"))
+            or (code is not None and code != 0)
             or (isinstance(output, dict) and output.get("success") is False)
         )
         yield ToolResultEvent(
