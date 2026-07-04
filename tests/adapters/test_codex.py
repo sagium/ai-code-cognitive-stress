@@ -354,3 +354,76 @@ def test_new_format_custom_tool_call(tmp_path):
     kinds = [type(ev).__name__ for ev, _, _ in items]
     assert kinds == ["ToolUseEvent", "ToolResultEvent"]
     assert next(ev for ev, _, _ in items if isinstance(ev, ToolUseEvent)).tool_name == "my_tool"
+
+
+def test_new_format_custom_tool_call_output_list_exit_code_error(tmp_path):
+    """List-shaped output whose trailing JSON text block carries a non-zero
+    exit_code (the real custom exec wrapper shape) counts as an error."""
+    sessions = tmp_path / "codex"
+    sessions.mkdir()
+    output = [
+        {"type": "input_text",
+         "text": json.dumps({"chunk_id": "c-1", "exit_code": 127,
+                              "original_token_count": 51, "output": "bash: nope: not found"})},
+    ]
+    (sessions / "rollout-abc.jsonl").write_text(
+        "\n".join([
+            _rollout_line("2026-05-15T10:00:01Z", "custom_tool_call",
+                          name="exec", call_id="ct-1", input="{}"),
+            _rollout_line("2026-05-15T10:00:02Z", "custom_tool_call_output",
+                          call_id="ct-1", output=output),
+        ]),
+        encoding="utf-8",
+    )
+    items = list(CodexSessionSource(sessions_dir=sessions).collect(
+        utc(2026, 5, 1), utc(2026, 5, 31), IngestStats()))
+    result = next(ev for ev, _, _ in items if isinstance(ev, ToolResultEvent))
+    assert result.is_error is True
+
+
+def test_new_format_custom_tool_call_output_list_exit_code_zero(tmp_path):
+    """Same list shape but exit_code 0 stays non-error."""
+    sessions = tmp_path / "codex"
+    sessions.mkdir()
+    output = [
+        {"type": "input_text",
+         "text": json.dumps({"chunk_id": "c-1", "exit_code": 0,
+                              "original_token_count": 12, "output": "file1 file2"})},
+    ]
+    (sessions / "rollout-abc.jsonl").write_text(
+        "\n".join([
+            _rollout_line("2026-05-15T10:00:01Z", "custom_tool_call",
+                          name="exec", call_id="ct-1", input="{}"),
+            _rollout_line("2026-05-15T10:00:02Z", "custom_tool_call_output",
+                          call_id="ct-1", output=output),
+        ]),
+        encoding="utf-8",
+    )
+    items = list(CodexSessionSource(sessions_dir=sessions).collect(
+        utc(2026, 5, 1), utc(2026, 5, 31), IngestStats()))
+    result = next(ev for ev, _, _ in items if isinstance(ev, ToolResultEvent))
+    assert result.is_error is False
+
+
+def test_new_format_custom_tool_call_output_list_no_exit_code(tmp_path):
+    """List output whose trailing block is plain non-JSON text: no exit code
+    can be recovered, so it must NOT be treated as an error (no false
+    positive)."""
+    sessions = tmp_path / "codex"
+    sessions.mkdir()
+    output = [
+        {"type": "input_text", "text": "just some plain output, not JSON"},
+    ]
+    (sessions / "rollout-abc.jsonl").write_text(
+        "\n".join([
+            _rollout_line("2026-05-15T10:00:01Z", "custom_tool_call",
+                          name="exec", call_id="ct-1", input="{}"),
+            _rollout_line("2026-05-15T10:00:02Z", "custom_tool_call_output",
+                          call_id="ct-1", output=output),
+        ]),
+        encoding="utf-8",
+    )
+    items = list(CodexSessionSource(sessions_dir=sessions).collect(
+        utc(2026, 5, 1), utc(2026, 5, 31), IngestStats()))
+    result = next(ev for ev, _, _ in items if isinstance(ev, ToolResultEvent))
+    assert result.is_error is False
