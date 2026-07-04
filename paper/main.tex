@@ -15,7 +15,9 @@
 \usepackage[hidelinks]{hyperref}
 \usepackage{xcolor}
 \usepackage{tikz}
-\usetikzlibrary{positioning,shapes.geometric}
+\usetikzlibrary{positioning,shapes.geometric,patterns}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
 
 \setlength{\columnsep}{0.28in}
 
@@ -408,11 +410,88 @@ contributes one full unit of dose and an idle minute contributes nothing, so
 empty stretches neither dilute nor inflate the axis and the cost grows with
 \emph{sustained} exposure rather than being read off a single instant; charging
 each instant by $\min(1,C(t)/\kappa)$ also keeps a brief spike from saturating
-the day. A descriptive mean $\overline{\mathrm{CODL}}=\frac{1}{|T|}\sum_{t\in T}
+the day. Figure~\ref{fig:engagement} traces the weighting and the resulting
+$C(t)$ across one constructed day; the per-minute charge $\varphi$ is drawn in
+Figure~\ref{fig:scoring}(a). A descriptive mean $\overline{\mathrm{CODL}}=\frac{1}{|T|}\sum_{t\in T}
 C(t)$ and peak $\mathrm{CODL}^{\star}=\max_{t} C(t)$ are retained (the mean drives
 the personal optimum, \S\ref{sec:optimum}; the peak, the fan-out recommendation),
 as is a raw headcount $H(t)=\sum_s \mathbf{1}[t \in L_s]$ and its peak for a
 descriptive ``sessions open at once.''
+
+\begin{figure}[t]
+\centering
+\scriptsize
+\resizebox{\columnwidth}{!}{%
+\begin{tikzpicture}[x=0.86cm, y=1cm]
+% legend
+\fill[black!70] (0,5.42) rectangle +(0.30,0.18);
+\node[anchor=west, inner sep=1pt] at (0.34,5.51) {foreground ($e_s{=}1$)};
+\fill[black!20] (3.2,5.42) rectangle +(0.30,0.18);
+\node[anchor=west, inner sep=1pt] at (3.54,5.51) {background ($e_s{=}\beta$)};
+\draw[densely dotted, black!60] (6.5,5.42) rectangle +(0.30,0.18);
+\node[anchor=west, inner sep=1pt] at (6.84,5.51) {closed ($e_s{=}0$)};
+% stream rows
+\node[anchor=east, inner sep=2pt] at (-0.05,4.70) {$s_1$};
+\fill[black!70] (0,4.56)   rectangle (1,4.84);
+\fill[black!20] (1,4.56)   rectangle (2.5,4.84);
+\fill[black!70] (2.5,4.56) rectangle (3,4.84);
+\fill[black!20] (3,4.56)   rectangle (4,4.84);
+\node[anchor=east, inner sep=2pt] at (-0.05,4.10) {$s_2$};
+\fill[black!20] (1,3.96)   rectangle (1.5,4.24);
+\fill[black!70] (1.5,3.96) rectangle (2,4.24);
+\fill[black!20] (2,3.96)   rectangle (5,4.24);
+\fill[black!70] (5,3.96)   rectangle (6,4.24);
+\fill[black!20] (6,3.96)   rectangle (7.5,4.24);
+\fill[black!70] (7.5,3.96) rectangle (8,4.24);
+\node[anchor=east, inner sep=2pt] at (-0.05,3.50) {$s_3$};
+\fill[black!70] (0.5,3.36) rectangle (1,3.64);
+\fill[black!20] (1,3.36)   rectangle (1.5,3.64);
+\draw[densely dotted, black!60] (1.5,3.36) rectangle (5,3.64);
+\node[black!60, inner sep=1pt] at (3.25,3.50) {closed gap $\ge\theta$};
+\fill[black!70] (5,3.36)   rectangle (5.5,3.64);
+\fill[black!20] (5.5,3.36) rectangle (6.5,3.64);
+% weighted concurrency C(t)
+\begin{scope}[yscale=0.62]
+\fill[black!10]
+  (0,0) -- (0,1.0) -- (0.5,1.0) -- (0.5,2.0) -- (1,2.0) -- (1,0.6) -- (1.5,0.6)
+  -- (1.5,1.2) -- (2,1.2) -- (2,0.4) -- (2.5,0.4) -- (2.5,1.2) -- (3,1.2)
+  -- (3,0.4) -- (4,0.4) -- (4,0.2) -- (5,0.2) -- (5,2.0) -- (5.5,2.0)
+  -- (5.5,1.2) -- (6,1.2) -- (6,0.4) -- (6.5,0.4) -- (6.5,0.2) -- (7.5,0.2)
+  -- (7.5,1.0) -- (8,1.0) -- (8,0) -- cycle;
+\draw[black, semithick]
+  (0,1.0) -- (0.5,1.0) -- (0.5,2.0) -- (1,2.0) -- (1,0.6) -- (1.5,0.6)
+  -- (1.5,1.2) -- (2,1.2) -- (2,0.4) -- (2.5,0.4) -- (2.5,1.2) -- (3,1.2)
+  -- (3,0.4) -- (4,0.4) -- (4,0.2) -- (5,0.2) -- (5,2.0) -- (5.5,2.0)
+  -- (5.5,1.2) -- (6,1.2) -- (6,0.4) -- (6.5,0.4) -- (6.5,0.2) -- (7.5,0.2)
+  -- (7.5,1.0) -- (8,1.0) -- (8,0) -- (9,0);
+\draw[black!60] (0,0) -- (0,2.35);
+\foreach \c in {1,2} {\draw[black!60] (-0.08,\c) -- (0,\c);
+  \node[anchor=east, inner sep=2pt] at (-0.08,\c) {$\c$};}
+\node[anchor=east, inner sep=2pt] at (-0.08,2.2) {$C(t)$};
+\node[anchor=south, inner sep=1pt] at (1.25,2.15) {$H{=}3$, $C{=}0.6$};
+\draw[densely dotted, black!60] (1.25,2.12) -- (1.25,0.66);
+\end{scope}
+% time axis
+\draw[black!60] (0,0) -- (9,0);
+\foreach \x in {1,2,4,5,7,8} \draw[black!60] (\x,0) -- (\x,-0.06);
+\foreach \x/\l in {0/09:00, 3/12:00, 6/15:00, 9/18:00}
+  {\draw[black!60] (\x,0) -- (\x,-0.10);
+   \node[anchor=north, inner sep=2pt] at (\x,-0.10) {\l};}
+\end{tikzpicture}%
+}
+\caption{Engagement weighting across one constructed day (scored window
+09:00--18:00; $g=5$\,min, $\beta=0.2$, $\theta=3$\,h). Top: three session
+streams. Solid segments are foreground minutes (within $g$ of an operator
+message), light segments are live background (``cooking'') time at weight
+$\beta$, and the dotted span in $s_3$ is a closed-tool gap that counts nothing.
+Bottom: the resulting weighted concurrency $C(t)=\sum_s e_s(t)$. Between 10:00
+and 10:30 three sessions are open ($H{=}3$) yet none is being driven, so
+$C=3\beta=0.6$. The day peaks at $H^{\star}{=}3$ and
+$\mathrm{CODL}^{\star}{=}2.0$; the accumulated dose is $\approx 95$
+capacity-equivalent minutes, giving $\mathrm{CODL}\approx 0.39$ against the
+$D=240$ horizon, with descriptive mean $\overline{\mathrm{CODL}}=0.70$.}
+\label{fig:engagement}
+\end{figure}
 
 \paragraph{Choosing $\beta$.} A background locus is neither cost-free nor
 equivalent to a foreground locus.
@@ -460,6 +539,74 @@ ceiling is $10$/hour, well above the field baseline of a working-sphere switch
 roughly every $\approx$11~minutes ($\approx$5/hour) observed in knowledge
 work~\cite{gonzalezmark2004}.
 
+\begin{figure*}[t]
+\centering
+\scriptsize
+\pgfplotsset{
+  scorepanel/.style={
+    width=0.325\textwidth, height=4.1cm,
+    axis lines=left,
+    axis line style={black!60},
+    tick style={black!60},
+    label style={font=\scriptsize},
+    tick label style={font=\scriptsize},
+    title style={font=\scriptsize},
+    xlabel near ticks, ylabel near ticks,
+  }
+}
+\begin{tikzpicture}
+\begin{axis}[scorepanel, title={(a) instantaneous capacity charge},
+  xlabel={weighted concurrency $C$}, ylabel={per-minute charge $\varphi$},
+  xmin=0, xmax=6.3, ymin=0, ymax=1.25, xtick={0,1,2,3,4,5,6}, ytick={0,0.5,1}]
+  \draw[dashed, black!50] (axis cs:4,0) -- (axis cs:4,1.1);
+  \node[anchor=west, inner sep=2pt] at (axis cs:4.1,0.35) {$\kappa{=}4$};
+  \addplot[black, thick] coordinates {(0,0) (4,1) (6.3,1)};
+\end{axis}
+\end{tikzpicture}\hfill
+\begin{tikzpicture}
+\begin{axis}[scorepanel, title={(b) resume cost},
+  xlabel={idle gap $r$ (minutes)}, ylabel={resume cost $\sigma(r)$},
+  xmin=0, xmax=212, ymin=0, ymax=1.25, xtick={0,30,120,180}, ytick={0,0.25,0.5,1}]
+  \draw[dashed, black!50] (axis cs:30,0) -- (axis cs:30,1.06);
+  \draw[dashed, black!50] (axis cs:120,0) -- (axis cs:120,1.06);
+  \draw[dashed, black!50] (axis cs:180,0) -- (axis cs:180,1.06);
+  \node[anchor=south, inner sep=1pt] at (axis cs:30,1.06) {$\tau$};
+  \node[anchor=south, inner sep=1pt] at (axis cs:120,1.06) {$\Delta$};
+  \node[anchor=south, inner sep=1pt] at (axis cs:180,1.06) {$\theta$};
+  \node[black!60, rotate=90, inner sep=1pt] at (axis cs:15,0.55) {paused};
+  \node[black!60, rotate=90, inner sep=1pt] at (axis cs:196,0.55) {recovery};
+  \addplot[black, thick] coordinates {(0,0) (30,0)};
+  \addplot[black, thick] coordinates {(30,0.25) (120,1) (180,1)};
+  \addplot[black, thick] coordinates {(180,0) (212,0)};
+  \addplot[only marks, mark=*, mark size=1.2, black]
+    coordinates {(30,0.25) (180,0)};
+  \addplot[only marks, mark=*, mark size=1.2, black, mark options={fill=white}]
+    coordinates {(30,0) (180,1)};
+\end{axis}
+\end{tikzpicture}\hfill
+\begin{tikzpicture}
+\begin{axis}[scorepanel, title={(c) off-hours toll},
+  xlabel={off-hours engaged minutes $o$}, ylabel={composite points added},
+  xmin=0, xmax=160, ymin=0, ymax=37.5, xtick={0,45,90,135}, ytick={0,15,30}]
+  \draw[dashed, black!50] (axis cs:90,0) -- (axis cs:90,33);
+  \addplot[black, thick] coordinates {(0,0) (90,30) (160,30)};
+\end{axis}
+\end{tikzpicture}
+\caption{The three scoring nonlinearities at the shipped defaults; every
+breakpoint is a citation-anchored prior (\S\ref{sec:codl}--\S\ref{sec:composite}).
+(a) Each sampled minute is charged $\varphi=\min(1,C/\kappa)$, saturating at the
+working-memory capacity $\kappa=4$~\cite{cowan2001}; the day's CODL accumulates
+these charges against the $D=240$-minute horizon.
+(b) A true-idle gap is scored only inside the band $[\tau,\theta)$: below
+$\tau=30$\,min the loop counts as paused, the cost rises linearly until fully
+cold at $\Delta=120$\,min, and a gap of $\theta=3$\,h or more counts as recovery
+that begins a fresh sitting. Open and filled endpoints mark the exclusive and
+inclusive boundaries.
+(c) Off-hours engaged minutes add an additive toll of up to $30$ composite
+points, saturating at $90$ minutes.}
+\label{fig:scoring}
+\end{figure*}
+
 \subsection{Closure Deficit}\label{sec:closure}
 Interruptions capture the switch itself; the Closure Deficit captures the later
 cost of returning. A loop that the operator cannot finish in one sitting remains
@@ -493,7 +640,9 @@ the same way. The cost of one resume saturates with the gap length $r$,
 \end{equation}
 where $\Delta$ ($=120$\,min) is the horizon past which the context is treated as
 fully cold. Under this linear-then-flat duration--cost curve, a $150$-minute gap
-is no costlier than a two-hour gap~\cite{monk2008,altmann2002}. With
+is no costlier than a two-hour gap~\cite{monk2008,altmann2002};
+Figure~\ref{fig:scoring}(b) draws the resulting profile over the scored band,
+with its boundaries at $\tau$ and $\theta$. With
 $\mathcal{R}$ the set of resumes whose pickup instant falls inside the work
 window $W$, the daily ceiling is $K=4$. This is a loose working-memory anchor:
 more than about four fully cold reloads in a day suggests movement among more
@@ -555,6 +704,7 @@ start. The reported composite is
 \begin{equation}
 \mathrm{Composite}^{\!*} = \min\!\big(100,\ \mathrm{Composite} + 30\cdot\min(1, o/90)\big).
 \end{equation}
+Figure~\ref{fig:scoring}(c) draws the toll's linear-then-flat profile.
 Three design choices matter here. First, the toll is \emph{additive}, not
 multiplicative: off-hours work always counts, so a day worked \emph{entirely}
 outside the window (zero in-window base) still scores a positive composite,
@@ -601,7 +751,8 @@ of the best bucket is reported as the operator's individual ``flow channel''
 target, a line on the chart rather than a ceiling. This target is the
 empirically discovered analogue of a personal work-in-progress limit: the
 concurrency band at which the operator sustains the most closure, found by
-observation rather than assumed. Because the Closure Deficit
+observation rather than assumed; Figure~\ref{fig:optimum} illustrates the
+construction. Because the Closure Deficit
 is independent of concurrency (\S\ref{sec:closure}), this scoring term is not a
 function of the very $\overline{\mathrm{CODL}}$ used to form the buckets, so
 the optimum is not circular: it asks which load band \emph{actually} closed the
@@ -610,6 +761,44 @@ It requires at least 14 active days to stabilise, below which the report shows
 ``calibrating.''
 Off-hours activity (on any date) is flagged because sustained load without
 detachment, not peaks, predicts harm~\cite{mcewen1998,sonnentag2007,sonnentag2010}.
+
+\begin{figure}[t]
+\centering
+\scriptsize
+\begin{tikzpicture}
+\begin{axis}[width=\columnwidth, height=5.0cm,
+  axis lines=left, axis line style={black!60}, tick style={black!60},
+  label style={font=\scriptsize}, tick label style={font=\scriptsize},
+  xlabel={$\overline{\mathrm{CODL}}$ bucket (width $0.5$)},
+  ylabel={bucket score},
+  xmin=-0.08, xmax=3.3, ymin=0, ymax=1.12,
+  xtick={0,0.5,1,1.5,2,2.5,3}, ytick={0,0.5,1},
+  xlabel near ticks, ylabel near ticks]
+  \fill[black!15, draw=black!60] (axis cs:0.03,0) rectangle (axis cs:0.47,0.55);
+  \fill[black!15, draw=black!60] (axis cs:0.53,0) rectangle (axis cs:0.97,0.72);
+  \fill[black!45, draw=black]    (axis cs:1.03,0) rectangle (axis cs:1.47,0.81);
+  \fill[black!15, draw=black!60] (axis cs:1.53,0) rectangle (axis cs:1.97,0.68);
+  \fill[black!15, draw=black!60] (axis cs:2.03,0) rectangle (axis cs:2.47,0.49);
+  \fill[pattern=north east lines, pattern color=black!50, draw=black!60]
+    (axis cs:2.53,0) rectangle (axis cs:2.97,0.31);
+  \node[anchor=south, align=center, inner sep=1pt, black!60]
+    at (axis cs:2.75,0.33) {excluded\\($<2$ days)};
+  \draw[dashed, black] (axis cs:1.25,0) -- (axis cs:1.25,1.0);
+  \node[anchor=south, inner sep=2pt] at (axis cs:1.25,1.0) {reported target $1.25$};
+\end{axis}
+\end{tikzpicture}
+\caption{The personal-optimum construction on a constructed history. Active
+days are bucketed by $\overline{\mathrm{CODL}}$ (width $0.5$); every bucket
+holding at least two days is scored
+$(1-\overline{\mathrm{CD}})/(1+\bar{o}/60)$, where $\overline{\mathrm{CD}}$ is
+the bucket's mean Closure Deficit and $\bar{o}$ its mean off-hours engaged
+minutes, so a band is rewarded for closing loops and penalised for spilling
+past the window. The midpoint of the best-scoring bucket (here $1.25$) is
+reported as the flow-channel target; a bucket with fewer than two days
+(hatched) is not scored. Bar heights are a constructed illustration of the
+mechanism, not measured data.}
+\label{fig:optimum}
+\end{figure}
 
 \subsection{Method revision: the paper as adversarial reviewer}\label{sec:reflexive}
 
@@ -728,17 +917,68 @@ weights to felt load, which requires a labeled sample pooled across many
 participants (\S\ref{sec:validation}).
 
 \section{Illustrative Example}\label{sec:example}
-To make the axes concrete, this section reports one author's own data for a single month
-(19 active workdays). This is emphatically an \emph{illustration of the
-instrument}, not evidence of validity; $n{=}1$, the subject is an author, and
-there is no ground-truth load measure here. Qualitatively, the
-engagement-weighted CODL pulled composite scores down on days dominated by
-background ``cooking'' sessions while leaving interruption-dominated days
-largely unchanged, and the weighted peak $\mathrm{CODL}^{\star}$ separated a day
-of genuine four-way \emph{active} supervision from a day with four sessions
-merely open. This is the behaviour the design intends; whether it tracks
-\emph{felt} load is exactly the open question of \S\ref{sec:validation}. That
-unresolved criterion motivates the threats considered next.
+
+\begin{figure}[t]
+\centering
+\scriptsize
+\begin{tikzpicture}
+\begin{axis}[width=\columnwidth, height=5.2cm,
+  axis lines=left, axis line style={black!60}, tick style={black!60},
+  label style={font=\scriptsize}, tick label style={font=\scriptsize},
+  xlabel={active day (calendar order)}, ylabel={daily composite},
+  xmin=0.3, xmax=21.4, ymin=0, ymax=100,
+  xtick={1,5,10,15,19}, ytick={0,25,50,75,100},
+  ybar stacked, bar width=2.4mm,
+  legend style={font=\scriptsize, draw=none, fill=none,
+                at={(0.02,0.98)}, anchor=north west, area legend},
+  xlabel near ticks, ylabel near ticks]
+\addplot[fill=black!45, draw=black!70] coordinates
+  {(1,54.5) (2,39.8) (3,49.9) (4,38.3) (5,59.0) (6,38.6) (7,61.7) (8,39.3)
+   (9,42.4) (10,48.9) (11,73.2) (12,40.1) (13,48.2) (14,67.7) (15,57.0)
+   (16,52.3) (17,39.1) (18,60.9) (19,55.6)};
+\addlegendentry{in-window base}
+\addplot[fill=black!15, draw=black!60] coordinates
+  {(1,0) (2,0) (3,0) (4,7.7) (5,0) (6,0) (7,0) (8,0) (9,0) (10,0) (11,0)
+   (12,0) (13,17.7) (14,0) (15,0) (16,0) (17,0) (18,0) (19,0)};
+\addlegendentry{off-hours toll}
+\draw[dashed, black!45] (axis cs:0.3,48.4) -- (axis cs:19.6,48.4);
+\draw[dashed, black!45] (axis cs:0.3,57.9) -- (axis cs:19.6,57.9);
+\draw[dashed, black!45] (axis cs:0.3,69.0) -- (axis cs:19.6,69.0);
+\node[anchor=west, font=\tiny, inner sep=1pt] at (axis cs:19.6,48.4) {$p_{50}$};
+\node[anchor=west, font=\tiny, inner sep=1pt] at (axis cs:19.6,57.9) {$p_{75}$};
+\node[anchor=west, font=\tiny, inner sep=1pt] at (axis cs:19.6,69.0) {$p_{90}$};
+\end{axis}
+\end{tikzpicture}
+\caption{One month of \emph{synthetic sample data} (19 active days, plotted in
+calendar order). The data is the deterministic demonstration dataset shipped
+with the reference implementation, generated without touching any real session
+logs; it illustrates the shape of the tool's output while exposing no
+operator's activity. Each bar is a day's composite; the light segment on top is
+the additive off-hours toll (\S\ref{sec:composite}) on days that incurred one.
+Dashed lines mark the $p_{50}$/$p_{75}$/$p_{90}$ of the surrounding synthetic
+baseline, the same reference bands the report colors each day against. Being
+synthetic, the month is an illustration of the instrument's output, not
+evidence of validity (\S\ref{sec:threats}).}
+\label{fig:month}
+\end{figure}
+
+To make the axes concrete, Figure~\ref{fig:month} shows one month of the
+synthetic demonstration dataset that ships with the reference implementation:
+19 active days, generated without reading any real session logs, so it exposes
+no operator's activity. This is emphatically an \emph{illustration of the
+instrument's output}, not evidence of validity; the data is synthetic and there
+is no felt-load measure attached to it. The month shows the axes moving
+independently, which is the behaviour the decomposition intends. The
+highest-scoring day (composite $73.2$) is driven by an interruption rate near
+the normalization ceiling on top of a saturated capacity-dose, while the
+second-highest day ($65.9$) reaches its score by a different route: an in-window
+base near the median lifted well past the $p_{75}$ band by the month's largest
+off-hours engagement ($53$ minutes past the window, the $17.7$-point toll drawn
+as the upper segment). A lighter day (base $38.3$, below the median) is likewise
+carried up to near the median by a smaller off-hours toll, showing the additive
+off-hours term moving a score independently of the three in-window axes. Whether any of this tracks \emph{felt} load is exactly
+the open question of \S\ref{sec:validation}, and no synthetic dataset can
+answer it. That unresolved criterion motivates the threats considered next.
 
 \section{Threats to Validity and Self-Critique}\label{sec:threats}
 The following challenges to the method are ordered roughly by severity.
@@ -869,12 +1109,15 @@ streams without a shared error and session-boundary convention still risks
 systematic bias, and establishing that convention is left to a multi-tool
 sample.
 
-\paragraph{Single subject and borrowed thresholds.} The working-memory capacity
-($\kappa\approx 4$~\cite{cowan2001}), the CODL dose horizon ($D$), and the
-interruption ceiling ($10$/hour) are literature-anchored priors, not fitted to
-the population of agentic-coding software engineers, who
-may differ. All reported behaviour is $n{=}1$ and from an author. The reference
-implementation provides the machinery to move beyond this (an anonymized
+\paragraph{No validation sample and borrowed thresholds.} The working-memory
+capacity ($\kappa\approx 4$~\cite{cowan2001}), the CODL dose horizon ($D$), and
+the interruption ceiling ($10$/hour) are literature-anchored priors, not fitted
+to the population of agentic-coding software engineers, who may differ. No
+empirical usage is reported at all: the illustrative example (\S\ref{sec:example})
+is the reference implementation's own synthetic demonstration dataset, chosen so
+the method can be shown without exposing any operator's session data, and it
+carries no felt-load criterion against which the thresholds could be checked. The
+reference implementation provides the machinery to move beyond this (an anonymized
 per-user export and a population-calibration step that refits the axis scales to
 the pooled distribution, \S\ref{sec:impl}), so what remains is collecting the
 multi-participant sample, each participant running the private tool on their
@@ -885,7 +1128,8 @@ additionally requires the felt-stress self-report of \S\ref{sec:validation}.
 The export carries that self-report for graded days, but validation needs it
 pooled at sufficient scale; a population-fitted scale is otherwise
 population-relative, not construct-validated. Until that labeled sample exists
-the thresholds stay borrowed and the data stays $n{=}1$ (\S\ref{sec:validation}).
+the thresholds stay borrowed and no field data has been collected
+(\S\ref{sec:validation}).
 
 \paragraph{Modelling and boundary choices.} One-minute sampling, the residual
 over-approximation of liveness (a stream counts as open across a run even through
