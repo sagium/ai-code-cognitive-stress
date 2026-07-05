@@ -264,6 +264,22 @@ direction: an objective behavioural signal computed continuously from real
 sessions on the software engineer's own machine, rather than a one-off laboratory
 measurement.
 
+\paragraph{Developer activity telemetry.} Instrumenting a software engineer's
+day is an established practice. Observational field studies that segment the
+workday into activities and switches find it heavily fragmented into short
+bursts~\cite{meyer2017}; large-scale analyses of multitasking across
+open-source projects tie switching and focus to measurable productivity
+differences~\cite{vasilescu2016}; and the SPACE and DevEx framings
+deliberately pair activity telemetry with perceptual measures, warning
+against reading any single activity metric as
+productivity~\cite{forsgren2021,noda2023}. The present index differs from
+this tradition, and from commercial time-tracking dashboards, in both target
+and reference frame: it measures the \emph{structure} of agent supervision
+(concurrent demand, switch load, resumption cost) rather than activity volume
+or output, prices that structure against cognitive-capacity findings rather
+than against productivity, and scores each day only against the operator's
+own history, under the privacy invariant of \S\ref{sec:impl}.
+
 \paragraph{Review volume and output quality.} Greater review volume can reduce
 review quality. In human code inspection the
 \emph{review rate} (lines examined per hour) is the dominant controllable
@@ -528,13 +544,23 @@ demanding immediate attention. Two events do pull attention: a tool
 start} (a new session opened while another was active, forcing a switch and leaving
 attention residue~\cite{leroy2009}). With $E^{\mathrm{win}}$ the number of tool
 errors logged within the work window, $X$ the in-window cross-stream starts,
-and $h$ the window length in hours,
+and $h$ the scored window length in hours (on a day still in progress, only
+the portion elapsed so far),
 \begin{equation}
-I = \frac{1.5\,E^{\mathrm{win}} + 3.0\,X}{h}.
+I = \frac{1.5\,E^{\mathrm{win}} + 3.0\,X}{\max(h,\ h_{\min})}.
 \end{equation}
-The weights encode a higher expected cost for cross-stream switches than for
-tool errors, following the relative costs in the interruption
-literature~\cite{mark2008,mark2005,wickens2008}; the normalization
+The denominator is floored at a configurable warm-up horizon $h_{\min}$
+(default $1$\,h): early in a live day the elapsed time tends to zero, so a
+single event would otherwise read as an enormous rate that decays as $1/h$, a
+small-sample artifact rather than a burst of switching. The floor binds only
+while less than $h_{\min}$ of the window has elapsed, so a completed day's
+rate is unaffected.
+The weights encode a higher expected cost for a cross-stream switch than for
+a tool error. The interruption literature supports that \emph{ordering}, a
+switch of working sphere being costlier than an event handled within the
+current one~\cite{mark2008,mark2005,wickens2008}, but not the particular
+$2{:}1$ ratio, which is a modeling prior like the thresholds of
+\S\ref{sec:closure} (\S\ref{sec:threats}). The normalization
 ceiling is $10$/hour, well above the field baseline of a working-sphere switch
 roughly every $\approx$11~minutes ($\approx$5/hour) observed in knowledge
 work~\cite{gonzalezmark2004}.
@@ -759,6 +785,15 @@ the optimum is not circular: it asks which load band \emph{actually} closed the
 most loops, rather than rediscovering the load band with the least concurrency.
 It requires at least 14 active days to stabilise, below which the report shows
 ``calibrating.''
+The optimum and the percentile bands of \S\ref{sec:composite} are two
+reference frames answering different questions, and a single day can satisfy
+one while breaching the other. The bands rank a day's \emph{total} demand
+against the operator's history; the target recommends a \emph{concurrency}
+band to steer toward. A day inside the target band that still lands above the
+personal $p_{90}$ received its load through the other components (a dense
+interruption rate, cold resumes, or an off-hours toll), so the strain reading
+takes precedence for recovery decisions: the day was heavy for reasons a
+concurrency adjustment alone will not remove.
 Off-hours activity (on any date) is flagged because sustained load without
 detachment, not peaks, predicts harm~\cite{mcewen1998,sonnentag2007,sonnentag2010}.
 
@@ -912,11 +947,13 @@ that cover the observed range of work patterns. Both read and write only local
 files. The calibration fits the axis \emph{scales} to the population
 distribution and suggests weights from the redundancy among axes; where pooled
 exports carry enough graded days, it additionally reports descriptive
-correlations between each axis and the self-reported rating. It does not fit
+correlations between each axis and the self-reported rating (the shipped
+floors: $20$ participants and $100$ pooled day-records before scales are
+fitted, $30$ graded records before any correlation is reported). It does not fit
 weights to felt load, which requires a labeled sample pooled across many
 participants (\S\ref{sec:validation}).
 
-\section{Illustrative Example}\label{sec:example}
+\section{First Field Data}\label{sec:example}
 
 \begin{figure}[t]
 \centering
@@ -925,60 +962,85 @@ participants (\S\ref{sec:validation}).
 \begin{axis}[width=\columnwidth, height=5.2cm,
   axis lines=left, axis line style={black!60}, tick style={black!60},
   label style={font=\scriptsize}, tick label style={font=\scriptsize},
-  xlabel={active day (calendar order)}, ylabel={daily composite},
-  xmin=0.3, xmax=21.4, ymin=0, ymax=100,
-  xtick={1,5,10,15,19}, ytick={0,25,50,75,100},
-  ybar stacked, bar width=2.4mm,
+  xlabel={active day (shifted-calendar order)}, ylabel={daily composite},
+  xmin=0.3, xmax=27.8, ymin=0, ymax=100,
+  xtick={1,5,10,15,20,25}, ytick={0,25,50,75,100},
+  ybar stacked, bar width=1.9mm,
+  legend columns=-1,
   legend style={font=\scriptsize, draw=none, fill=none,
-                at={(0.02,0.98)}, anchor=north west, area legend},
+                at={(0.5,1.02)}, anchor=south, area legend,
+                /tikz/every even column/.append style={column sep=12pt}},
   xlabel near ticks, ylabel near ticks]
 \addplot[fill=black!45, draw=black!70] coordinates
-  {(1,54.5) (2,39.8) (3,49.9) (4,38.3) (5,59.0) (6,38.6) (7,61.7) (8,39.3)
-   (9,42.4) (10,48.9) (11,73.2) (12,40.1) (13,48.2) (14,67.7) (15,57.0)
-   (16,52.3) (17,39.1) (18,60.9) (19,55.6)};
+  {(1,25.1) (2,31.4) (3,36.7) (4,54.4) (5,69.6) (6,43.0) (7,0.1) (8,44.8)
+   (9,51.6) (10,43.8) (11,51.0) (12,51.0) (13,65.9) (14,17.3) (15,38.9)
+   (16,15.9) (17,29.7) (18,18.7) (19,30.8) (20,17.4) (21,28.9) (22,16.8)
+   (23,39.7) (24,1.6) (25,0.0)};
 \addlegendentry{in-window base}
 \addplot[fill=black!15, draw=black!60] coordinates
-  {(1,0) (2,0) (3,0) (4,7.7) (5,0) (6,0) (7,0) (8,0) (9,0) (10,0) (11,0)
-   (12,0) (13,17.7) (14,0) (15,0) (16,0) (17,0) (18,0) (19,0)};
+  {(1,2.3) (2,11.3) (3,0.0) (4,14.0) (5,30.0) (6,0.0) (7,0.0) (8,2.0)
+   (9,0.0) (10,17.7) (11,0.0) (12,2.0) (13,5.0) (14,0.0) (15,0.0) (16,0.0)
+   (17,0.0) (18,2.3) (19,0.0) (20,0.0) (21,0.0) (22,0.0) (23,1.0) (24,0.0)
+   (25,2.3)};
 \addlegendentry{off-hours toll}
-\draw[dashed, black!45] (axis cs:0.3,48.4) -- (axis cs:19.6,48.4);
-\draw[dashed, black!45] (axis cs:0.3,57.9) -- (axis cs:19.6,57.9);
-\draw[dashed, black!45] (axis cs:0.3,69.0) -- (axis cs:19.6,69.0);
-\node[anchor=west, font=\tiny, inner sep=1pt] at (axis cs:19.6,48.4) {$p_{50}$};
-\node[anchor=west, font=\tiny, inner sep=1pt] at (axis cs:19.6,57.9) {$p_{75}$};
-\node[anchor=west, font=\tiny, inner sep=1pt] at (axis cs:19.6,69.0) {$p_{90}$};
+\draw[dashed, black!45] (axis cs:0.3,36.7) -- (axis cs:25.7,36.7);
+\draw[dashed, black!45] (axis cs:0.3,51.0) -- (axis cs:25.7,51.0);
+\draw[dashed, black!45] (axis cs:0.3,65.6) -- (axis cs:25.7,65.6);
+\node[anchor=west, font=\tiny, inner sep=1pt] at (axis cs:25.7,36.7) {$p_{50}$};
+\node[anchor=west, font=\tiny, inner sep=1pt] at (axis cs:25.7,51.0) {$p_{75}$};
+\node[anchor=west, font=\tiny, inner sep=1pt] at (axis cs:25.7,65.6) {$p_{90}$};
+\node[circle, fill=black, inner sep=0.9pt] at (axis cs:15,42.9) {};
+\node[circle, fill=black, inner sep=0.9pt] at (axis cs:16,19.9) {};
+\node[circle, fill=black, inner sep=0.9pt] at (axis cs:17,33.7) {};
+\node[circle, fill=black, inner sep=0.9pt] at (axis cs:18,25.0) {};
+\node[circle, draw=black, fill=white, inner sep=0.9pt] at (axis cs:19,34.8) {};
+\node[circle, draw=black, fill=white, inner sep=0.9pt] at (axis cs:20,21.4) {};
+\node[circle, fill=black, inner sep=0.9pt] at (axis cs:21,32.9) {};
+\node[circle, fill=black, inner sep=0.9pt] at (axis cs:22,20.8) {};
+\node[circle, fill=black, inner sep=0.9pt] at (axis cs:23,44.7) {};
 \end{axis}
 \end{tikzpicture}
-\caption{One month of \emph{synthetic sample data} (19 active days, plotted in
-calendar order). The data is the deterministic demonstration dataset shipped
-with the reference implementation, generated without touching any real session
-logs; it illustrates the shape of the tool's output while exposing no
-operator's activity. Each bar is a day's composite; the light segment on top is
-the additive off-hours toll (\S\ref{sec:composite}) on days that incurred one.
-Dashed lines mark the $p_{50}$/$p_{75}$/$p_{90}$ of the surrounding synthetic
-baseline, the same reference bands the report colors each day against. Being
-synthetic, the month is an illustration of the instrument's output, not
-evidence of validity (\S\ref{sec:threats}).}
-\label{fig:month}
+\caption{All $25$ active days of the one research export contributed to
+date, in shifted-calendar order (dates are shifted by whole weeks at export
+time, so weekday structure survives). Dashed lines mark the operator's own
+$p_{50}$/$p_{75}$/$p_{90}$ baseline bands; dots mark the days the operator
+graded (filled: ``heated,'' open: ``chill''). One participant's descriptive
+record, not validation (\S\ref{sec:threats}).}
+\label{fig:field}
 \end{figure}
 
-To make the axes concrete, Figure~\ref{fig:month} shows one month of the
-synthetic demonstration dataset that ships with the reference implementation:
-19 active days, generated without reading any real session logs, so it exposes
-no operator's activity. This is emphatically an \emph{illustration of the
-instrument's output}, not evidence of validity; the data is synthetic and there
-is no felt-load measure attached to it. The month shows the axes moving
-independently, which is the behaviour the decomposition intends. The
-highest-scoring day (composite $73.2$) is driven by an interruption rate near
-the normalization ceiling on top of a saturated capacity-dose, while the
-second-highest day ($65.9$) reaches its score by a different route: an in-window
-base near the median lifted well past the $p_{75}$ band by the month's largest
-off-hours engagement ($53$ minutes past the window, the $17.7$-point toll drawn
-as the upper segment). A lighter day (base $38.3$, below the median) is likewise
-carried up to near the median by a smaller off-hours toll, showing the additive
-off-hours term moving a score independently of the three in-window axes. Whether any of this tracks \emph{felt} load is exactly
-the open question of \S\ref{sec:validation}, and no synthetic dataset can
-answer it. That unresolved criterion motivates the threats considered next.
+To make the axes concrete, Figure~\ref{fig:field} shows the one research
+export contributed to date: a consent-gated, anonymized export
+(\S\ref{sec:impl}) volunteered by a single participant, carrying $25$ active
+days inside a $365$-day window, the activity concentrated in a six-week span
+of the shifted calendar. One participant's record can illustrate the
+instrument, not validate it; what follows is description, not evidence.
+The record exercises every scoring mechanism. The heaviest day (composite
+$99.6$) caps its
+interruption term ($13.3$/hour against the $10$/hour ceiling) and saturates
+the off-hours toll ($158$ engaged minutes against the $90$-minute horizon)
+on top of a capacity-dose of $0.80$. The axes decouple in the field as the
+decomposition intends: one day reaches composite $51.0$ through the record's
+coldest resumption load (Closure Deficit $0.72$) at a moderate $4.2$/hour
+interruption rate, the second-heaviest day ($70.9$) is instead
+interruption-driven ($10.8$/hour) with a Closure Deficit roughly half that
+size, and two weekend trace days score near zero. The additive off-hours
+term moves scores independently of the three in-window axes: a day whose
+in-window base sits between the median and $p_{75}$ is lifted past $p_{75}$
+and toward the $p_{90}$ band by a $17.7$-point toll ($53$ engaged minutes
+past the window, the light segment on the tenth bar). The operator's optimum
+(\S\ref{sec:optimum}) resolves to $\overline{\mathrm{CODL}}=0.25$, the
+lowest concurrency bucket: on this record, loops close best at light
+parallelism. Nine days carry the optional felt-stress grade (two ``chill,''
+seven ``heated''), which demonstrates the experience-sampling channel end to
+end but sits far below the $30$ labeled records the calibration requires
+before reporting a correlation (\S\ref{sec:impl}); one participant could not
+anchor thresholds regardless. The export
+is therefore evidence of \emph{operation}, not of \emph{validity}: the
+pipeline, the consent gating, and the manual contribution path work on real
+usage, while whether any of this tracks \emph{felt} load is exactly the open
+question of \S\ref{sec:validation}. That
+unresolved criterion motivates the threats considered next.
 
 \section{Threats to Validity and Self-Critique}\label{sec:threats}
 The following challenges to the method are ordered roughly by severity.
@@ -1019,6 +1081,21 @@ paradigms~\cite{smith2003,masicampo2011}, not from software supervision, so the
 value is a defensible prior rather than a measurement. The true $\beta$ may differ
 by person, task, and tool, and may not be constant within a day; recovering it
 from data is a validation target (\S\ref{sec:validation}).
+
+\paragraph{The capacity anchor counts items; the charge applies it to a
+weighted sum.} Cowan's $\approx 4$ measures how many \emph{discrete} chunks
+focal attention holds~\cite{cowan2001}, yet the per-minute charge
+$\varphi=\min(1,C/\kappa)$ applies that bound to the weighted concurrency
+$C(t)$, a continuous quantity in foreground-equivalent units: twenty
+background sessions at $\beta=0.20$ reach $C=4$ and are charged as a minute
+at full capacity although no session is being actively driven. The charge is
+therefore read as \emph{attention demand} in the supervisory-control sense,
+the fraction of operator capacity the running fleet
+consumes~\cite{crandall2007}, rather than as an item count; the two readings
+coincide only when every live session is foreground. Whether the
+item-anchored value $\kappa\approx 4$ survives that translation to weighted
+demand is a question the population scale check must answer
+(\S\ref{sec:validation}).
 
 \paragraph{Equal composite weights are a placeholder.} No axis is asserted to
 dominate, but equality should not be interpreted as an empirical result. Without calibration against
@@ -1070,6 +1147,20 @@ drawn from, meaning the axis, if anything, may over-state the cost of a resume.
 The axis is defined on every active day and returns no value only when there
 is no activity at all (\S\ref{sec:composite}).
 
+\paragraph{Counted interruptions are partly self-initiated.} Excluding
+routine tool calls (\S\ref{sec:interruption}) invokes the standard definition
+of an interruption as an unscheduled event demanding immediate attention, and
+one of the two events that \emph{is} counted sits uneasily beside that
+definition: a cross-stream start is typically the operator's own deliberate
+dispatch rather than an external alert. Its cost is real but rests on the
+attention residue an unfinished task leaves on the task switched
+to~\cite{leroy2009}, and field studies of information work find a large share
+of observed switches to be similarly self-initiated~\cite{mark2005}. The axis
+is therefore better read as a \emph{switch-load} rate than as a strict
+interruption rate; the name follows the literature its costs are drawn from.
+The tool-error term carries the symmetric caveat: an error is counted at the
+instant it is logged, whether or not the operator observed it in real time.
+
 \paragraph{Engagement is interaction-anchored by design.} Foreground is proxied
 by proximity to the operator's own messages within a grace window $g$. Silent
 engagement (reading, thinking, reviewing diffs without typing) leaves no message
@@ -1110,13 +1201,16 @@ systematic bias, and establishing that convention is left to a multi-tool
 sample.
 
 \paragraph{No validation sample and borrowed thresholds.} The working-memory
-capacity ($\kappa\approx 4$~\cite{cowan2001}), the CODL dose horizon ($D$), and
-the interruption ceiling ($10$/hour) are literature-anchored priors, not fitted
-to the population of agentic-coding software engineers, who may differ. No
-empirical usage is reported at all: the illustrative example (\S\ref{sec:example})
-is the reference implementation's own synthetic demonstration dataset, chosen so
-the method can be shown without exposing any operator's session data, and it
-carries no felt-load criterion against which the thresholds could be checked. The
+capacity ($\kappa\approx 4$~\cite{cowan2001}), the CODL dose horizon ($D$),
+the interruption ceiling ($10$/hour), and the interruption-event weights (a
+cross-stream start charged at twice a tool error, \S\ref{sec:interruption})
+are literature-anchored priors, not fitted
+to the population of agentic-coding software engineers, who may differ. The
+empirical record on hand is thin: the field data of \S\ref{sec:example} is a
+single participant's contributed export, descriptive only, whose nine graded
+days sit far below the calibration's reporting floor
+(\S\ref{sec:impl}). It supplies no felt-load criterion at a usable scale,
+so the thresholds remain unchecked against felt experience. The
 reference implementation provides the machinery to move beyond this (an anonymized
 per-user export and a population-calibration step that refits the axis scales to
 the pooled distribution, \S\ref{sec:impl}), so what remains is collecting the
@@ -1128,8 +1222,8 @@ additionally requires the felt-stress self-report of \S\ref{sec:validation}.
 The export carries that self-report for graded days, but validation needs it
 pooled at sufficient scale; a population-fitted scale is otherwise
 population-relative, not construct-validated. Until that labeled sample exists
-the thresholds stay borrowed and no field data has been collected
-(\S\ref{sec:validation}).
+the thresholds stay borrowed; the field data collected so far, one
+participant's export, cannot check them (\S\ref{sec:validation}).
 
 \paragraph{Modelling and boundary choices.} One-minute sampling, the residual
 over-approximation of liveness (a stream counts as open across a run even through
@@ -1217,8 +1311,8 @@ make the design falsifiable.
   concerns the \emph{supervised} step beyond those descriptives: fitting and
   validating weights against the felt-load criterion on a labeled
   multi-participant sample.
-  \item \textbf{Predictive validity for recovery.} Days high in off-hours
-  activity and composite should predict lower next-day vigor/detachment
+  \item \textbf{Predictive validity for recovery.} Days with a high composite
+  should predict lower next-day vigor/detachment
   scores~\cite{sonnentag2010}; absence of this relationship weakens the recovery
   framing.
   \item \textbf{$\beta$ recovery from data.} With per-event timestamps and a
@@ -1226,16 +1320,18 @@ make the design falsifiable.
   watching''), $\beta$ can be estimated rather than assumed; the estimate's
   distance from $0.20$ quantifies the prior's error.
   \item \textbf{Sensitivity analysis.} Composite rankings of days should be
-  stable under reasonable perturbations of $g$, the sampling interval, and the
-  thresholds; instability would indicate over-tuned, non-robust scoring.
+  stable under reasonable perturbations of $g$, the sampling interval, the
+  interruption-event weights, and the thresholds; instability would indicate
+  over-tuned, non-robust scoring.
   \item \textbf{Inferred window vs.\ fixed band.} The per-operator inferred
   window should predict felt load (or in-flow time) better than the fixed
   09:00--19:00 band out-of-sample. If inference does not beat the fixed band,
   the percentile machinery adds complexity without value and the fixed default
   should be preferred.
   \item \textbf{Off-hours load validity.} Days carrying a high off-hours
-  engaged-minutes load should predict lower next-day vigor/detachment~\cite{sonnentag2010};
-  if the load does not track reduced recovery, its magnitude
+  engaged-minutes load should predict lower next-day vigor/detachment over
+  and above the in-window composite~\cite{sonnentag2010}; if the toll adds
+  no incremental signal beyond that composite, its magnitude
   ($+30$ points, $90$-minute saturation) is mis-specified and should be
   refit or dropped.
   \item \textbf{Population scale check.} With multi-participant data, the CODL
@@ -1264,7 +1360,11 @@ The validation design depends on protecting the source material from which the
 metrics are derived. Session logs can contain proprietary source code and
 secrets; private processing is therefore treated as a hard invariant, not a
 feature, and any future
-data-sharing path would require separate, explicit, opt-in consent. The intended
+data-sharing path would require separate, explicit, opt-in consent. The field
+record reported in \S\ref{sec:example} is such a consented artifact: a
+research export containing only derived daily metrics with dates shifted and
+no session content, generated on the contributor's machine and shared through
+the manual upload path. The intended
 use is individual self-reflection. This work explicitly warns against managerial or
 comparative use across people: the index is calibrated to an individual's own
 history, the construct is unvalidated, and using an unvalidated load proxy for
