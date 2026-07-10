@@ -198,6 +198,19 @@ def _rollout_line(ts: str, payload_type: str, **payload_fields) -> str:
     return json.dumps({"timestamp": ts, "type": "response_item", "payload": payload})
 
 
+def _session_meta_line(
+    ts: str, *, session_id=None, thread_id=None, thread_source=None,
+) -> str:
+    payload = {"cwd": "/home/user", "cli_version": "0.143.0", "timestamp": ts}
+    if thread_id is not None:
+        payload["id"] = thread_id
+    if session_id is not None:
+        payload["session_id"] = session_id
+    if thread_source is not None:
+        payload["thread_source"] = thread_source
+    return json.dumps({"timestamp": ts, "type": "session_meta", "payload": payload})
+
+
 def test_new_format_user_and_assistant_messages(tmp_path):
     sessions = tmp_path / "codex"
     sessions.mkdir()
@@ -403,6 +416,108 @@ def test_new_format_custom_tool_call_output_list_exit_code_zero(tmp_path):
         utc(2026, 5, 1), utc(2026, 5, 31), IngestStats()))
     result = next(ev for ev, _, _ in items if isinstance(ev, ToolResultEvent))
     assert result.is_error is False
+
+
+# ---------------------------------------------------------------------------
+# Stream identity: subagent threads fold into their root session
+# ---------------------------------------------------------------------------
+
+def _write(path, *lines):
+    path.write_text("\n".join(lines), encoding="utf-8")
+
+
+def test_subagent_threads_share_parent_stream_id(tmp_path):
+    """A session that spawns subagents writes one rollout file per subagent
+    thread, each carrying the parent's session_id. All threads — parent and
+    subagents — must resolve to the SAME stream id so an orchestrated fan-out
+    reads as one logical session, not N concurrent ones."""
+    sessions = tmp_path / "codex"
+    day = sessions / "2026" / "05" / "15"
+    day.mkdir(parents=True)
+    root = "019f4bae-root"
+    _write(
+        day / "rollout-2026-05-15T10-00-00-019f4bae-root.jsonl",
+        _session_meta_line("2026-05-15T10:00:00Z", session_id=root,
+                           thread_id=root, thread_source="user"),
+        _rollout_line("2026-05-15T10:00:01Z", "message", role="user",
+                      content=[{"type": "input_text", "text": "review the MR"}]),
+    )
+    for tid in ("019f4bb2-gibbs", "019f4bb2-curie"):
+        _write(
+            day / f"rollout-2026-05-15T10-00-05-{tid}.jsonl",
+            _session_meta_line("2026-05-15T10:00:05Z", session_id=root,
+                               thread_id=tid, thread_source="subagent"),
+            _rollout_line("2026-05-15T10:00:06Z", "function_call",
+                          name="shell", call_id=f"{tid}-c1", arguments="{}"),
+        )
+    items = list(CodexSessionSource(sessions_dir=sessions).collect(
+        utc(2026, 5, 1), utc(2026, 5, 31), IngestStats()))
+    assert {ev.stream_id for ev, _, _ in items} == {root}
+
+
+def test_top_level_session_keyed_on_session_id(tmp_path):
+    """A plain session (session_id == its own thread id) keys on the session
+    id, not the filename stem."""
+    sessions = tmp_path / "codex"
+    sessions.mkdir()
+    _write(
+        sessions / "rollout-2026-05-15T10-00-00-somefile.jsonl",
+        _session_meta_line("2026-05-15T10:00:00Z", session_id="sess-1",
+                           thread_id="sess-1"),
+        _rollout_line("2026-05-15T10:00:01Z", "message", role="user",
+                      content=[{"type": "input_text", "text": "hi"}]),
+    )
+    items = list(CodexSessionSource(sessions_dir=sessions).collect(
+        utc(2026, 5, 1), utc(2026, 5, 31), IngestStats()))
+    assert {ev.stream_id for ev, _, _ in items} == {"sess-1"}
+
+
+def test_independent_sessions_stay_separate_streams(tmp_path):
+    """Two unrelated top-level sessions keep distinct stream ids — the fix must
+    not over-collapse."""
+    sessions = tmp_path / "codex"
+    sessions.mkdir()
+    for sid in ("sess-a", "sess-b"):
+        _write(
+            sessions / f"rollout-2026-05-15T10-00-00-{sid}.jsonl",
+            _session_meta_line("2026-05-15T10:00:00Z", session_id=sid, thread_id=sid),
+            _rollout_line("2026-05-15T10:00:01Z", "message", role="user",
+                          content=[{"type": "input_text", "text": "hi"}]),
+        )
+    items = list(CodexSessionSource(sessions_dir=sessions).collect(
+        utc(2026, 5, 1), utc(2026, 5, 31), IngestStats()))
+    assert {ev.stream_id for ev, _, _ in items} == {"sess-a", "sess-b"}
+
+
+def test_session_meta_without_session_id_falls_back_to_thread_id(tmp_path):
+    """Older builds predate subagents and write only ``id`` in session_meta:
+    key on that thread id."""
+    sessions = tmp_path / "codex"
+    sessions.mkdir()
+    _write(
+        sessions / "rollout-2026-05-15T10-00-00-x.jsonl",
+        _session_meta_line("2026-05-15T10:00:00Z", thread_id="old-id"),
+        _rollout_line("2026-05-15T10:00:01Z", "message", role="user",
+                      content=[{"type": "input_text", "text": "hi"}]),
+    )
+    items = list(CodexSessionSource(sessions_dir=sessions).collect(
+        utc(2026, 5, 1), utc(2026, 5, 31), IngestStats()))
+    assert {ev.stream_id for ev, _, _ in items} == {"old-id"}
+
+
+def test_legacy_flat_format_keeps_stem_stream_id(tmp_path):
+    """The legacy flat-role format has no session_meta header at all: fall back
+    to the file stem, preserving the pre-subagent behaviour."""
+    sessions = tmp_path / "codex"
+    sessions.mkdir()
+    _write(
+        sessions / "legacy-stem.jsonl",
+        json.dumps({"role": "user", "content": "hi",
+                    "timestamp": "2026-05-15T10:00:00Z"}),
+    )
+    items = list(CodexSessionSource(sessions_dir=sessions).collect(
+        utc(2026, 5, 1), utc(2026, 5, 31), IngestStats()))
+    assert {ev.stream_id for ev, _, _ in items} == {"legacy-stem"}
 
 
 def test_new_format_custom_tool_call_output_list_no_exit_code(tmp_path):

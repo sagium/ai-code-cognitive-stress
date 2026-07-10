@@ -6,13 +6,26 @@ stores per-session logs under ``~/.codex/sessions/``. Files are named
 subdirectories (older builds wrote them flat in the sessions directory). A
 recursive glob handles any nesting depth, so both layouts are supported.
 
+Stream identity is the *root session*, not the file. Each rollout file opens
+with a ``session_meta`` envelope whose ``payload.session_id`` is the id of the
+root session for the whole conversation tree. A single top-level session is one
+file whose ``session_id`` equals its own ``payload.id``. But a session that
+spawns subagents (a reviewer team, parallel workers) writes one *additional*
+rollout file per subagent thread, each carrying the *parent's* ``session_id``
+(with its own per-thread id under ``payload.id`` and ``thread_source ==
+"subagent"``). Keying every thread on ``session_id`` (see `_resolve_stream_id`)
+folds an orchestrated fan-out back into the one logical session the operator
+actually drove — one command, N autonomous subagents — instead of counting it
+as N concurrent sessions, which would inflate the concurrency and
+cross-session-switch signals with load the operator never bore.
+
 Resuming a session (``codex resume``) reopens the same rollout file in the
-recorder's ``append(true)`` mode, so one file stays one logical session and the
-one-file-per-stream assumption in `_parse_session` holds across resumes. Forking
-is the one exception: it writes a *new* rollout file seeded with a copy of the
-parent's turns, so a forked conversation's pre-fork events are counted once per
-branch. Forks are rare relative to resumes, so we accept that small over-count
-rather than dedupe across files.
+recorder's ``append(true)`` mode, so its ``session_meta`` — and therefore its
+stream id — is unchanged across resumes. Forking is the one over-count: it
+writes a *new* rollout file with a fresh ``session_id`` seeded with a copy of
+the parent's turns, so a forked conversation's pre-fork events are counted once
+per branch. Forks are rare, so we accept that small over-count rather than
+dedupe across files.
 
 Each JSONL line is a RolloutLine envelope (codex-rs protocol.rs):
 
@@ -102,7 +115,7 @@ class CodexSessionSource:
                 stats.files_kept += 1
 
     def _parse_session(self, path: Path, stats: IngestStats) -> Iterator[Event]:
-        stream_id = path.stem
+        stream_id = _resolve_stream_id(path)
         try:
             fh = path.open("r", encoding="utf-8")
         except OSError:
@@ -136,6 +149,49 @@ class CodexSessionSource:
                 for ev in _events_from_record(record, ts, stream_id, "codex"):
                     stats.events_emitted += 1
                     yield ev
+
+
+def _resolve_stream_id(path: Path) -> str:
+    """Stream identity for a rollout file: the ROOT session it belongs to.
+
+    codex-rs writes a ``session_meta`` envelope as the first record of every
+    rollout file. Its ``payload.session_id`` is the root session for the whole
+    conversation tree — a subagent thread spawned mid-session carries the
+    *parent's* session id here (its own per-thread id sits under ``payload.id``).
+    Keying every thread on ``session_id`` folds an orchestrated fan-out (one
+    operator command, N subagent rollout files) into the single logical session
+    the operator drove, rather than counting it as N concurrent sessions.
+
+    Falls back to ``payload.id`` when there is no ``session_id`` (older builds
+    that predate subagents), and to the file stem when the first record is not a
+    readable ``session_meta`` at all (the legacy flat-role format). Reads only
+    the first non-empty line and never raises — stats are untouched here; the
+    main parse loop counts every line exactly once.
+    """
+    try:
+        fh = path.open("r", encoding="utf-8")
+    except OSError:
+        return path.stem
+    with fh:
+        for raw_line in fh:
+            line = raw_line.strip()
+            if not line:
+                continue
+            # Only the first non-empty record can be the session_meta header;
+            # if it is anything else, this file has no root-session id to key on.
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                return path.stem
+            if record.get("type") != "session_meta":
+                return path.stem
+            payload = record.get("payload")
+            if isinstance(payload, dict):
+                sid = payload.get("session_id") or payload.get("id")
+                if isinstance(sid, str) and sid:
+                    return sid
+            return path.stem
+    return path.stem
 
 
 def _events_from_record(

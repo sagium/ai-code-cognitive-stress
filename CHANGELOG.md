@@ -9,6 +9,14 @@ dynamically by the build.
 
 ## [Unreleased]
 
+### Fixed
+- Codex subagent threads no longer inflate concurrency. A Codex session that
+  spawns subagents (a reviewer team, parallel workers) writes one rollout file
+  per thread, and each was counted as a separate concurrent session — so one
+  orchestrated run read as many parallel sessions. Threads are now keyed on the
+  root `session_id` from their `session_meta` header and fold into the single
+  session actually driven.
+
 ## [0.2.1] - 2026-06-22
 
 ### Fixed
