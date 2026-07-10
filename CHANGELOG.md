@@ -9,6 +9,20 @@ dynamically by the build.
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-07-10
+
+### Fixed
+- Codex tool errors are now scored. Real `exec_command` / `apply_patch` output
+  is a plain string whose header carries the exit status (`Process exited with
+  code N` / `Exit code: N`); only `list`/`dict` output shapes were inspected,
+  so every failure read as success. The string header is now parsed (the
+  structured shapes stay as fallbacks), so non-zero exits register on the
+  Interruption Index.
+- Codex tool activity that was silently dropped is now captured:
+  `web_search_call` (self-contained call + result), `tool_search_call`, and
+  `tool_search_output` map to tool-use / tool-result events. `world_state`
+  envelopes are skipped explicitly.
+
 ## [0.2.2] - 2026-07-10
 
 ### Fixed
@@ -84,7 +98,8 @@ First public release.
 - Pure Python standard library at runtime — zero third-party dependencies.
 - No network calls: the tool reads local logs and writes a report to disk.
 
-[Unreleased]: https://github.com/sagium/ai-code-cognitive-stress/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/sagium/ai-code-cognitive-stress/compare/v0.2.3...HEAD
+[0.2.3]: https://github.com/sagium/ai-code-cognitive-stress/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/sagium/ai-code-cognitive-stress/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/sagium/ai-code-cognitive-stress/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/sagium/ai-code-cognitive-stress/compare/v0.1.0...v0.2.0
