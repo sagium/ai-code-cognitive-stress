@@ -9,6 +9,8 @@ dynamically by the build.
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-07-10
+
 ### Fixed
 - Codex subagent threads no longer inflate concurrency. A Codex session that
   spawns subagents (a reviewer team, parallel workers) writes one rollout file
@@ -82,7 +84,8 @@ First public release.
 - Pure Python standard library at runtime — zero third-party dependencies.
 - No network calls: the tool reads local logs and writes a report to disk.
 
-[Unreleased]: https://github.com/sagium/ai-code-cognitive-stress/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/sagium/ai-code-cognitive-stress/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/sagium/ai-code-cognitive-stress/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/sagium/ai-code-cognitive-stress/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/sagium/ai-code-cognitive-stress/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/sagium/ai-code-cognitive-stress/releases/tag/v0.1.0
