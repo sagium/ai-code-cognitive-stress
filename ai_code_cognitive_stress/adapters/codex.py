@@ -39,15 +39,28 @@ with its own ``type`` discriminator:
 
     payload.type = "message"   + payload.role = "user"       → UserMessageEvent
     payload.type = "message"   + payload.role = "assistant"  → AssistantMessageEvent
-    payload.type = "function_call" | "custom_tool_call"      → ToolUseEvent
-    payload.type = "local_shell_call"                        → ToolUseEvent + ToolResultEvent
+    payload.type = "function_call" | "custom_tool_call"
+                 | "tool_search_call"                        → ToolUseEvent
+    payload.type = "web_search_call" | "local_shell_call"    → ToolUseEvent + ToolResultEvent
     payload.type = "function_call_output"
-                 | "custom_tool_call_output"                 → ToolResultEvent
+                 | "custom_tool_call_output"
+                 | "tool_search_output"                      → ToolResultEvent
 
-Error detection: ``local_shell_call`` with ``status != "completed"``; or
-``function_call_output`` with ``output.success == False`` (dict output); or,
-for list-shaped ``output`` (the custom exec wrapper), a non-zero ``exit_code``
-recovered from the trailing block's JSON ``text``.
+Non-conversation ResponseItems carry no supervision signal and are dropped:
+``reasoning`` (the model's private thinking) and ``message`` with
+``role == "developer"`` (injected scaffolding, not the operator). Envelope
+types other than ``response_item`` (``session_meta``, ``event_msg``,
+``turn_context``, ``world_state``, …) are skipped.
+
+Error detection reflects what codex-rs actually writes. Tool *output* is a
+plain string whose header records the shell exit status, in one of two forms:
+``Process exited with code N`` (``exec_command`` / ``write_stdin``) or
+``Exit code: N`` (the ``apply_patch`` custom tool); a non-zero N is an error.
+A ``web_search_call`` (self-contained, like ``local_shell_call``) and a
+``tool_search_output`` are errors when their ``status != "completed"``. The
+structured shapes — ``output.success == False`` (dict) and a JSON ``exit_code``
+in a list-shaped ``output`` — are also honoured for forward/other-build
+compatibility, but real logs use the string form.
 
 Backward compatibility: the older TypeScript codex-cli wrote records with
 ``role`` at the top level (``{"role": "user", …}``). Those files are still
@@ -57,6 +70,7 @@ parsed by the legacy role-based path below.
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator
@@ -212,7 +226,7 @@ def _events_from_record(
     # Other RolloutLine types carry no conversation signal.
     if record_type in (
         "session_meta", "event_msg", "inter_agent_communication",
-        "compacted", "turn_context",
+        "compacted", "turn_context", "world_state",
     ):
         return
 
@@ -285,6 +299,26 @@ def _exit_code_from_output(output) -> int | None:
     return parsed.get("exit_code")
 
 
+# The exec tools write a plain-string output whose header records the exit
+# status: "Process exited with code N" (exec_command / write_stdin) or
+# "Exit code: N" (the apply_patch custom tool). Line-anchored so a matching
+# line inside the command's own captured output can't be mistaken for it.
+_EXIT_CODE_LINE = re.compile(
+    r"^(?:Process exited with code|Exit code:)\s+(-?\d+)", re.MULTILINE
+)
+
+
+def _exit_code_from_text(output) -> int | None:
+    """Recover a shell exit code from the plain-string tool output codex-rs
+    actually writes (see ``_EXIT_CODE_LINE``). Returns the first match — the
+    metadata header always precedes the command's captured output — or None
+    when there is no exit-status line. Never raises."""
+    if not isinstance(output, str):
+        return None
+    m = _EXIT_CODE_LINE.search(output)
+    return int(m.group(1)) if m else None
+
+
 def _events_from_response_item(
     payload: dict,
     ts: datetime,
@@ -310,13 +344,25 @@ def _events_from_response_item(
         )
         return
 
-    if ptype == "local_shell_call":
-        # The shell-call item combines call + result: one line covers both the
-        # invocation and its outcome. status="completed" means success.
-        call_id = payload.get("call_id") or payload.get("id")
+    if ptype == "tool_search_call":
+        # The agent searching the tool registry — a tool invocation paired with
+        # a tool_search_output. It carries no "name" field, so label it.
         yield ToolUseEvent(
             ts=ts, stream_id=stream_id, project=project,
-            tool_name="shell",
+            tool_name="tool_search",
+            tool_use_id=payload.get("call_id") or payload.get("id"),
+        )
+        return
+
+    if ptype in ("web_search_call", "local_shell_call"):
+        # Self-contained: one item covers both the invocation and its outcome,
+        # with status="completed" meaning success. web_search_call keys on `id`;
+        # local_shell_call on call_id (id as fallback).
+        call_id = payload.get("call_id") or payload.get("id")
+        tool_name = "web_search" if ptype == "web_search_call" else "shell"
+        yield ToolUseEvent(
+            ts=ts, stream_id=stream_id, project=project,
+            tool_name=tool_name,
             tool_use_id=call_id,
         )
         is_error = payload.get("status") not in ("completed", None)
@@ -327,10 +373,23 @@ def _events_from_response_item(
         )
         return
 
+    if ptype == "tool_search_output":
+        # Result of a tool_search_call; error is signalled by status only.
+        yield ToolResultEvent(
+            ts=ts, stream_id=stream_id, project=project,
+            tool_use_id=payload.get("call_id"),
+            is_error=payload.get("status") not in ("completed", None),
+        )
+        return
+
     if ptype in ("function_call_output", "custom_tool_call_output"):
         call_id = payload.get("call_id")
         output = payload.get("output")
+        # Real logs write a plain string with the exit status in its header;
+        # the list/dict shapes are kept for forward/other-build compatibility.
         code = _exit_code_from_output(output)
+        if code is None:
+            code = _exit_code_from_text(output)
         is_error = (
             bool(payload.get("is_error"))
             or (code is not None and code != 0)

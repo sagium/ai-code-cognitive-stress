@@ -520,6 +520,164 @@ def test_legacy_flat_format_keeps_stem_stream_id(tmp_path):
     assert {ev.stream_id for ev, _, _ in items} == {"legacy-stem"}
 
 
+# ---------------------------------------------------------------------------
+# Real codex-rs shapes: string tool output with an exit-status header, and the
+# tool-call types the earlier adapter dropped (verified against live logs).
+# ---------------------------------------------------------------------------
+
+def _one_result(sessions):
+    items = list(CodexSessionSource(sessions_dir=sessions).collect(
+        utc(2026, 5, 1), utc(2026, 5, 31), IngestStats()))
+    return next(ev for ev, _, _ in items if isinstance(ev, ToolResultEvent))
+
+
+# The exec_command header form: "Process exited with code N".
+_EXEC_OK = "Chunk ID: f3aeac\nWall time: 0.02 seconds\nProcess exited with code 0\nOutput:\nok\n"
+_EXEC_FAIL = "Chunk ID: aa11bb\nWall time: 0.01 seconds\nProcess exited with code 127\nOutput:\nbash: nope: command not found\n"
+# The apply_patch header form: "Exit code: N".
+_PATCH_OK = "Exit code: 0\nWall time: 0.2 seconds\nOutput:\nSuccess. Updated the following files:\nM foo.py\n"
+_PATCH_FAIL = "Exit code: 1\nWall time: 0.2 seconds\nOutput:\nerror: patch did not apply\n"
+
+
+def test_exec_command_output_exit_code_zero_from_text(tmp_path):
+    """Real exec_command output is a plain string with 'Process exited with
+    code 0' in its header — success."""
+    sessions = tmp_path / "codex"
+    sessions.mkdir()
+    (sessions / "r.jsonl").write_text(
+        _rollout_line("2026-05-15T10:00:02Z", "function_call_output",
+                      call_id="c1", output=_EXEC_OK),
+        encoding="utf-8",
+    )
+    assert _one_result(sessions).is_error is False
+
+
+def test_exec_command_output_nonzero_exit_from_text_is_error(tmp_path):
+    """'Process exited with code 127' in the string header must register as an
+    error — the case the adapter previously missed entirely."""
+    sessions = tmp_path / "codex"
+    sessions.mkdir()
+    (sessions / "r.jsonl").write_text(
+        _rollout_line("2026-05-15T10:00:02Z", "function_call_output",
+                      call_id="c1", output=_EXEC_FAIL),
+        encoding="utf-8",
+    )
+    assert _one_result(sessions).is_error is True
+
+
+def test_apply_patch_output_exit_code_from_text(tmp_path):
+    """apply_patch (a custom_tool_call) uses the 'Exit code: N' header form."""
+    sessions = tmp_path / "codex"
+    sessions.mkdir()
+    (sessions / "ok.jsonl").write_text(
+        _rollout_line("2026-05-15T10:00:02Z", "custom_tool_call_output",
+                      call_id="c1", output=_PATCH_OK),
+        encoding="utf-8",
+    )
+    assert _one_result(sessions).is_error is False
+    (sessions / "bad.jsonl").write_text(
+        _rollout_line("2026-05-15T11:00:02Z", "custom_tool_call_output",
+                      call_id="c2", output=_PATCH_FAIL),
+        encoding="utf-8",
+    )
+    errs = [ev for ev, _, _ in CodexSessionSource(sessions_dir=sessions).collect(
+        utc(2026, 5, 1), utc(2026, 5, 31), IngestStats())
+        if isinstance(ev, ToolResultEvent) and ev.is_error]
+    assert len(errs) == 1
+
+
+def test_exit_code_line_anchored_ignores_command_output(tmp_path):
+    """A success header (code 0) whose captured output happens to contain a
+    line like 'Exit code: 5' must NOT be read as an error: the header matches
+    first and is line-anchored."""
+    sessions = tmp_path / "codex"
+    sessions.mkdir()
+    tricky = ("Chunk ID: x\nProcess exited with code 0\nOutput:\n"
+              "printed by the program: Exit code: 5\n")
+    (sessions / "r.jsonl").write_text(
+        _rollout_line("2026-05-15T10:00:02Z", "function_call_output",
+                      call_id="c1", output=tricky),
+        encoding="utf-8",
+    )
+    assert _one_result(sessions).is_error is False
+
+
+def test_web_search_call_emits_use_and_result(tmp_path):
+    """web_search_call is self-contained (call + result); keyed on `id`, error
+    when status != completed."""
+    sessions = tmp_path / "codex"
+    sessions.mkdir()
+    (sessions / "r.jsonl").write_text(
+        "\n".join([
+            _rollout_line("2026-05-15T10:00:01Z", "web_search_call",
+                          id="ws_1", status="completed",
+                          action={"type": "open_page", "url": "https://x"}),
+            _rollout_line("2026-05-15T10:00:03Z", "web_search_call",
+                          id="ws_2", status="failed",
+                          action={"type": "search"}),
+        ]),
+        encoding="utf-8",
+    )
+    items = list(CodexSessionSource(sessions_dir=sessions).collect(
+        utc(2026, 5, 1), utc(2026, 5, 31), IngestStats()))
+    kinds = [type(ev).__name__ for ev, _, _ in items]
+    assert kinds == ["ToolUseEvent", "ToolResultEvent",
+                     "ToolUseEvent", "ToolResultEvent"]
+    uses = [ev for ev, _, _ in items if isinstance(ev, ToolUseEvent)]
+    assert uses[0].tool_name == "web_search" and uses[0].tool_use_id == "ws_1"
+    results = [ev for ev, _, _ in items if isinstance(ev, ToolResultEvent)]
+    assert results[0].is_error is False and results[1].is_error is True
+
+
+def test_tool_search_call_and_output(tmp_path):
+    """tool_search_call → ToolUse; tool_search_output → ToolResult (error by
+    status). Paired on call_id."""
+    sessions = tmp_path / "codex"
+    sessions.mkdir()
+    (sessions / "r.jsonl").write_text(
+        "\n".join([
+            _rollout_line("2026-05-15T10:00:01Z", "tool_search_call",
+                          call_id="call_1", status="completed",
+                          arguments={"query": "spawn subagent", "limit": 8}),
+            _rollout_line("2026-05-15T10:00:02Z", "tool_search_output",
+                          call_id="call_1", status="completed", tools=[]),
+        ]),
+        encoding="utf-8",
+    )
+    items = list(CodexSessionSource(sessions_dir=sessions).collect(
+        utc(2026, 5, 1), utc(2026, 5, 31), IngestStats()))
+    kinds = [type(ev).__name__ for ev, _, _ in items]
+    assert kinds == ["ToolUseEvent", "ToolResultEvent"]
+    use = next(ev for ev, _, _ in items if isinstance(ev, ToolUseEvent))
+    assert use.tool_name == "tool_search" and use.tool_use_id == "call_1"
+    assert next(ev for ev, _, _ in items
+                if isinstance(ev, ToolResultEvent)).is_error is False
+
+
+def test_world_state_and_reasoning_and_developer_are_dropped(tmp_path):
+    """world_state envelopes, `reasoning` items, and developer-role messages
+    carry no supervision signal and must emit nothing — only the real user
+    message survives."""
+    sessions = tmp_path / "codex"
+    sessions.mkdir()
+    (sessions / "r.jsonl").write_text(
+        "\n".join([
+            json.dumps({"timestamp": "2026-05-15T09:59:00Z", "type": "world_state",
+                        "payload": {"full": True, "state": {}}}),
+            _rollout_line("2026-05-15T10:00:00Z", "reasoning",
+                          summary=[{"type": "summary_text", "text": "thinking"}]),
+            _rollout_line("2026-05-15T10:00:01Z", "message", role="developer",
+                          content=[{"type": "input_text", "text": "system note"}]),
+            _rollout_line("2026-05-15T10:00:02Z", "message", role="user",
+                          content=[{"type": "input_text", "text": "hi"}]),
+        ]),
+        encoding="utf-8",
+    )
+    items = list(CodexSessionSource(sessions_dir=sessions).collect(
+        utc(2026, 5, 1), utc(2026, 5, 31), IngestStats()))
+    assert [type(ev).__name__ for ev, _, _ in items] == ["UserMessageEvent"]
+
+
 def test_new_format_custom_tool_call_output_list_no_exit_code(tmp_path):
     """List output whose trailing block is plain non-JSON text: no exit code
     can be recovered, so it must NOT be treated as an error (no false
