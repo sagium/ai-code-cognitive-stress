@@ -412,6 +412,18 @@ def _render_month_section(
         1 for m in active
         if profile.composite_p75 is not None and m.composite > profile.composite_p75
     )
+    # While the personal bands are still calibrating (fewer than the required
+    # active days), "days over p75" is undefined, so it reads "—" with a neutral
+    # status rather than a misleading 0. Matches the peak-day card's calibrating
+    # note.
+    bands_calibrating = profile.composite_p75 is None
+    days_over_p75_value = "—" if bands_calibrating else f"{days_over_p75}"
+    days_over_p75_status = (
+        "" if bands_calibrating else _status_for_count(days_over_p75, [3, 6])
+    )
+    days_over_p75_note = (
+        t("note.calibrating") if bands_calibrating else t("stat.healthy_under_4")
+    )
     off_hours_days = sum(1 for m in days_in_month if m.off_hours_minutes > 0)
     active_days = _active_days_in_month(profile, year, month)
     drilldowns = "\n".join(
@@ -434,10 +446,10 @@ def _render_month_section(
                 _peak_target_note(profile),
                 href=f"#day-{peak_day.day.isoformat()}" if peak_day else None)}
     {_stat_card(t("stat.days_over_p75"),
-                f"{days_over_p75}",
+                days_over_p75_value,
                 escape(t("stat.active_days_suffix", count=len(active))),
-                _status_for_count(days_over_p75, [3, 6]),
-                t("stat.healthy_under_4"))}
+                days_over_p75_status,
+                days_over_p75_note)}
     {_stat_card(t("stat.off_hours_days"),
                 f"{off_hours_days}",
                 "",

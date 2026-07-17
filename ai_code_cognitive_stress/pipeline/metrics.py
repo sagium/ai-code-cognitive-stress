@@ -341,14 +341,21 @@ def build_profile(
             ),
         )
 
-    # Percentiles are computed across all active days.
+    # Personal percentile bands share the optimum's calibration bar: a
+    # distribution defined over fewer than OPTIMUM_MIN_DAYS_OF_DATA active days
+    # is too thin to color a day against, so the bands stay uncalibrated (None)
+    # and composite_status() falls back to the fixed absolute cutoffs. This
+    # keeps the bands and the optimum "calibrating" at the same point.
     composites = [
         m.composite for d, m in days.items()
         if m.composite > 0
     ]
-    p50 = _percentile(composites, 0.5) if composites else None
-    p75 = _percentile(composites, 0.75) if composites else None
-    p90 = _percentile(composites, 0.9) if composites else None
+    if len(composites) >= OPTIMUM_MIN_DAYS_OF_DATA:
+        p50 = _percentile(composites, 0.5)
+        p75 = _percentile(composites, 0.75)
+        p90 = _percentile(composites, 0.9)
+    else:
+        p50 = p75 = p90 = None
 
     optimum = derive_personal_optimum(days)
 

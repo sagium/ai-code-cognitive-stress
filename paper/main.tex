@@ -766,7 +766,11 @@ The reference implementation colors and ranks each day against the
 operator's \emph{own} percentile distribution (p50/p75/p90) computed over
 active days in the baseline window, never a population norm, reinforcing
 that only relative movement within one person's history is interpreted
-(see the corresponding caveat in \S\ref{sec:threats}).
+(see the corresponding caveat in \S\ref{sec:threats}). The bands share the
+personal optimum's calibration bar of 14 active days (\S\ref{sec:optimum}):
+below that count the distribution is too thin to rank a day against, so the
+status scale falls back to fixed absolute cutoffs at 40 and 70 on the
+$0$--$100$ composite.
 
 \subsection{Personal optimum and recovery}\label{sec:optimum}
 Performance follows an inverted-U with load~\cite{yerkes1908,csikszentmihalyi1990}.

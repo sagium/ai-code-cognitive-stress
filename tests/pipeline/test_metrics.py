@@ -74,6 +74,29 @@ def _agg(day, streams):
                         peak_concurrent_streams=0)
 
 
+def _active_day_agg(day, *, busy=False):
+    """A minimal aggregate that scores a composite > 0 on `day`.
+
+    `busy=True` overlaps two long streams for a higher score; the default is a
+    single short in-window session. Alternating the two gives a real spread when
+    several days are pooled into the percentile bands."""
+    y, mo, d = day.year, day.month, day.day
+    if busy:
+        streams = [
+            _stream("a", _utc(y, mo, d, 10), _utc(y, mo, d, 16),
+                    user_msg_timestamps=tuple(_utc(y, mo, d, h) for h in range(10, 16))),
+            _stream("b", _utc(y, mo, d, 11), _utc(y, mo, d, 15),
+                    user_msg_timestamps=tuple(_utc(y, mo, d, h) for h in range(11, 15))),
+        ]
+    else:
+        streams = [
+            _stream("a", _utc(y, mo, d, 10), _utc(y, mo, d, 12),
+                    user_msg_count=2,
+                    user_msg_timestamps=(_utc(y, mo, d, 10), _utc(y, mo, d, 11))),
+        ]
+    return _agg(day, streams)
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 
@@ -1127,7 +1150,8 @@ def test_per_day_metrics_sunday_with_no_streams_is_clean():
 
 def test_build_profile_percentiles_include_saturday_when_active():
     """Saturday activity inside the work window scores a composite, just
-    like a weekday — both days contribute to the profile's percentiles."""
+    like a weekday, and contributes to the profile's percentiles once enough
+    active days exist to calibrate the bands."""
     fri = date(2026, 5, 8)  # Friday
     sat = date(2026, 5, 9)  # Saturday
     fri_streams = [
@@ -1142,11 +1166,19 @@ def test_build_profile_percentiles_include_saturday_when_active():
         fri: _agg(fri, fri_streams),
         sat: _agg(sat, sat_streams),
     }
+    # Pad with enough further active days to reach the calibration floor, so the
+    # percentile bands are computed at all (they require OPTIMUM_MIN_DAYS_OF_DATA
+    # active days).
+    filler = date(2026, 5, 11)  # Monday, after the featured weekend
+    for i in range(OPTIMUM_MIN_DAYS_OF_DATA):
+        day = filler + timedelta(days=i)
+        aggs[day] = _active_day_agg(day)
     profile = build_profile(aggs, local_tz=UTC)
-    # Both days produce a composite > 0.
+    # Both featured days produce a composite > 0.
     assert profile.days[fri].composite > 0
     assert profile.days[sat].composite > 0
-    # Percentiles are computed over both active days.
+    # Once calibrated, the bands are computed over every active day, weekend
+    # days included.
     assert profile.composite_p50 is not None
 
 
@@ -1174,15 +1206,35 @@ def test_build_profile_one_active_day():
     assert m.composite > 0
 
 
-def test_build_profile_computes_percentiles_over_active_days():
-    streams_lo = [_stream("a", _utc(2026, 5, 4, 10), _utc(2026, 5, 4, 11))]
-    streams_hi = [
-        _stream("a", _utc(2026, 5, 5, 10), _utc(2026, 5, 5, 16)),
-        _stream("b", _utc(2026, 5, 5, 11), _utc(2026, 5, 5, 15)),
-    ]
+def test_build_profile_withholds_percentile_bands_below_calibration_floor():
+    """Fewer than OPTIMUM_MIN_DAYS_OF_DATA active days is too thin to define a
+    personal distribution, so the percentile bands stay uncalibrated (None) and
+    composite_status() falls back to the fixed absolute cutoffs. No 'calibrating'
+    badge is surfaced on the widget — the fallback is silent."""
+    base = date(2026, 5, 4)  # Monday
+    n = OPTIMUM_MIN_DAYS_OF_DATA - 1
     aggs = {
-        date(2026, 5, 4): _agg(date(2026, 5, 4), streams_lo),
-        date(2026, 5, 5): _agg(date(2026, 5, 5), streams_hi),
+        base + timedelta(days=i): _active_day_agg(base + timedelta(days=i))
+        for i in range(n)
+    }
+    profile = build_profile(aggs, local_tz=UTC)
+    # Every day is active...
+    assert sum(1 for m in profile.days.values() if m.composite > 0) == n
+    # ...but below the floor the bands are withheld.
+    assert profile.composite_p50 is None
+    assert profile.composite_p75 is None
+    assert profile.composite_p90 is None
+
+
+def test_build_profile_computes_percentiles_over_active_days():
+    # At the calibration floor, alternating light/busy days so the pooled
+    # distribution has a real spread.
+    base = date(2026, 5, 4)  # Monday
+    aggs = {
+        base + timedelta(days=i): _active_day_agg(
+            base + timedelta(days=i), busy=(i % 2 == 0)
+        )
+        for i in range(OPTIMUM_MIN_DAYS_OF_DATA)
     }
     profile = build_profile(aggs, local_tz=UTC)
     assert profile.composite_p50 is not None
