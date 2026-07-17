@@ -9,6 +9,19 @@ dynamically by the build.
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-07-17
+
+### Changed
+- Composite status falls back to the fixed absolute bands (40/70) until the
+  personal percentile bands calibrate, and the report's "Days > personal p75"
+  card shows "—" during that window instead of a misleading 0.
+
+### Fixed
+- Personal percentile bands (p50/p75/p90) formed from as little as a single
+  active day, so an unstable one- or two-day distribution drove day coloring
+  and the widget's chill/heated/cooked read. They now calibrate only after 14
+  active days, matching the personal optimum.
+
 ## [0.2.3] - 2026-07-10
 
 ### Fixed
@@ -98,7 +111,8 @@ First public release.
 - Pure Python standard library at runtime — zero third-party dependencies.
 - No network calls: the tool reads local logs and writes a report to disk.
 
-[Unreleased]: https://github.com/sagium/ai-code-cognitive-stress/compare/v0.2.3...HEAD
+[Unreleased]: https://github.com/sagium/ai-code-cognitive-stress/compare/v0.2.4...HEAD
+[0.2.4]: https://github.com/sagium/ai-code-cognitive-stress/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/sagium/ai-code-cognitive-stress/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/sagium/ai-code-cognitive-stress/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/sagium/ai-code-cognitive-stress/compare/v0.2.0...v0.2.1
