@@ -9,6 +9,8 @@ dynamically by the build.
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-09-03
+
 ### Added
 - Widget card warns, on a line at the bottom, while the source checkout is
   behind its upstream branch. The CLI only counts the commits (a local
@@ -119,7 +121,8 @@ First public release.
 - Pure Python standard library at runtime — zero third-party dependencies.
 - No network calls: the tool reads local logs and writes a report to disk.
 
-[Unreleased]: https://github.com/sagium/ai-code-cognitive-stress/compare/v0.2.4...HEAD
+[Unreleased]: https://github.com/sagium/ai-code-cognitive-stress/compare/v0.2.5...HEAD
+[0.2.5]: https://github.com/sagium/ai-code-cognitive-stress/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/sagium/ai-code-cognitive-stress/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/sagium/ai-code-cognitive-stress/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/sagium/ai-code-cognitive-stress/compare/v0.2.1...v0.2.2
