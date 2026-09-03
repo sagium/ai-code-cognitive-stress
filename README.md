@@ -3,8 +3,7 @@
 </p>
 
 <p align="center">
-  <b>See the supervision load behind your AI-assisted development workflow.</b><br>
-  Local only. Personalized to your history. Zero runtime dependencies.
+  <b>See the supervision load behind your AI-assisted development workflow.</b>
 </p>
 
 <p align="center">
