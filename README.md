@@ -3,8 +3,7 @@
 </p>
 
 <p align="center">
-  <b>See the supervision load behind your AI-assisted development workflow.</b><br>
-  Local only. Personalized to your history. Zero runtime dependencies.
+  <b>See the supervision load behind your AI-assisted development workflow.</b>
 </p>
 
 <p align="center">
@@ -205,6 +204,12 @@ The analyzer reads local session logs and writes local HTML, JSON, cache, and
 archive files. **Analysis and reporting make no network requests:** there is no
 telemetry, remote rendering, or automatic data collection. Session content can
 still be sensitive, so treat generated reports as you would the source logs.
+
+The desktop widgets make one outbound request, and only when installed from a
+git checkout: a `git fetch` every six hours, so the card can warn you that a
+newer version is waiting. It sends nothing about you, and each widget can turn
+it off (see the host's README, or set `"update_check": false` in `config.json`
+to drop the warning line).
 
 Some coding tools delete, compact, or archive older sessions. To preserve the
 derived history, completed-day statistics are stored in the platform data

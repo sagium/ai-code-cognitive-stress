@@ -138,6 +138,12 @@ class Config:
     # next --emit-html-card render opens to that tab. Affects only the rendered
     # widget card; the HTML report is unchanged.
     widget_view: str = "today"
+    # Widget update warning: when true, the desktop card shows a one-line
+    # notice while the source checkout is behind its upstream branch. The
+    # check is a local `git rev-list` (no network); the desktop hosts refresh
+    # the remote-tracking ref themselves. Set false to silence it — e.g. when
+    # deliberately parked on an older commit.
+    update_check: bool = True
 
 
 def _parse_hhmm(value: str) -> time:
@@ -181,6 +187,11 @@ def load_config(path: Path | None = None) -> Config:
         raise ValueError(
             f"compact_widget must be a boolean, got {compact_widget!r}"
         )
+    update_check = data.get("update_check", True)
+    if not isinstance(update_check, bool):
+        raise ValueError(
+            f"update_check must be a boolean, got {update_check!r}"
+        )
     _VALID_VIEWS: frozenset[str] = frozenset({"today", "week", "month", "year"})
     widget_view = data.get("widget_view", "today")
     if widget_view not in _VALID_VIEWS:
@@ -196,6 +207,7 @@ def load_config(path: Path | None = None) -> Config:
         locale=locale,
         compact_widget=compact_widget,
         widget_view=widget_view,
+        update_check=update_check,
     )
     _CONFIG_CACHE[key] = config
     return config

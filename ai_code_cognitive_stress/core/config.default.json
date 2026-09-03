@@ -11,6 +11,7 @@
   },
   "compact_widget": false,
   "widget_view": "today",
+  "update_check": true,
   "idle_close_minutes": 180,
   "scoring": {
     "codl_capacity": 4.0,

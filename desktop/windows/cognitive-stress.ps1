@@ -17,11 +17,12 @@
   external references; the only JavaScript run in the view is our own
   one-liner that measures the card's height.
 
-  No network calls at runtime. The WebView2 DLLs in lib/ are populated by
-  fetch-webview2.ps1 (a one-time maintainer/install-time action). The host
-  only navigates via NavigateToString (NavigationStarting cancels anything
-  else). The card is fully self-contained (inline CSS + SVG), so this is
-  purely defensive.
+  The only network request is the update check's `git fetch` (see
+  -UpdateFetchHours, 0 to switch it off). Nothing else reaches out: the
+  WebView2 DLLs in lib/ are populated by fetch-webview2.ps1 (a one-time
+  maintainer/install-time action), the host only navigates via
+  NavigateToString (NavigationStarting cancels anything else), and the card is
+  fully self-contained (inline CSS + SVG).
 
 .PARAMETER RefreshSeconds
   How often to re-run aicogstress (default: 60, minimum: 10).
@@ -32,6 +33,11 @@
   A GUI process may not inherit your shell PATH — if the card stays blank,
   pass the absolute path here or set AICOGSTRESS_CMD.
   Find it with: (Get-Command aicogstress).Source
+
+.PARAMETER UpdateFetchHours
+  How often to run `git fetch` in the aicogstress checkout so the card can warn
+  that a newer version is waiting (default: 6; 0 disables the check).
+  Override: set the AICOGSTRESS_UPDATE_FETCH_HOURS environment variable.
 
 .PARAMETER SelfTest
   Headless CI mode: load -CardFile <path>, wait for a height measurement,
@@ -62,6 +68,7 @@
 param(
     [int]    $RefreshSeconds = 0,         # 0 = read env / use default 60
     [string] $Command        = "",         # "" = read env / use "aicogstress"
+    [int]    $UpdateFetchHours = -1,       # -1 = read env / use default 6
     [switch] $SelfTest,
     [string] $CardFile       = ""
 )
@@ -81,6 +88,11 @@ $RefreshSeconds = [Math]::Max(10, $RefreshSeconds)
 
 if ($Command -eq "") {
     $Command = if ($env:AICOGSTRESS_CMD) { $env:AICOGSTRESS_CMD } else { "aicogstress" }
+}
+
+if ($UpdateFetchHours -lt 0) {
+    $envHours = [int]($env:AICOGSTRESS_UPDATE_FETCH_HOURS)
+    $UpdateFetchHours = if ($env:AICOGSTRESS_UPDATE_FETCH_HOURS) { $envHours } else { 6 }
 }
 
 # ---------------------------------------------------------------------------
@@ -349,6 +361,44 @@ function Invoke-AicogstressCard {
             Stderr   = "Failed to start '$Command': $_"
             ExitCode = -1
         }
+    }
+}
+
+function Invoke-UpdateFetch {
+    <#
+    .SYNOPSIS Refresh the checkout's remote-tracking ref so the card can warn
+    that newer commits are waiting. The CLI only counts them — it makes no
+    network calls — so the fetch is the host's job. `--print-checkout` names
+    the repo, or exits non-zero when there is nothing to track (a non-checkout
+    install, or the check turned off in config.json). Never throws.
+    #>
+    try {
+        # Same ProcessStartInfo shape as Invoke-AicogstressCard: the call
+        # operator with a stderr redirect turns native stderr into throwing
+        # ErrorRecords under $ErrorActionPreference = "Stop".
+        $psi = [System.Diagnostics.ProcessStartInfo]::new()
+        $psi.FileName                    = $Command
+        $psi.Arguments                   = "--print-checkout"
+        $psi.UseShellExecute             = $false
+        $psi.RedirectStandardOutput      = $true
+        $psi.RedirectStandardError       = $true
+        $psi.CreateNoWindow              = $true
+        $psi.StandardOutputEncoding      = [System.Text.Encoding]::UTF8
+        $proc = [System.Diagnostics.Process]::Start($psi)
+        $root = $proc.StandardOutput.ReadToEnd().Trim()
+        [void]$proc.StandardError.ReadToEnd()
+        $proc.WaitForExit()
+        if ($proc.ExitCode -ne 0 -or $root -eq "") { return }
+        # No console to answer a credential prompt — it would hang forever.
+        $psi = [System.Diagnostics.ProcessStartInfo]::new()
+        $psi.FileName         = "git"
+        $psi.Arguments        = "-C `"$root`" fetch --quiet"
+        $psi.UseShellExecute  = $false
+        $psi.CreateNoWindow   = $true
+        $psi.EnvironmentVariables["GIT_TERMINAL_PROMPT"] = "0"
+        [void][System.Diagnostics.Process]::Start($psi)
+    } catch {
+        # No git, no remote, offline — the card just stays quiet.
     }
 }
 
@@ -874,6 +924,15 @@ $initialHtml = Get-CardHtml
 $wv.CoreWebView2.NavigateToString($initialHtml)
 
 $timer.Start()
+
+# Update check on its own slow timer — the answer changes on the scale of days.
+if ($UpdateFetchHours -gt 0) {
+    Invoke-UpdateFetch
+    $updateTimer = [System.Windows.Forms.Timer]::new()
+    $updateTimer.Interval = $UpdateFetchHours * 3600 * 1000
+    $updateTimer.add_Tick({ Invoke-UpdateFetch })
+    $updateTimer.Start()
+}
 
 # ---------------------------------------------------------------------------
 # 17. Run the WinForms message loop.

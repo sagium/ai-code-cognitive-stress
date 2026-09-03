@@ -176,6 +176,15 @@ def _build_parser() -> argparse.ArgumentParser:
              "directly.",
     )
     parser.add_argument(
+        "--print-checkout", action="store_true",
+        help="Print the git checkout this package runs from, then exit — the "
+             "desktop widgets use it to locate the repo whose remote-tracking "
+             "ref they refresh, so the card can warn when a newer version is "
+             "waiting. Prints nothing and exits 1 for a non-checkout install "
+             "or when 'update_check' is false in config.json. Reads local "
+             "paths only; no network.",
+    )
+    parser.add_argument(
         "--rate", metavar="DAY:GRADE",
         help="Record a subjective day grade (0=chill, 1=heated, 2=cooked). "
              "DAY is an ISO date (YYYY-MM-DD) or the keyword 'today'. "
@@ -347,6 +356,21 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
 
+    # Checkout path for the widgets' update fetch: --print-checkout. The hosts
+    # run `git fetch` on a slow timer against whatever this prints; the tool
+    # itself never fetches (the no-network core constraint), it only counts
+    # commits already on disk. Silent + non-zero when there is nothing to
+    # track, which is how a host knows to skip its fetch entirely.
+    if args.print_checkout:
+        from .core.config import load_config
+        from .core.update_check import checkout_root
+
+        root = checkout_root() if load_config().update_check else None
+        if root is None:
+            return 1
+        print(root)
+        return 0
+
     # Resolve agent-analysis input early so a bad path errors before we burn
     # the whole pipeline.
     agent_analysis_html: str | None = None
@@ -405,6 +429,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.emit_json or args.emit_html_card:
         if args.emit_html_card:
             from .core.config import load_config
+            from .core.update_check import update_notice
             from .output.dayview import compute_timeframe_views
             from .output.widget_card import render_card_tabbed
             views = compute_timeframe_views(
@@ -416,6 +441,7 @@ def main(argv: list[str] | None = None) -> int:
                 views,
                 compact=cfg.compact_widget,
                 active_view=cfg.widget_view,
+                update_note=update_notice(),
             ))
         else:
             from .output.dayview import compute_today_dayview, dayview_to_dict

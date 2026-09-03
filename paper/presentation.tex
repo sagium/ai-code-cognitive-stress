@@ -351,8 +351,9 @@
           tool maps them to typed events.
     \item Per-day aggregation with caching; three axes; a composite scored
           against a personal baseline and optimum.
-    \item Python standard library only; \good{no network I/O at any stage};
-          output is a self-contained HTML report plus a JSON sibling.
+    \item Python standard library only; \good{no network I/O in the
+          analysis}; output is a self-contained HTML report plus a JSON
+          sibling.
   \end{itemize}
 \end{frame}
 
@@ -705,9 +706,12 @@
     \item Session transcripts routinely contain \alert{proprietary code and
           secrets}; the generated report and JSON are treated as equally
           sensitive.
-    \item The tool reads local files and writes local files:
-          \good{no network calls at any stage}, no telemetry, no remote
-          rendering. Privacy is a hard invariant, not a feature toggle.
+    \item The tool reads local files and writes local files: \good{no
+          telemetry}, no remote rendering, nothing about the operator sent
+          anywhere. Privacy is a hard invariant, not a feature toggle.
+    \item One outbound request exists: the desktop companion asks, at most
+          every six hours and switchable off, whether a \good{newer version}
+          of the tool has been published. It discloses nothing in the asking.
     \item Intended use is \good{individual self-assessment}. The index is
           calibrated to one person's history; using an unvalidated load
           proxy to evaluate people would be statistically and ethically

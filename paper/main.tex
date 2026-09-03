@@ -317,8 +317,8 @@ timestamps. Events are reduced to per-day
 \emph{stream} records: one stream is one session on one day, summarised by its
 first/last event timestamps $[a_s,b_s]$, per-type counts, the multiset of
 the user's own message timestamps $U_s$, and the timestamps of any errored tool
-results. All processing is local; nothing is
-transmitted over the network (\S\ref{sec:impl}).
+results. All processing is local; no session data leaves the machine
+(\S\ref{sec:impl}).
 
 \begin{figure}[t]
 \centering
@@ -925,8 +925,13 @@ paper: every axis, threshold, and the engagement weighting described here is
 exactly what the released tool computes.\footnote{Source and documentation:
 \url{https://github.com/sagium/ai-code-cognitive-stress}. The qualitative
 behaviour described in this section was produced by the released code.} The Python
-project reads only local files, performs no network I/O at any stage, and
-writes a self-contained HTML report plus a machine-readable JSON sibling.
+project reads only local files and writes a self-contained HTML report plus a
+machine-readable JSON sibling; the analysis pipeline performs no network I/O at
+any stage. One outbound request exists in the whole project: the optional
+desktop companion asks, at most every six hours and switchable off by a single
+setting, whether a newer version of the tool has been published, so that the
+card it displays can say one is available. That request carries nothing about
+the operator, their sessions, or their metrics.
 Per-day aggregates are cached keyed by source-file modification time, so metric
 or weighting changes recompute from cache without re-parsing logs. Adding a new
 coding tool is a single adapter implementing the event protocol; the aggregate,

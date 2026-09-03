@@ -8,6 +8,7 @@ Kirigami.FormLayout {
     // config/main.xml (cfg_command -> "command", etc.).
     property alias cfg_command: commandField.text
     property alias cfg_refreshSeconds: refreshField.value
+    property alias cfg_updateFetchHours: updateFetchField.value
 
     QQC2.TextField {
         id: commandField
@@ -21,6 +22,22 @@ Kirigami.FormLayout {
         from: 10
         to: 3600
         stepSize: 10
+    }
+
+    QQC2.SpinBox {
+        id: updateFetchField
+        Kirigami.FormData.label: i18n("Check for updates (hours):")
+        from: 0
+        to: 168
+        stepSize: 1
+    }
+
+    QQC2.Label {
+        Layout.maximumWidth: Kirigami.Units.gridUnit * 18
+        wrapMode: Text.WordWrap
+        opacity: 0.7
+        font: Kirigami.Theme.smallFont
+        text: i18n("Update check: the widget runs `git fetch` in the aicogstress checkout on this interval, and the card shows a warning line while newer commits are waiting. Set 0 to switch it off — it is the only network request the widget makes.")
     }
 
     QQC2.Label {

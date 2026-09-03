@@ -46,6 +46,7 @@ Available environment variables:
 |---|---|---|
 | `AICOGSTRESS_CMD` | `aicogstress --emit-html-card --source auto` | CLI command that prints the card HTML |
 | `AICOGSTRESS_REFRESH` | `60` | Refresh interval in seconds (minimum 10) |
+| `AICOGSTRESS_UPDATE_FETCH` | `21600` | Seconds between `git fetch` runs that let the card warn about a newer version; `0` disables it (the widget's only network request) |
 | `AICOGSTRESS_CORNER` | `top-right` | One of `top-right`, `top-left`, `bottom-right`, `bottom-left` |
 | `AICOGSTRESS_X` | — | Explicit X offset from monitor top-left (overrides `AICOGSTRESS_CORNER`) |
 | `AICOGSTRESS_Y` | — | Explicit Y offset from monitor top-left (overrides `AICOGSTRESS_CORNER`) |
