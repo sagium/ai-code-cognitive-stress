@@ -9,8 +9,9 @@
  * the browser preview (preview.html), so the surfaces can't drift. This file
  * just runs the CLI on a timer and injects its output verbatim.
  *
- * Private: shells out to a local CLI and shows its stdout. No network —
- * the card uses system font stacks, nothing is fetched.
+ * Private: shells out to a local CLI and shows its stdout. The card uses
+ * system font stacks and fetches nothing; the widget's one outbound request
+ * is the six-hourly `git fetch` behind the card's update warning.
  *
  * Install: copy or symlink this file into
  *   ~/Library/Application Support/Übersicht/widgets/
@@ -143,6 +144,33 @@ const onCardClick = (e) => {
 };
 
 // ---------------------------------------------------------------------------
+// Update check. The CLI counts how far the checkout is behind upstream but
+// never fetches — it makes no network calls at all — so refreshing the
+// remote-tracking ref is the host's job, and the card's bottom warning line
+// has something to read. `--print-checkout` names the repo to fetch in, or
+// exits non-zero when there is nothing to track (a non-checkout install, or
+// the check turned off in config.json).
+//
+// The widget has one 60s timer, so the interval is enforced with a stored
+// timestamp instead: the answer changes on the scale of days, and a fetch is
+// the only outbound traffic this widget ever makes.
+// ---------------------------------------------------------------------------
+const _KEY_FETCHED   = "aicogstress:lastFetch";
+const _FETCH_EVERY_MS = 6 * 60 * 60 * 1000;
+
+const _maybeFetchUpstream = () => {
+  const last = Number(localStorage.getItem(_KEY_FETCHED) || 0);
+  if (Date.now() - last < _FETCH_EVERY_MS) return;
+  // Stamp first: a fetch that hangs or fails must not retry every 60 seconds.
+  localStorage.setItem(_KEY_FETCHED, String(Date.now()));
+  // No terminal to answer a credential prompt — it would hang forever.
+  run(_sh(
+    'r=$(aicogstress --print-checkout 2>/dev/null) && ' +
+    'GIT_TERMINAL_PROMPT=0 git -C "$r" fetch --quiet'
+  )).catch(() => {});  // no git, no remote, offline — the card stays quiet
+};
+
+// ---------------------------------------------------------------------------
 // Render
 // ---------------------------------------------------------------------------
 export const render = ({ output, error }) => {
@@ -158,6 +186,7 @@ export const render = ({ output, error }) => {
         Unexpected output. Run `aicogstress --emit-html-card` in a terminal to check.
       </div>
     );
+  _maybeFetchUpstream();
   // The inline ref function is intentionally recreated each render so React
   // calls _applyState after every dangerouslySetInnerHTML update (not just mount).
   return (

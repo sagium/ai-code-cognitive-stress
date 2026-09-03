@@ -79,6 +79,30 @@ def test_shipped_config_compact_widget_defaults_off():
     assert load_config(_DEFAULTS_CONFIG_PATH).compact_widget is False
 
 
+def test_shipped_config_update_check_defaults_on():
+    assert load_config(_DEFAULTS_CONFIG_PATH).update_check is True
+
+
+def test_update_check_absent_falls_back_to_true(tmp_path):
+    cfg = tmp_path / "config.json"
+    cfg.write_text(json.dumps(_ww({})), encoding="utf-8")
+    assert load_config(cfg).update_check is True
+
+
+def test_update_check_false_parsed(tmp_path):
+    cfg = tmp_path / "config.json"
+    cfg.write_text(json.dumps(_ww({"update_check": False})), encoding="utf-8")
+    assert load_config(cfg).update_check is False
+
+
+@pytest.mark.parametrize("bad", [1, "yes", None])
+def test_update_check_rejects_non_bool(tmp_path, bad):
+    cfg = tmp_path / "config.json"
+    cfg.write_text(json.dumps(_ww({"update_check": bad})), encoding="utf-8")
+    with pytest.raises(ValueError, match="update_check"):
+        load_config(cfg)
+
+
 # --- runtime config.json vs tracked defaults ------------------------------
 
 def test_load_config_falls_back_to_defaults_when_runtime_absent(tmp_path, monkeypatch):

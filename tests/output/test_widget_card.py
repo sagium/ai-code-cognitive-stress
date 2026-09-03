@@ -163,6 +163,27 @@ def test_render_card_nag_banner_only_when_present():
     assert 'class="nag"' not in render_card(quiet)
 
 
+def test_render_card_has_no_update_note_by_default():
+    assert 'class="update"' not in render_card(_active_dayview())
+
+
+def test_render_card_update_note_is_the_last_line_and_escaped():
+    html = render_card(_active_dayview(), update_note='2 commits <b>behind</b>')
+    assert '<div class="update">2 commits &lt;b&gt;behind&lt;/b&gt;</div></div>' in html
+
+
+def test_render_card_tabbed_update_note_renders_once_outside_the_views():
+    views = [
+        TimeframeView(key="today", tab_label="Today", view=_active_dayview()),
+        TimeframeView(key="week", tab_label="Week", view=_active_dayview()),
+    ]
+    html = render_card_tabbed(views, update_note="update available")
+    # One notice for the whole card, after the last view — so it stays put
+    # whichever tab the in-page switcher shows.
+    assert html.count('class="update"') == 1
+    assert html.index('class="update"') > html.rindex('class="view hidden"')
+
+
 def test_render_card_sparkline_needs_two_points():
     quiet = build_dayview(
         DayMetrics(day=date(2026, 5, 29)), None, _profile(), timezone.utc,

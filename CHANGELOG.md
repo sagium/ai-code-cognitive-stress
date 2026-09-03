@@ -9,6 +9,14 @@ dynamically by the build.
 
 ## [Unreleased]
 
+### Added
+- Widget card warns, on a line at the bottom, while the source checkout is
+  behind its upstream branch. The CLI only counts the commits (a local
+  `git rev-list`, no network); each desktop host refreshes the
+  remote-tracking ref itself on a six-hourly timer, and `--print-checkout`
+  tells it which repo to fetch in. Set `"update_check": false` in
+  `config.json` to drop the line, or switch the fetch off per host.
+
 ## [0.2.4] - 2026-07-17
 
 ### Changed

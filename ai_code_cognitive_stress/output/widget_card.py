@@ -128,6 +128,24 @@ CSS = """
     font-family: __FONT_MONO__; font-size: 8.5px; color: rgba(245,243,237,.38);
   }
 
+  /* Update warning — the card's last line. Rendered once at root level (not
+     inside a view body), so the tabbed card shows it under whichever tab is
+     open. */
+  .cogstress .update {
+    display: flex; align-items: center; gap: 6px;
+    margin: 10px 2px 0; padding: 6px 10px 5px; border-radius: 10px;
+    font-family: __FONT_MONO__; font-size: 8.5px; letter-spacing: .02em;
+    color: #e8b27d;
+    background: rgba(217, 144, 88, .12);
+    border: 1px solid rgba(217, 144, 88, .20);
+  }
+  /* Status dot, drawn not typed: the mono stack has no dependable arrow glyph
+     and a missing one renders as tofu. */
+  .cogstress .update::before {
+    content: ""; flex: none; width: 5px; height: 5px;
+    border-radius: 50%; background: currentColor; opacity: .85;
+  }
+
   /* Timeframe tabs (Today / Week / Month). In-page JS toggles .active on the
      button and .hidden on the matching .view; with no JS (e.g. injected via
      innerHTML) the first view stays visible and the rest stay hidden. */
@@ -445,7 +463,7 @@ def _axis_tile(a: AxisTile) -> str:
 
 def _wrap(
     inner: str, *, label: str, color: str, has_activity: bool,
-    compact: bool = False, ungraded: bool = False,
+    compact: bool = False, ungraded: bool = False, update_note: str = "",
 ) -> str:
     """Scoped stylesheet + root div. The data-* attributes summarise the
     headline so hosts (the Plasma panel label) can read it without a parser.
@@ -459,14 +477,21 @@ def _wrap(
     ``data-ungraded`` is ``"true"`` when the grader is active but no vote has
     been recorded yet. CSS blurs the metric elements so the algorithmic score
     cannot anchor the user's subjective rating. JS removes the attribute on chip
-    click to animate the reveal before the host issues a re-render."""
+    click to animate the reveal before the host issues a re-render.
+
+    ``update_note``, when set, becomes the card's last line — the "your
+    checkout is behind upstream" warning. It sits outside the view bodies so
+    the tabbed card carries it under every tab."""
+    note = (
+        f'<div class="update">{_esc(update_note)}</div>' if update_note else ""
+    )
     return (
         f"<style>{CSS}</style>"
         f'<div class="cogstress" data-composite-label="{_esc(label)}" '
         f'data-composite-color="{_esc(color)}" '
         f'data-has-activity="{"true" if has_activity else "false"}" '
         f'data-compact="{"true" if compact else "false"}" '
-        f'data-ungraded="{"true" if ungraded else "false"}">{inner}</div>'
+        f'data-ungraded="{"true" if ungraded else "false"}">{inner}{note}</div>'
     )
 
 
@@ -661,13 +686,14 @@ def _grader(dv: DayView) -> str:
     )
 
 
-def render_card(dv: DayView, *, compact: bool = False) -> str:
+def render_card(dv: DayView, *, compact: bool = False, update_note: str = "") -> str:
     """The full day card as one self-contained HTML fragment."""
     return _wrap(
         _body(dv), label=dv.composite_label,
         color=dv.composite_color, has_activity=dv.has_activity,
         compact=compact,
         ungraded=bool(dv.grade_prompt and dv.grade_value is None),
+        update_note=update_note,
     )
 
 
@@ -779,6 +805,7 @@ def render_card_tabbed(
     *,
     compact: bool = False,
     active_view: str = "today",
+    update_note: str = "",
 ) -> str:
     """Today / Week / Month / Year in one card with in-page tabs. The root
     data-* attributes mirror the FIRST (today) view so the Plasma panel label
@@ -789,7 +816,9 @@ def render_card_tabbed(
 
     ``active_view`` is the key of the tab that should be initially selected
     (persisted via ``--set-view`` / ``config.widget_view``). Falls back to the
-    first tab when the persisted key isn't present in ``views``."""
+    first tab when the persisted key isn't present in ``views``.
+
+    ``update_note`` is the optional bottom warning line (see ``_wrap``)."""
     if not views:
         return render_error_card(t("card.error_footer_right"))
     # Determine which tab index to show initially. Walk views to find the one
@@ -822,6 +851,7 @@ def render_card_tabbed(
         inner, label=head.composite_label, color=head.composite_color,
         has_activity=head.has_activity, compact=compact,
         ungraded=bool(head.grade_prompt and head.grade_value is None),
+        update_note=update_note,
     )
 
 

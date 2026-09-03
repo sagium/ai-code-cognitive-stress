@@ -66,6 +66,14 @@ disk** — the user uploads it manually via the `contribute-data` skill. Do not
 "improve" it into an auto-upload or add any network call to it — the upload
 step must always be a deliberate, manual action by the user.
 
+The one exception lives outside the package, in the desktop widget hosts
+(`desktop/`): each runs `git fetch` in the aicogstress checkout on a slow timer
+(6h by default, switchable off per host) so the card can warn that a newer
+version is waiting. The package itself stays offline — `--print-checkout` names
+the repo to fetch in, and `core/update_check.py` only counts commits already on
+disk with a local `git rev-list`. Keep it that way: no fetch, and no other
+outbound request, belongs in `ai_code_cognitive_stress/`.
+
 `--calibrate` (`ai_code_cognitive_stress/research/calibrate.py`) is the maintainer-side companion: it
 reads exports the maintainer has already collected on disk and writes a
 calibration report. It only *suggests* a `scoring` config block; it never

@@ -14,5 +14,10 @@
             <default>60</default>
             <min>10</min>
         </entry>
+        <entry name="updateFetchHours" type="Int">
+            <label>How often to run `git fetch` in the aicogstress checkout so the card can warn that a newer version is waiting. 0 disables the check.</label>
+            <default>6</default>
+            <min>0</min>
+        </entry>
     </group>
 </kcfg>

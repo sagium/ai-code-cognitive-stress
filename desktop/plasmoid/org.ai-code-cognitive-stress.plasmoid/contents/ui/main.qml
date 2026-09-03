@@ -84,6 +84,13 @@ PlasmoidItem {
         connectedSources: []
         onNewData: function (source, data) {
             executable.disconnectSource(source) // one-shot per run
+            if (source.indexOf("GIT_TERMINAL_PROMPT=0") === 0) {
+                return  // the update fetch; it prints no card
+            }
+            if (source.indexOf("--print-checkout") !== -1) {
+                root.fetchUpstream(data)
+                return
+            }
             if (source.indexOf("--set-view") !== -1) {
                 // The tab view was persisted; the client already switched the
                 // view, so no re-render needed (and no card-validation error).
@@ -130,6 +137,35 @@ PlasmoidItem {
         repeat: true
         triggeredOnStart: true
         onTriggered: executable.run(Plasmoid.configuration.command)
+    }
+
+    // --- update check ------------------------------------------------------
+    // The CLI counts how far the checkout is behind upstream but never fetches
+    // (it makes no network calls at all); refreshing the remote-tracking ref is
+    // the host's job, so the card's bottom warning line has something to read.
+    // `--print-checkout` names the repo to fetch in, or exits non-zero when
+    // there is nothing to track (a non-checkout install, or the check turned
+    // off in config.json) — then the host does nothing.
+    function fetchUpstream(data) {
+        if (data["exit code"] !== 0)
+            return
+        const root_ = (data["stdout"] || "").trim()
+        if (root_.length === 0)
+            return
+        // Single-quote for the shell the executable engine runs; a lone quote
+        // in the path would otherwise end the string.
+        const quoted = "'" + root_.replace(/'/g, "'\\''") + "'"
+        // No terminal to answer a credential prompt — it would hang forever.
+        executable.run("GIT_TERMINAL_PROMPT=0 git -C " + quoted + " fetch --quiet")
+    }
+
+    Timer {
+        interval: Math.max(1, Plasmoid.configuration.updateFetchHours) * 3600 * 1000
+        running: Plasmoid.configuration.updateFetchHours > 0
+        repeat: true
+        triggeredOnStart: true
+        onTriggered: executable.run(Plasmoid.configuration.command.split(" ")[0]
+                                    + " --print-checkout")
     }
 
     // --- compact (panel / tray): composite number tinted by zone -----------

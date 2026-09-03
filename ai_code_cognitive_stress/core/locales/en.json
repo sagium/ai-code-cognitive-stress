@@ -69,6 +69,8 @@
   "card.period_chart_title": "Composite stress by day",
   "card.year_chart_title": "Composite stress by month",
   "card.footer": "updates live",
+  "card.update_available_one": "1 new commit upstream — run git pull",
+  "card.update_available_other": "{count} new commits upstream — run git pull",
   "card.resize": "Expand or collapse the card",
   "tab.today": "Today",
   "tab.week": "Week",

@@ -6,10 +6,13 @@ card on Windows. It is a thin WebView2 host that runs `aicogstress
 — the same card rendered by the KDE Plasma and macOS Übersicht widgets, from
 the same single renderer (`ai_code_cognitive_stress/output/widget_card.py`).
 
-**Private — no network calls at runtime.** The host only shells out to your
-local `aicogstress` CLI and injects its stdout. The card is self-contained
-(inline CSS + SVG). Network use is limited to the one-time DLL fetch at
-install time (`fetch-webview2.ps1`).
+**Private.** The host only shells out to your local `aicogstress` CLI and
+injects its stdout; the card is self-contained (inline CSS + SVG), and nothing
+about you is ever sent anywhere. Its one runtime network request is the update
+check — a `git fetch` in the aicogstress checkout every `-UpdateFetchHours`
+hours (default 6, `0` disables) so the card can warn that a newer version is
+waiting. The only other network use is the one-time DLL fetch at install time
+(`fetch-webview2.ps1`).
 
 ## Prerequisites
 

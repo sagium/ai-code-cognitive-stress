@@ -23,6 +23,8 @@ _NET_WM docking and gtk-layer-shell are not used here.
 Configuration via environment variables:
   AICOGSTRESS_CMD      full CLI command (default: aicogstress --emit-html-card --source auto)
   AICOGSTRESS_REFRESH  refresh interval in seconds (default: 60)
+  AICOGSTRESS_UPDATE_FETCH  seconds between `git fetch` runs that let the card
+                       notice a newer version (default: 21600 = 6h; 0 disables)
 
 Optional position hint (X11 only — Wayland compositors ignore move()):
   AICOGSTRESS_X / AICOGSTRESS_Y  pixel offsets from top-left of the primary monitor
@@ -66,6 +68,12 @@ except (ImportError, ValueError) as _gi_err:
 CARD_CMD     = os.environ.get("AICOGSTRESS_CMD", "aicogstress --emit-html-card --source auto")
 REFRESH_SECS = max(10, int(os.environ.get("AICOGSTRESS_REFRESH", "60")))
 CARD_WIDTH   = 384  # matches cardWidth in main.qml
+
+# The card warns when the checkout is behind upstream, but counting commits is
+# all the CLI does — refreshing the remote-tracking ref is the host's job (the
+# tool makes no network calls). Slow timer: the answer changes on the scale of
+# days, and a fetch is the only outbound traffic this widget ever makes.
+UPDATE_FETCH_SECS = max(0, int(os.environ.get("AICOGSTRESS_UPDATE_FETCH", "21600")))
 
 # ---------------------------------------------------------------------------
 # Bridge: the card carries its OWN <script> (widget_card.py _TAB_SCRIPT) that
@@ -161,6 +169,9 @@ class CogStressWidget(Gtk.Window):
         self._card_html: str = ""
         self._load_card()
         GLib.timeout_add_seconds(REFRESH_SECS, self._on_refresh)
+        if UPDATE_FETCH_SECS:
+            self._update_fetch()  # async — startup stays non-blocking
+            GLib.timeout_add_seconds(UPDATE_FETCH_SECS, self._on_update_fetch)
 
         # Position the window after realize
         self.connect("realize", self._position_window)
@@ -234,6 +245,44 @@ class CogStressWidget(Gtk.Window):
     def _on_refresh(self) -> bool:
         self._load_card()
         return True  # keep timer alive
+
+    # ------------------------------------------------------------------
+    # Update check: refresh the remote-tracking ref so the card's bottom
+    # warning line can appear. `--print-checkout` prints the repo to fetch in,
+    # or exits non-zero (a non-checkout install, or update_check turned off in
+    # config) — in which case the host does nothing at all.
+
+    def _on_update_fetch(self) -> bool:
+        self._update_fetch()
+        return True  # keep timer alive
+
+    def _update_fetch(self) -> None:
+        binary = CARD_CMD.split()[0]
+        try:
+            proc = Gio.Subprocess.new(
+                [binary, "--print-checkout"],
+                Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE,
+            )
+        except GLib.Error:
+            return  # silent: an update check must never disturb the card
+        proc.communicate_utf8_async(None, None, self._on_checkout_known)
+
+    def _on_checkout_known(self, proc: "Gio.Subprocess", result) -> None:
+        try:
+            _ok, stdout, _stderr = proc.communicate_utf8_finish(result)
+        except GLib.Error:
+            return
+        root = (stdout or "").strip()
+        if proc.get_exit_status() != 0 or not root:
+            return
+        launcher = Gio.SubprocessLauncher.new(Gio.SubprocessFlags.STDOUT_SILENCE
+                                              | Gio.SubprocessFlags.STDERR_SILENCE)
+        # A credential prompt would hang forever with no terminal to answer it.
+        launcher.setenv("GIT_TERMINAL_PROMPT", "0", True)
+        try:
+            launcher.spawnv(["git", "-C", root, "fetch", "--quiet"])
+        except GLib.Error:
+            pass  # no git, no remote, offline — the card just stays quiet
 
     def _run_side_cmd(self, extra_args: list[str], reload: bool = True) -> None:
         """Run a side command (--rate / --set-compact / --set-view) asynchronously.
