@@ -10,9 +10,10 @@ from ai_code_cognitive_stress.pipeline.aggregate import DayAggregate, StreamDayA
 from ai_code_cognitive_stress.output.dayview import (
     TimeframeView, build_dayview, build_period_view, build_year_view,
 )
+from ai_code_cognitive_stress.output.scales import composite_color
 from ai_code_cognitive_stress.pipeline.metrics import DayMetrics, StressProfile
 from ai_code_cognitive_stress.output.widget_card import (
-    CARD_WIDTH, render_card, render_card_tabbed, render_error_card,
+    CARD_WIDTH, _month_chart, render_card, render_card_tabbed, render_error_card,
 )
 
 
@@ -395,3 +396,31 @@ def test_render_card_tabbed_script_has_view_bridge():
     views = [TimeframeView(key="today", tab_label="Today", view=_active_dayview())]
     html = render_card_tabbed(views)
     assert "cogstress:view:" in html
+
+
+def test_build_year_view_shows_legacy_only_months_as_neutral_bars():
+    today = date(2026, 11, 9)
+    days = {
+        date(2026, 6, 2): DayMetrics(day=date(2026, 6, 2), composite=70.0, legacy_input=True),
+        date(2026, 6, 3): DayMetrics(day=date(2026, 6, 3), composite=50.0, legacy_input=True),
+        date(2026, 11, 2): DayMetrics(day=date(2026, 11, 2), composite=40.0),
+        date(2026, 11, 3): DayMetrics(day=date(2026, 11, 3), composite=90.0, legacy_input=True),
+    }
+    prof = _profile(days=days)
+    view, monthly = build_year_view(prof, prof, "Last 12 months", today)
+    june = next(p for p in monthly if (p.year, p.month) == (2026, 6))
+    assert abs(june.composite - 60.0) < 1e-6
+    assert june.color == composite_color("")
+    november = monthly[-1]
+    assert abs(november.composite - 40.0) < 1e-6
+    assert november.color != composite_color("")
+    assert abs(view.composite - 40.0) < 1e-6
+
+
+def test_month_chart_renders_when_only_legacy_months_have_data():
+    prof = _profile(days={
+        date(2026, 6, 2): DayMetrics(day=date(2026, 6, 2), composite=70.0, legacy_input=True),
+    })
+    view, monthly = build_year_view(prof, prof, "Last 12 months", date(2026, 11, 9))
+    assert not view.has_activity
+    assert "<svg" in _month_chart(monthly)

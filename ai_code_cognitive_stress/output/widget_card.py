@@ -547,10 +547,10 @@ def _period_chart(daily: tuple[DailyPoint, ...], dv: DayView) -> str:
     )
 
 
-def _month_chart(monthly: tuple[MonthlyPoint, ...], dv: DayView) -> str:
+def _month_chart(monthly: tuple[MonthlyPoint, ...]) -> str:
     """12 monthly-average composite bars (0–100) — the year view's body chart.
     Labels every bar with its short month name."""
-    if not monthly or not dv.has_activity:
+    if not any(p.composite > 0 for p in monthly):
         return ""
     w, h, m_l, m_r, m_t, m_b = 344, 116, 16, 2, 10, 13
     pw, ph = w - m_l - m_r, h - m_t - m_b
@@ -834,7 +834,7 @@ def render_card_tabbed(
     ) + _resize_toggle()
     def _chart(tv: TimeframeView) -> str:
         if tv.monthly:
-            return _month_chart(tv.monthly, tv.view)
+            return _month_chart(tv.monthly)
         return _period_chart(tv.daily, tv.view)
 
     bodies = "".join(

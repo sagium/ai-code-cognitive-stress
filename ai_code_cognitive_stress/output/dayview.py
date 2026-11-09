@@ -827,18 +827,23 @@ def build_year_view(
     p75, p90 = marker_profile.composite_p75, marker_profile.composite_p90
 
     by_month: dict[tuple[int, int], list[float]] = {m: [] for m in months}
+    legacy_by_month: dict[tuple[int, int], list[float]] = {m: [] for m in months}
     for d, m in data_profile.days.items():
         key = (d.year, d.month)
-        if key in month_set and m.composite > 0 and not m.legacy_input:
-            by_month[key].append(m.composite)
+        if key in month_set and m.composite > 0:
+            (legacy_by_month if m.legacy_input else by_month)[key].append(m.composite)
 
     monthly: list[MonthlyPoint] = []
     progression: list[ScorePoint] = []
     for yy, mm in months:
         vals = by_month[(yy, mm)]
+        legacy_vals = legacy_by_month[(yy, mm)]
         if vals:
             mean = sum(vals) / len(vals)
             color = composite_color(composite_status(mean, p75, p90))
+        elif legacy_vals:
+            mean = sum(legacy_vals) / len(legacy_vals)
+            color = composite_color("")
         else:
             mean, color = 0.0, _ZERO_DAY_COLOR
         monthly.append(MonthlyPoint(year=yy, month=mm, composite=mean, color=color))
