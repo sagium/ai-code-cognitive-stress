@@ -1,7 +1,8 @@
 """Event-fabric primitives + multi-source orchestration.
 
 This module defines the shared Event vocabulary (UserMessageEvent /
-AssistantMessageEvent / ToolUseEvent / ToolResultEvent) and the
+SystemMessageEvent / AssistantMessageEvent / ToolUseEvent /
+ToolResultEvent) and the
 `collect()` orchestration that merges one or more `SessionSource`
 plugins into a single time-sorted event stream.
 
@@ -18,7 +19,7 @@ All ingestion is read-only and local. Nothing leaves the machine.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, time, timezone
 from pathlib import Path
 from typing import ClassVar, Iterator, Sequence, Union, TYPE_CHECKING
@@ -37,8 +38,22 @@ CLAUDE_PROJECTS_DIR: Path = Path.home() / ".claude" / "projects"
 
 @dataclass(frozen=True, slots=True)
 class UserMessageEvent:
-    """A user-typed message landed in a session."""
+    """The operator's own input landed in a session: a typed or queued prompt,
+    a slash or `!` command, an interrupt, or the answer, approval or rejection
+    of a question the agent put to them."""
     KIND: ClassVar[str] = "user_msg"
+    ts: datetime
+    stream_id: str
+    project: str
+    uuid: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class SystemMessageEvent:
+    """A message entered the session from anything other than the operator: a
+    background-task or agent notification, a peer-session message, injected
+    context or skill text, a compaction summary, or a headless driver prompt."""
+    KIND: ClassVar[str] = "system_msg"
     ts: datetime
     stream_id: str
     project: str
@@ -81,6 +96,7 @@ class ToolResultEvent:
 
 Event = Union[
     UserMessageEvent,
+    SystemMessageEvent,
     AssistantMessageEvent,
     ToolUseEvent,
     ToolResultEvent,
@@ -99,6 +115,8 @@ class IngestStats:
     lines_skipped_malformed: int = 0
     lines_skipped_no_timestamp: int = 0
     events_emitted: int = 0
+    streams_skipped_unattended: int = 0
+    unattended_stream_ids: set[str] = field(default_factory=set)
 
 
 # ---------------------------------------------------------------------------

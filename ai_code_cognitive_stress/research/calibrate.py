@@ -1,6 +1,6 @@
 """Population calibration from pooled research exports.
 
-Reads many anonymized exports (``research_export.py``, schema v1/v2/v3/v4) that
+Reads many anonymized exports (``research_export.py``, schema v1 to v5) that
 the maintainer has collected, pools them, and crunches the population to
 recalibrate the index so it covers the real range of work patterns. Produces a
 report plus a suggested ``scoring`` config block; it changes nothing on its own
@@ -20,17 +20,25 @@ against felt load — that remains future work needing a subjective criterion
 between each normalized axis and the composite against felt load. These are
 descriptive only — no regression weight-fit is performed. Fitting and validating
 weights against felt load still needs sufficient labeled data across participants.
+
+**Operator-input exclusion (v5 exports).** v5 days aggregate the operator's own
+input only. Pre-v5 exports and days flagged ``legacy_input`` count tool results
+and notifications as operator messages, which inflates their axes, so they are
+excluded from the pool unless ``include_legacy`` is set.
 """
 
 from __future__ import annotations
 
 import json
+import re
 import statistics
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 _SCHEMA_PREFIX = "ai-code-cognitive-stress.research-export"
+_SCHEMA_VERSION_RE = re.compile(r"\.v(\d+)$")
+_FIRST_CLASSIFIED_SCHEMA = 5
 _WEEKEND = {"Sat", "Sun"}
 
 # Sample-size floor below which a p95 ceiling and an inverse-variance weight are
@@ -125,14 +133,44 @@ def _hour(hhmm: str | None) -> int | None:
         return None
 
 
-def pool_day_records(exports: list[dict]) -> list[DayRecord]:
+def _schema_version(exp: dict) -> int | None:
+    m = _SCHEMA_VERSION_RE.search(str(exp.get("schema", "")))
+    return int(m.group(1)) if m else None
+
+
+def _is_legacy_day(exp: dict, day: dict) -> bool:
+    version = _schema_version(exp)
+    return (
+        version is None
+        or version < _FIRST_CLASSIFIED_SCHEMA
+        or day.get("legacy_input") is True
+    )
+
+
+def count_legacy_day_records(exports: list[dict]) -> int:
+    """Number of day entries ``pool_day_records`` skips by default."""
+    return sum(
+        1
+        for exp in exports
+        for d in (exp.get("profile") or {}).get("days") or []
+        if _is_legacy_day(exp, d)
+    )
+
+
+def pool_day_records(
+    exports: list[dict], *, include_legacy: bool = False,
+) -> list[DayRecord]:
     """Flatten every export's active days into per-day records (v2 debug fields
-    captured when present)."""
+    captured when present). Days aggregated without operator-input
+    classification (pre-v5 exports, or days flagged ``legacy_input``) are
+    skipped unless ``include_legacy``."""
     records: list[DayRecord] = []
     for i, exp in enumerate(exports):
         participant = exp.get("participant") or f"anon-{i}"
         days = (exp.get("profile") or {}).get("days") or []
         for d in days:
+            if not include_legacy and _is_legacy_day(exp, d):
+                continue
             ww = d.get("work_window") or [None, None]
             debug = d.get("debug") or {}
             raw_rating = d.get("subjective_rating")

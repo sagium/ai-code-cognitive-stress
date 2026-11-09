@@ -18,6 +18,8 @@ from pathlib import Path
 from ai_code_cognitive_stress.pipeline.aggregate import (
     DayAggregate,
     StreamDayActivity,
+    _aggregate_to_dict,
+    _archive_path,
     _merge_day,
     get_day_aggregates,
 )
@@ -206,12 +208,13 @@ def test_steady_state_run_does_not_rewrite_archive(tmp_path):
 # ---------------------------------------------------------------------------
 # Unit: the per-stream merge rule (_merge_day)
 
-def _sda(stream_id, project, first, last, u=0, a=0, tu=0, tr=0):
+def _sda(stream_id, project, first, last, u=0, a=0, tu=0, tr=0, classified=True):
     return StreamDayActivity(
         stream_id=stream_id, project=project,
         first_ts=first, last_ts=last,
         user_msg_count=u, assistant_msg_count=a,
         tool_use_count=tu, tool_result_count=tr,
+        input_classified=classified,
     )
 
 
@@ -287,3 +290,109 @@ def test_merge_recomputes_peak_concurrent_from_union():
     merged = _merge_day(DAY, archived, live)
     assert merged.stream_count == 2
     assert merged.peak_concurrent_streams == 2
+
+
+def test_merge_live_supersedes_legacy_archived_even_when_poorer():
+    archived = DayAggregate(day=DAY, streams=(
+        _sda("x", "legacy", _utc(2026, 5, 14, 9), _utc(2026, 5, 14, 12),
+             u=50, a=4, classified=False),
+    ))
+    live = DayAggregate(day=DAY, streams=(
+        _sda("x", "live", _utc(2026, 5, 14, 9), _utc(2026, 5, 14, 12), u=2, a=4),
+    ))
+    (x,) = _merge_day(DAY, archived, live).streams
+    assert x.project == "live" and x.input_classified
+
+
+def test_merge_drops_unattended_archived_stream():
+    archived = DayAggregate(day=DAY, streams=(
+        _sda("keep", "p", _utc(2026, 5, 14, 9), _utc(2026, 5, 14, 10), u=1),
+        _sda("headless", "p", _utc(2026, 5, 14, 9), _utc(2026, 5, 14, 10), u=1),
+    ))
+    live = DayAggregate(day=DAY, streams=(
+        _sda("keep", "p", _utc(2026, 5, 14, 9), _utc(2026, 5, 14, 10), u=1),
+    ))
+    merged = _merge_day(DAY, archived, live, {"headless"})
+    assert {s.stream_id for s in merged.streams} == {"keep"}
+
+
+def test_merge_keeps_legacy_archived_only_stream_flagged():
+    archived = DayAggregate(day=DAY, streams=(
+        _sda("gone", "p", _utc(2026, 5, 14, 9), _utc(2026, 5, 14, 10), u=3,
+             classified=False),
+    ))
+    live = DayAggregate(day=DAY, streams=(
+        _sda("new", "p", _utc(2026, 5, 14, 11), _utc(2026, 5, 14, 12), u=1),
+    ))
+    merged = _merge_day(DAY, archived, live)
+    by_id = {s.stream_id: s for s in merged.streams}
+    assert by_id["gone"].input_classified is False
+    assert by_id["new"].input_classified is True
+    assert merged.legacy_input is True
+
+
+def test_legacy_archive_day_rewritten_with_classified_streams(tmp_path):
+    proj = _project(tmp_path)
+    day = date(2026, 5, 14)
+    _write_session(proj / "live.jsonl", [
+        _session_record("user", "2026-05-14T09:00:00.000Z", session_id="live"),
+        _session_record("assistant", "2026-05-14T09:00:05.000Z", session_id="live"),
+    ])
+    headless = [
+        _session_record("user", "2026-05-14T09:30:00.000Z", session_id="headless",
+                        content=[{"type": "text", "text": "eval"}]),
+        _session_record("assistant", "2026-05-14T09:30:05.000Z", session_id="headless"),
+    ]
+    for r in headless[:1]:
+        r["promptSource"] = "sdk"
+        r["entrypoint"] = "sdk-cli"
+    _write_session(proj / "headless.jsonl", headless)
+
+    archive_dir = tmp_path / "data" / "archive"
+    legacy = DayAggregate(day=day, streams=(
+        _sda("live", "p", _utc(2026, 5, 14, 9), _utc(2026, 5, 14, 9, 1), u=40, a=1),
+        _sda("headless", "p", _utc(2026, 5, 14, 9, 30), _utc(2026, 5, 14, 9, 31),
+             u=1, a=1),
+        _sda("recycled", "p", _utc(2026, 5, 14, 14), _utc(2026, 5, 14, 15), u=5),
+    ))
+    legacy_dict = _aggregate_to_dict(legacy)
+    for st in legacy_dict["streams"]:
+        del st["input_classified"]
+    path = _archive_path(archive_dir, day)
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({"day": day.isoformat(), "aggregate": legacy_dict}),
+                    encoding="utf-8")
+
+    aggs, stats = _run(tmp_path, archive_dir=archive_dir)
+    by_id = {s.stream_id: s for s in aggs[day].streams}
+    assert set(by_id) == {"live", "recycled"}
+    assert by_id["live"].user_msg_count == 1
+    assert by_id["live"].input_classified is True
+    assert by_id["recycled"].input_classified is False
+    assert stats.archive_writes == 1
+
+    on_disk = json.loads(path.read_text(encoding="utf-8"))["aggregate"]
+    flags = {s["stream_id"]: s["input_classified"] for s in on_disk["streams"]}
+    assert flags == {"live": True, "recycled": False}
+
+
+def test_headless_only_archive_day_is_emptied(tmp_path):
+    proj = _project(tmp_path)
+    day = date(2026, 5, 14)
+    rec = _session_record("user", "2026-05-14T09:30:00.000Z", session_id="headless")
+    rec["promptSource"] = "sdk"
+    rec["entrypoint"] = "sdk-cli"
+    _write_session(proj / "headless.jsonl", [rec])
+    archive_dir = tmp_path / "data" / "archive"
+    legacy = DayAggregate(day=day, streams=(
+        _sda("headless", "p", _utc(2026, 5, 14, 9, 30), _utc(2026, 5, 14, 9, 31), u=1),
+    ))
+    path = _archive_path(archive_dir, day)
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        json.dumps({"day": day.isoformat(), "aggregate": _aggregate_to_dict(legacy)}),
+        encoding="utf-8",
+    )
+    aggs, _ = _run(tmp_path, archive_dir=archive_dir)
+    assert aggs[day].streams == ()
+    assert json.loads(path.read_text(encoding="utf-8"))["aggregate"]["streams"] == []

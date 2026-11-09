@@ -1,8 +1,8 @@
 """Source plugin protocol.
 
 A SessionSource ingests one agent-coding tool's session activity into the
-shared `Event` vocabulary (UserMessageEvent / AssistantMessageEvent /
-ToolUseEvent / ToolResultEvent).
+shared `Event` vocabulary (UserMessageEvent / SystemMessageEvent /
+AssistantMessageEvent / ToolUseEvent / ToolResultEvent).
 
 The protocol intentionally takes a mutable IngestStats so the orchestrator can
 accumulate file/line/skip counters across sources without per-source bookkeeping.
@@ -19,6 +19,7 @@ from ..pipeline.ingest import (
     AssistantMessageEvent,
     Event,
     IngestStats,
+    SystemMessageEvent,
     ToolResultEvent,
     ToolUseEvent,
     UserMessageEvent,
@@ -29,6 +30,7 @@ __all__ = [
     "Event",
     "IngestStats",
     "SessionSource",
+    "SystemMessageEvent",
     "ToolResultEvent",
     "ToolUseEvent",
     "UserMessageEvent",

@@ -598,3 +598,41 @@ def test_open_in_browser_prints_hint_when_no_opener(tmp_path, monkeypatch, capsy
     f.write_text("x", encoding="utf-8")
     _open_in_browser(f)
     assert "could not auto-open" in capsys.readouterr().err
+
+
+def _calibrate_export(path: Path, schema: str, composite: float) -> None:
+    path.write_text(json.dumps({
+        "schema": schema, "participant": path.stem,
+        "profile": {"days": [{
+            "date": "2025-07-14", "weekday": "Mon", "codl_avg": 1.0,
+            "interruption_rate": 1.0, "closure_deficit": 0.1,
+            "composite": composite, "off_hours_minutes": 0,
+            "work_window": ["09:00", "17:00"],
+        }]},
+    }), encoding="utf-8")
+
+
+def test_calibrate_reports_excluded_legacy_day_records(tmp_path, capsys):
+    prefix = "ai-code-cognitive-stress.research-export"
+    _calibrate_export(tmp_path / "old.json", f"{prefix}.v4", 40.0)
+    _calibrate_export(tmp_path / "new.json", f"{prefix}.v5", 50.0)
+    rc = main([
+        "--calibrate", str(tmp_path / "old.json"), str(tmp_path / "new.json"),
+        "--calibrate-out", str(tmp_path / "report.json"),
+    ])
+    err = capsys.readouterr().err
+    assert rc == 0
+    assert (
+        "calibrate: excluded 1 day-record(s) aggregated without "
+        "operator-input classification (pre-v5 or legacy_input)"
+    ) in err
+
+
+def test_calibrate_all_legacy_exits_with_no_day_records(tmp_path, capsys):
+    _calibrate_export(
+        tmp_path / "old.json", "ai-code-cognitive-stress.research-export.v4", 40.0,
+    )
+    rc = main(["--calibrate", str(tmp_path / "old.json"),
+               "--calibrate-out", str(tmp_path / "report.json")])
+    assert rc == 1
+    assert "no day records" in capsys.readouterr().err

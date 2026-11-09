@@ -38,6 +38,7 @@ For ``response_item`` lines, the ``payload`` is a ResponseItem (models.rs)
 with its own ``type`` discriminator:
 
     payload.type = "message"   + payload.role = "user"       → UserMessageEvent
+                                                               | SystemMessageEvent
     payload.type = "message"   + payload.role = "assistant"  → AssistantMessageEvent
     payload.type = "function_call" | "custom_tool_call"
                  | "tool_search_call"                        → ToolUseEvent
@@ -45,6 +46,23 @@ with its own ``type`` discriminator:
     payload.type = "function_call_output"
                  | "custom_tool_call_output"
                  | "tool_search_output"                      → ToolResultEvent
+
+`UserMessageEvent` means the operator's own input. A user-role message that is
+injected context (AGENTS.md instructions, environment context, skill text, a
+subagent notification) is a `SystemMessageEvent`, as is every user-role message
+in a subagent thread's rollout file (it is the parent agent's task prompt, not
+the operator). Operator interrupts (``<turn_aborted>``, or a bare
+``turn_aborted`` event_msg with ``reason == "interrupted"`` when no such
+message accompanies it) and actions
+(``<user_action>``, ``<user_shell_command>``) are operator input. A root
+session file with no operator input at all is not an attentional stream and is
+dropped, together with its subagent files.
+
+Known gap: a headless ``codex exec`` run is not separated from an interactive
+one, so its prompt counts as operator input. ``session_meta`` carries
+``payload.originator`` (``codex-tui`` on every rollout observed), and the binary
+lists a ``codex_exec`` originator, but no exec rollout has been observed to
+confirm it is written, so it is not used to classify.
 
 Non-conversation ResponseItems carry no supervision signal and are dropped:
 ``reasoning`` (the model's private thinking) and ``message`` with
@@ -71,7 +89,7 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterator
 
@@ -79,11 +97,24 @@ from .base import (
     AssistantMessageEvent,
     Event,
     IngestStats,
+    SystemMessageEvent,
     ToolResultEvent,
     ToolUseEvent,
     UserMessageEvent,
 )
 from .claude_code import _parse_iso_utc
+
+# An interrupt is written as a `<turn_aborted>` user message and, milliseconds
+# later, as a `turn_aborted` event_msg; only one of them is the operator's input.
+_ABORT_PAIR_WINDOW = timedelta(seconds=1)
+
+# User-role message text that is injected context rather than operator input.
+_INJECTED_PREFIXES = (
+    "# AGENTS.md instructions",
+    "<environment_context>",
+    "<skill>",
+    "<subagent_notification>",
+)
 
 
 class CodexSessionSource:
@@ -111,6 +142,7 @@ class CodexSessionSource:
             files = sorted(self.sessions_dir.rglob("*.jsonl"))
         except OSError:
             return
+        unattended_roots: set[str] = set()
         for path in files:
             try:
                 mtime = path.stat().st_mtime
@@ -118,22 +150,40 @@ class CodexSessionSource:
                 continue
             if mtime < since_mtime:
                 continue
+            stream_id, is_subagent = _read_session_meta(path)
+            if is_subagent and stream_id in unattended_roots:
+                continue
             stats.files_scanned += 1
             key = f"{self.name}:{path}"
+            events = list(self._parse_session(path, stats, stream_id, is_subagent))
+            if not is_subagent and not any(
+                isinstance(ev, UserMessageEvent) for ev in events
+            ):
+                unattended_roots.add(stream_id)
+                stats.streams_skipped_unattended += 1
+                stats.unattended_stream_ids.add(stream_id)
+                continue
             kept_any = False
-            for event in self._parse_session(path, stats):
+            for event in events:
+                stats.events_emitted += 1
                 if since <= event.ts <= until:
                     kept_any = True
                     yield event, key, mtime
             if kept_any:
                 stats.files_kept += 1
 
-    def _parse_session(self, path: Path, stats: IngestStats) -> Iterator[Event]:
-        stream_id = _resolve_stream_id(path)
+    def _parse_session(
+        self,
+        path: Path,
+        stats: IngestStats,
+        stream_id: str,
+        is_subagent: bool = False,
+    ) -> Iterator[Event]:
         try:
             fh = path.open("r", encoding="utf-8")
         except OSError:
             return
+        aborted_message_ts: datetime | None = None
         with fh:
             for raw_line in fh:
                 stats.lines_total += 1
@@ -160,13 +210,52 @@ class CodexSessionSource:
                 except (ValueError, OSError, OverflowError):
                     stats.lines_skipped_no_timestamp += 1
                     continue
-                for ev in _events_from_record(record, ts, stream_id, "codex"):
-                    stats.events_emitted += 1
-                    yield ev
+                if _is_aborted_message(record):
+                    aborted_message_ts = ts
+                elif _is_interrupt_event(record):
+                    paired = (
+                        aborted_message_ts is not None
+                        and abs(ts - aborted_message_ts) <= _ABORT_PAIR_WINDOW
+                    )
+                    if not is_subagent and not paired:
+                        yield UserMessageEvent(
+                            ts=ts, stream_id=stream_id, project="codex",
+                        )
+                    continue
+                yield from _events_from_record(
+                    record, ts, stream_id, "codex", is_subagent,
+                )
+
+
+def _is_aborted_message(record: dict) -> bool:
+    payload = record.get("payload")
+    return (
+        record.get("type") == "response_item"
+        and isinstance(payload, dict)
+        and payload.get("type") == "message"
+        and payload.get("role") == "user"
+        and _content_text(payload.get("content")).lstrip().startswith("<turn_aborted>")
+    )
+
+
+def _is_interrupt_event(record: dict) -> bool:
+    payload = record.get("payload")
+    return (
+        record.get("type") == "event_msg"
+        and isinstance(payload, dict)
+        and payload.get("type") == "turn_aborted"
+        and payload.get("reason") == "interrupted"
+    )
 
 
 def _resolve_stream_id(path: Path) -> str:
     """Stream identity for a rollout file: the ROOT session it belongs to.
+    See `_read_session_meta`."""
+    return _read_session_meta(path)[0]
+
+
+def _read_session_meta(path: Path) -> tuple[str, bool]:
+    """``(stream_id, is_subagent)`` for a rollout file.
 
     codex-rs writes a ``session_meta`` envelope as the first record of every
     rollout file. Its ``payload.session_id`` is the root session for the whole
@@ -175,6 +264,10 @@ def _resolve_stream_id(path: Path) -> str:
     Keying every thread on ``session_id`` folds an orchestrated fan-out (one
     operator command, N subagent rollout files) into the single logical session
     the operator drove, rather than counting it as N concurrent sessions.
+
+    ``is_subagent`` is true for a subagent thread, marked by
+    ``payload.thread_source == "subagent"`` or a ``payload.source`` dict keyed
+    ``subagent``.
 
     Falls back to ``payload.id`` when there is no ``session_id`` (older builds
     that predate subagents), and to the file stem when the first record is not a
@@ -185,7 +278,7 @@ def _resolve_stream_id(path: Path) -> str:
     try:
         fh = path.open("r", encoding="utf-8")
     except OSError:
-        return path.stem
+        return path.stem, False
     with fh:
         for raw_line in fh:
             line = raw_line.strip()
@@ -196,16 +289,21 @@ def _resolve_stream_id(path: Path) -> str:
             try:
                 record = json.loads(line)
             except json.JSONDecodeError:
-                return path.stem
+                return path.stem, False
             if record.get("type") != "session_meta":
-                return path.stem
+                return path.stem, False
             payload = record.get("payload")
-            if isinstance(payload, dict):
-                sid = payload.get("session_id") or payload.get("id")
-                if isinstance(sid, str) and sid:
-                    return sid
-            return path.stem
-    return path.stem
+            if not isinstance(payload, dict):
+                return path.stem, False
+            source = payload.get("source")
+            is_subagent = payload.get("thread_source") == "subagent" or (
+                isinstance(source, dict) and "subagent" in source
+            )
+            sid = payload.get("session_id") or payload.get("id")
+            if isinstance(sid, str) and sid:
+                return sid, is_subagent
+            return path.stem, is_subagent
+    return path.stem, False
 
 
 def _events_from_record(
@@ -213,6 +311,7 @@ def _events_from_record(
     ts: datetime,
     stream_id: str,
     project: str,
+    is_subagent: bool = False,
 ) -> Iterator[Event]:
     record_type = record.get("type")
 
@@ -220,7 +319,9 @@ def _events_from_record(
     if record_type == "response_item":
         payload = record.get("payload")
         if isinstance(payload, dict):
-            yield from _events_from_response_item(payload, ts, stream_id, project)
+            yield from _events_from_response_item(
+                payload, ts, stream_id, project, is_subagent,
+            )
         return
 
     # Other RolloutLine types carry no conversation signal.
@@ -240,11 +341,12 @@ def _events_from_record(
         )
         return
     if role == "user":
-        yield UserMessageEvent(ts=ts, stream_id=stream_id, project=project)
+        has_result = False
         for block in _iter_content_blocks(record.get("content")):
             if isinstance(block, dict) and block.get("type") in (
                 "tool_result", "function_call_output",
             ):
+                has_result = True
                 yield ToolResultEvent(
                     ts=ts, stream_id=stream_id, project=project,
                     tool_use_id=(
@@ -254,6 +356,10 @@ def _events_from_record(
                     ),
                     is_error=bool(block.get("is_error")),
                 )
+        if not has_result:
+            yield _user_role_event(
+                record.get("content"), ts, stream_id, project, is_subagent,
+            )
         return
     if role == "assistant":
         yield AssistantMessageEvent(ts=ts, stream_id=stream_id, project=project)
@@ -324,6 +430,7 @@ def _events_from_response_item(
     ts: datetime,
     stream_id: str,
     project: str,
+    is_subagent: bool = False,
 ) -> Iterator[Event]:
     """Map a ResponseItem payload to zero or more Events."""
     ptype = payload.get("type")
@@ -331,7 +438,9 @@ def _events_from_response_item(
     if ptype == "message":
         role = payload.get("role")
         if role == "user":
-            yield UserMessageEvent(ts=ts, stream_id=stream_id, project=project)
+            yield _user_role_event(
+                payload.get("content"), ts, stream_id, project, is_subagent,
+            )
         elif role == "assistant":
             yield AssistantMessageEvent(ts=ts, stream_id=stream_id, project=project)
         return
@@ -400,6 +509,31 @@ def _events_from_response_item(
             tool_use_id=call_id,
             is_error=is_error,
         )
+
+
+def _user_role_event(
+    content,
+    ts: datetime,
+    stream_id: str,
+    project: str,
+    is_subagent: bool,
+) -> Event:
+    """A user-role message is operator input unless it is injected context or
+    sits in a subagent thread (where it is the parent agent's task prompt)."""
+    if is_subagent or _content_text(content).lstrip().startswith(_INJECTED_PREFIXES):
+        return SystemMessageEvent(ts=ts, stream_id=stream_id, project=project)
+    return UserMessageEvent(ts=ts, stream_id=stream_id, project=project)
+
+
+def _content_text(content) -> str:
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return ""
+    return "".join(
+        b["text"] for b in content
+        if isinstance(b, dict) and isinstance(b.get("text"), str)
+    )
 
 
 def _iter_content_blocks(content):

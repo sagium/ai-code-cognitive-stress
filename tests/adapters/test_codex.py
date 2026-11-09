@@ -6,16 +6,38 @@ import json
 import os
 from datetime import datetime
 
+import pytest
+
 from ai_code_cognitive_stress.adapters import CodexSessionSource
 from ai_code_cognitive_stress.pipeline.ingest import (
     AssistantMessageEvent,
     IngestStats,
+    SystemMessageEvent,
     ToolResultEvent,
     ToolUseEvent,
     UserMessageEvent,
 )
 
 from .conftest import UTC, utc
+
+
+_PROMPT_TS = "2026-05-15T09:00:00Z"
+_PROMPT = json.dumps({
+    "timestamp": _PROMPT_TS, "type": "response_item",
+    "payload": {"type": "message", "role": "user",
+                "content": [{"type": "input_text", "text": "go"}]},
+})
+_LEGACY_PROMPT = json.dumps(
+    {"role": "user", "content": "go", "timestamp": _PROMPT_TS},
+)
+
+
+def _items_after_prompt(sessions):
+    """Collected items minus the operator prompt the fixtures open with, which
+    keeps the file from being dropped as unattended."""
+    items = list(CodexSessionSource(sessions_dir=sessions).collect(
+        utc(2026, 5, 1), utc(2026, 5, 31), IngestStats()))
+    return [it for it in items if it[0].ts != utc(2026, 5, 15, 9)]
 
 
 # ---------------------------------------------------------------------------
@@ -51,14 +73,13 @@ def test_handles_string_content(tmp_path):
     sessions = tmp_path / "codex"
     sessions.mkdir()
     (sessions / "s.jsonl").write_text(
-        json.dumps({
+        _LEGACY_PROMPT + "\n" + json.dumps({
             "role": "assistant", "content": "just a string reply",
             "timestamp": "2026-05-15T10:00:00Z",
         }),
         encoding="utf-8",
     )
-    items = list(CodexSessionSource(sessions_dir=sessions).collect(
-        utc(2026, 5, 1), utc(2026, 5, 31), IngestStats()))
+    items = _items_after_prompt(sessions)
     assert len(items) == 1
     assert isinstance(items[0][0], AssistantMessageEvent)
 
@@ -105,7 +126,7 @@ def test_user_tool_result_block(tmp_path):
     sessions = tmp_path / "codex"
     sessions.mkdir()
     (sessions / "s.jsonl").write_text(
-        json.dumps({
+        _LEGACY_PROMPT + "\n" + json.dumps({
             "role": "user",
             "content": [{"type": "tool_result", "tool_use_id": "c1",
                          "is_error": True}],
@@ -113,16 +134,15 @@ def test_user_tool_result_block(tmp_path):
         }),
         encoding="utf-8",
     )
-    items = list(CodexSessionSource(sessions_dir=sessions).collect(
-        utc(2026, 5, 1), utc(2026, 5, 31), IngestStats()))
-    assert [type(ev).__name__ for ev, _, _ in items] == ["UserMessageEvent", "ToolResultEvent"]
+    items = _items_after_prompt(sessions)
+    assert [type(ev).__name__ for ev, _, _ in items] == ["ToolResultEvent"]
 
 
 def test_assistant_skips_non_dict_blocks(tmp_path):
     sessions = tmp_path / "codex"
     sessions.mkdir()
     (sessions / "s.jsonl").write_text(
-        json.dumps({
+        _LEGACY_PROMPT + "\n" + json.dumps({
             "role": "assistant",
             "content": ["a plain string block",
                         {"type": "tool_call", "name": "shell", "id": "c1"}],
@@ -130,8 +150,7 @@ def test_assistant_skips_non_dict_blocks(tmp_path):
         }),
         encoding="utf-8",
     )
-    items = list(CodexSessionSource(sessions_dir=sessions).collect(
-        utc(2026, 5, 1), utc(2026, 5, 31), IngestStats()))
+    items = _items_after_prompt(sessions)
     assert [type(ev).__name__ for ev, _, _ in items] == ["AssistantMessageEvent", "ToolUseEvent"]
 
 
@@ -199,7 +218,7 @@ def _rollout_line(ts: str, payload_type: str, **payload_fields) -> str:
 
 
 def _session_meta_line(
-    ts: str, *, session_id=None, thread_id=None, thread_source=None,
+    ts: str, *, session_id=None, thread_id=None, thread_source=None, source=None,
 ) -> str:
     payload = {"cwd": "/home/user", "cli_version": "0.143.0", "timestamp": ts}
     if thread_id is not None:
@@ -208,6 +227,8 @@ def _session_meta_line(
         payload["session_id"] = session_id
     if thread_source is not None:
         payload["thread_source"] = thread_source
+    if source is not None:
+        payload["source"] = source
     return json.dumps({"timestamp": ts, "type": "session_meta", "payload": payload})
 
 
@@ -263,7 +284,7 @@ def test_new_format_function_call_output_error(tmp_path):
     sessions = tmp_path / "codex"
     sessions.mkdir()
     (sessions / "rollout-abc.jsonl").write_text(
-        "\n".join([
+        _PROMPT + "\n" + "\n".join([
             _rollout_line("2026-05-15T10:00:01Z", "function_call",
                           name="shell", call_id="call-1", arguments="{}"),
             _rollout_line("2026-05-15T10:00:02Z", "function_call_output",
@@ -272,8 +293,7 @@ def test_new_format_function_call_output_error(tmp_path):
         ]),
         encoding="utf-8",
     )
-    items = list(CodexSessionSource(sessions_dir=sessions).collect(
-        utc(2026, 5, 1), utc(2026, 5, 31), IngestStats()))
+    items = _items_after_prompt(sessions)
     result = next(ev for ev, _, _ in items if isinstance(ev, ToolResultEvent))
     assert result.is_error is True
 
@@ -282,13 +302,12 @@ def test_new_format_local_shell_call_success(tmp_path):
     sessions = tmp_path / "codex"
     sessions.mkdir()
     (sessions / "rollout-abc.jsonl").write_text(
-        _rollout_line("2026-05-15T10:00:01Z", "local_shell_call",
+        _PROMPT + "\n" + _rollout_line("2026-05-15T10:00:01Z", "local_shell_call",
                       call_id="sh-1", status="completed",
                       action={"type": "exec", "command": ["ls"]}),
         encoding="utf-8",
     )
-    items = list(CodexSessionSource(sessions_dir=sessions).collect(
-        utc(2026, 5, 1), utc(2026, 5, 31), IngestStats()))
+    items = _items_after_prompt(sessions)
     kinds = [type(ev).__name__ for ev, _, _ in items]
     assert kinds == ["ToolUseEvent", "ToolResultEvent"]
     result = next(ev for ev, _, _ in items if isinstance(ev, ToolResultEvent))
@@ -299,13 +318,12 @@ def test_new_format_local_shell_call_error(tmp_path):
     sessions = tmp_path / "codex"
     sessions.mkdir()
     (sessions / "rollout-abc.jsonl").write_text(
-        _rollout_line("2026-05-15T10:00:01Z", "local_shell_call",
+        _PROMPT + "\n" + _rollout_line("2026-05-15T10:00:01Z", "local_shell_call",
                       call_id="sh-1", status="incomplete",
                       action={"type": "exec", "command": ["rm", "-rf", "/"]}),
         encoding="utf-8",
     )
-    items = list(CodexSessionSource(sessions_dir=sessions).collect(
-        utc(2026, 5, 1), utc(2026, 5, 31), IngestStats()))
+    items = _items_after_prompt(sessions)
     result = next(ev for ev, _, _ in items if isinstance(ev, ToolResultEvent))
     assert result.is_error is True
 
@@ -354,7 +372,7 @@ def test_new_format_custom_tool_call(tmp_path):
     sessions = tmp_path / "codex"
     sessions.mkdir()
     (sessions / "rollout-abc.jsonl").write_text(
-        "\n".join([
+        _PROMPT + "\n" + "\n".join([
             _rollout_line("2026-05-15T10:00:01Z", "custom_tool_call",
                           name="my_tool", call_id="ct-1", input="{}"),
             _rollout_line("2026-05-15T10:00:02Z", "custom_tool_call_output",
@@ -362,8 +380,7 @@ def test_new_format_custom_tool_call(tmp_path):
         ]),
         encoding="utf-8",
     )
-    items = list(CodexSessionSource(sessions_dir=sessions).collect(
-        utc(2026, 5, 1), utc(2026, 5, 31), IngestStats()))
+    items = _items_after_prompt(sessions)
     kinds = [type(ev).__name__ for ev, _, _ in items]
     assert kinds == ["ToolUseEvent", "ToolResultEvent"]
     assert next(ev for ev, _, _ in items if isinstance(ev, ToolUseEvent)).tool_name == "my_tool"
@@ -380,7 +397,7 @@ def test_new_format_custom_tool_call_output_list_exit_code_error(tmp_path):
                               "original_token_count": 51, "output": "bash: nope: not found"})},
     ]
     (sessions / "rollout-abc.jsonl").write_text(
-        "\n".join([
+        _PROMPT + "\n" + "\n".join([
             _rollout_line("2026-05-15T10:00:01Z", "custom_tool_call",
                           name="exec", call_id="ct-1", input="{}"),
             _rollout_line("2026-05-15T10:00:02Z", "custom_tool_call_output",
@@ -388,8 +405,7 @@ def test_new_format_custom_tool_call_output_list_exit_code_error(tmp_path):
         ]),
         encoding="utf-8",
     )
-    items = list(CodexSessionSource(sessions_dir=sessions).collect(
-        utc(2026, 5, 1), utc(2026, 5, 31), IngestStats()))
+    items = _items_after_prompt(sessions)
     result = next(ev for ev, _, _ in items if isinstance(ev, ToolResultEvent))
     assert result.is_error is True
 
@@ -404,7 +420,7 @@ def test_new_format_custom_tool_call_output_list_exit_code_zero(tmp_path):
                               "original_token_count": 12, "output": "file1 file2"})},
     ]
     (sessions / "rollout-abc.jsonl").write_text(
-        "\n".join([
+        _PROMPT + "\n" + "\n".join([
             _rollout_line("2026-05-15T10:00:01Z", "custom_tool_call",
                           name="exec", call_id="ct-1", input="{}"),
             _rollout_line("2026-05-15T10:00:02Z", "custom_tool_call_output",
@@ -412,8 +428,7 @@ def test_new_format_custom_tool_call_output_list_exit_code_zero(tmp_path):
         ]),
         encoding="utf-8",
     )
-    items = list(CodexSessionSource(sessions_dir=sessions).collect(
-        utc(2026, 5, 1), utc(2026, 5, 31), IngestStats()))
+    items = _items_after_prompt(sessions)
     result = next(ev for ev, _, _ in items if isinstance(ev, ToolResultEvent))
     assert result.is_error is False
 
@@ -526,8 +541,7 @@ def test_legacy_flat_format_keeps_stem_stream_id(tmp_path):
 # ---------------------------------------------------------------------------
 
 def _one_result(sessions):
-    items = list(CodexSessionSource(sessions_dir=sessions).collect(
-        utc(2026, 5, 1), utc(2026, 5, 31), IngestStats()))
+    items = _items_after_prompt(sessions)
     return next(ev for ev, _, _ in items if isinstance(ev, ToolResultEvent))
 
 
@@ -545,7 +559,7 @@ def test_exec_command_output_exit_code_zero_from_text(tmp_path):
     sessions = tmp_path / "codex"
     sessions.mkdir()
     (sessions / "r.jsonl").write_text(
-        _rollout_line("2026-05-15T10:00:02Z", "function_call_output",
+        _PROMPT + "\n" + _rollout_line("2026-05-15T10:00:02Z", "function_call_output",
                       call_id="c1", output=_EXEC_OK),
         encoding="utf-8",
     )
@@ -558,7 +572,7 @@ def test_exec_command_output_nonzero_exit_from_text_is_error(tmp_path):
     sessions = tmp_path / "codex"
     sessions.mkdir()
     (sessions / "r.jsonl").write_text(
-        _rollout_line("2026-05-15T10:00:02Z", "function_call_output",
+        _PROMPT + "\n" + _rollout_line("2026-05-15T10:00:02Z", "function_call_output",
                       call_id="c1", output=_EXEC_FAIL),
         encoding="utf-8",
     )
@@ -570,13 +584,13 @@ def test_apply_patch_output_exit_code_from_text(tmp_path):
     sessions = tmp_path / "codex"
     sessions.mkdir()
     (sessions / "ok.jsonl").write_text(
-        _rollout_line("2026-05-15T10:00:02Z", "custom_tool_call_output",
+        _PROMPT + "\n" + _rollout_line("2026-05-15T10:00:02Z", "custom_tool_call_output",
                       call_id="c1", output=_PATCH_OK),
         encoding="utf-8",
     )
     assert _one_result(sessions).is_error is False
     (sessions / "bad.jsonl").write_text(
-        _rollout_line("2026-05-15T11:00:02Z", "custom_tool_call_output",
+        _PROMPT + "\n" + _rollout_line("2026-05-15T11:00:02Z", "custom_tool_call_output",
                       call_id="c2", output=_PATCH_FAIL),
         encoding="utf-8",
     )
@@ -595,7 +609,7 @@ def test_exit_code_line_anchored_ignores_command_output(tmp_path):
     tricky = ("Chunk ID: x\nProcess exited with code 0\nOutput:\n"
               "printed by the program: Exit code: 5\n")
     (sessions / "r.jsonl").write_text(
-        _rollout_line("2026-05-15T10:00:02Z", "function_call_output",
+        _PROMPT + "\n" + _rollout_line("2026-05-15T10:00:02Z", "function_call_output",
                       call_id="c1", output=tricky),
         encoding="utf-8",
     )
@@ -608,7 +622,7 @@ def test_web_search_call_emits_use_and_result(tmp_path):
     sessions = tmp_path / "codex"
     sessions.mkdir()
     (sessions / "r.jsonl").write_text(
-        "\n".join([
+        _PROMPT + "\n" + "\n".join([
             _rollout_line("2026-05-15T10:00:01Z", "web_search_call",
                           id="ws_1", status="completed",
                           action={"type": "open_page", "url": "https://x"}),
@@ -618,8 +632,7 @@ def test_web_search_call_emits_use_and_result(tmp_path):
         ]),
         encoding="utf-8",
     )
-    items = list(CodexSessionSource(sessions_dir=sessions).collect(
-        utc(2026, 5, 1), utc(2026, 5, 31), IngestStats()))
+    items = _items_after_prompt(sessions)
     kinds = [type(ev).__name__ for ev, _, _ in items]
     assert kinds == ["ToolUseEvent", "ToolResultEvent",
                      "ToolUseEvent", "ToolResultEvent"]
@@ -635,7 +648,7 @@ def test_tool_search_call_and_output(tmp_path):
     sessions = tmp_path / "codex"
     sessions.mkdir()
     (sessions / "r.jsonl").write_text(
-        "\n".join([
+        _PROMPT + "\n" + "\n".join([
             _rollout_line("2026-05-15T10:00:01Z", "tool_search_call",
                           call_id="call_1", status="completed",
                           arguments={"query": "spawn subagent", "limit": 8}),
@@ -644,8 +657,7 @@ def test_tool_search_call_and_output(tmp_path):
         ]),
         encoding="utf-8",
     )
-    items = list(CodexSessionSource(sessions_dir=sessions).collect(
-        utc(2026, 5, 1), utc(2026, 5, 31), IngestStats()))
+    items = _items_after_prompt(sessions)
     kinds = [type(ev).__name__ for ev, _, _ in items]
     assert kinds == ["ToolUseEvent", "ToolResultEvent"]
     use = next(ev for ev, _, _ in items if isinstance(ev, ToolUseEvent))
@@ -688,7 +700,7 @@ def test_new_format_custom_tool_call_output_list_no_exit_code(tmp_path):
         {"type": "input_text", "text": "just some plain output, not JSON"},
     ]
     (sessions / "rollout-abc.jsonl").write_text(
-        "\n".join([
+        _PROMPT + "\n" + "\n".join([
             _rollout_line("2026-05-15T10:00:01Z", "custom_tool_call",
                           name="exec", call_id="ct-1", input="{}"),
             _rollout_line("2026-05-15T10:00:02Z", "custom_tool_call_output",
@@ -696,7 +708,231 @@ def test_new_format_custom_tool_call_output_list_no_exit_code(tmp_path):
         ]),
         encoding="utf-8",
     )
-    items = list(CodexSessionSource(sessions_dir=sessions).collect(
-        utc(2026, 5, 1), utc(2026, 5, 31), IngestStats()))
+    items = _items_after_prompt(sessions)
     result = next(ev for ev, _, _ in items if isinstance(ev, ToolResultEvent))
     assert result.is_error is False
+
+
+# ---------------------------------------------------------------------------
+# Operator-input classification
+# ---------------------------------------------------------------------------
+
+def _user_line(ts, text):
+    return _rollout_line(ts, "message", role="user",
+                         content=[{"type": "input_text", "text": text}])
+
+
+def _collect(sessions, stats=None):
+    return list(CodexSessionSource(sessions_dir=sessions).collect(
+        utc(2026, 5, 1), utc(2026, 5, 31), stats or IngestStats()))
+
+
+def _kinds_at_ten(items):
+    return [type(ev) for ev, _, _ in items if ev.ts.hour == 10]
+
+
+@pytest.mark.parametrize("text", [
+    "# AGENTS.md instructions for /home/x\n\n<INSTRUCTIONS>...",
+    "<environment_context>\n  <cwd>/x</cwd>\n</environment_context>",
+    "<skill>\n<name>foo</name>\n</skill>",
+    "<subagent_notification>{}</subagent_notification>",
+    "  \n<environment_context>leading whitespace",
+])
+def test_injected_context_is_system(tmp_path, text):
+    sessions = tmp_path / "codex"
+    sessions.mkdir()
+    _write(sessions / "r.jsonl",
+           _user_line("2026-05-15T09:00:00Z", "real prompt"),
+           _user_line("2026-05-15T10:00:00Z", text))
+    assert _kinds_at_ten(_collect(sessions)) == [SystemMessageEvent]
+
+
+@pytest.mark.parametrize("text", [
+    "fix the bug",
+    "<turn_aborted>\nThe user interrupted the previous turn.\n</turn_aborted>",
+    "<user_action>\n<context>User initiated a review.</context>\n</user_action>",
+    "<user_shell_command>\n<command>ls</command>\n</user_shell_command>",
+])
+def test_operator_text_is_user_message(tmp_path, text):
+    sessions = tmp_path / "codex"
+    sessions.mkdir()
+    _write(sessions / "r.jsonl", _user_line("2026-05-15T10:00:00Z", text))
+    assert _kinds_at_ten(_collect(sessions)) == [UserMessageEvent]
+
+
+def test_string_content_user_message_is_classified(tmp_path):
+    sessions = tmp_path / "codex"
+    sessions.mkdir()
+    _write(
+        sessions / "r.jsonl",
+        _user_line("2026-05-15T09:00:00Z", "go"),
+        _rollout_line("2026-05-15T10:00:00Z", "message", role="user",
+                      content="<environment_context>x"),
+    )
+    assert _kinds_at_ten(_collect(sessions)) == [SystemMessageEvent]
+
+
+def test_subagent_user_message_is_system_and_root_stays_attended(tmp_path):
+    sessions = tmp_path / "codex"
+    sessions.mkdir()
+    root = "root-1"
+    _write(
+        sessions / "rollout-2026-05-15T09-00-00-root.jsonl",
+        _session_meta_line("2026-05-15T09:00:00Z", session_id=root,
+                           thread_id=root, thread_source="user"),
+        _user_line("2026-05-15T09:00:01Z", "review the MR"),
+    )
+    _write(
+        sessions / "rollout-2026-05-15T10-00-00-sub.jsonl",
+        _session_meta_line("2026-05-15T10:00:00Z", session_id=root,
+                           thread_id="sub-1", thread_source="subagent"),
+        _user_line("2026-05-15T10:00:00Z", "You are reviewer A. Check security."),
+        _rollout_line("2026-05-15T10:00:30Z", "function_call",
+                      name="shell", call_id="c1", arguments="{}"),
+    )
+    items = _collect(sessions)
+    assert {ev.stream_id for ev, _, _ in items} == {root}
+    assert [type(ev) for ev, _, _ in items if ev.ts == utc(2026, 5, 15, 10)] == [
+        SystemMessageEvent,
+    ]
+    assert sum(isinstance(ev, UserMessageEvent) for ev, _, _ in items) == 1
+
+
+def test_subagent_detected_by_source_dict(tmp_path):
+    from ai_code_cognitive_stress.adapters.codex import _read_session_meta
+    f = tmp_path / "r.jsonl"
+    f.write_text(_session_meta_line(
+        "2026-05-15T10:00:00Z", session_id="root", thread_id="t",
+        source={"subagent": {"thread_spawn": {}}},
+    ), encoding="utf-8")
+    assert _read_session_meta(f) == ("root", True)
+
+
+def test_read_session_meta_subagent_by_thread_source_and_plain_root(tmp_path):
+    from ai_code_cognitive_stress.adapters.codex import (
+        _read_session_meta, _resolve_stream_id,
+    )
+    sub = tmp_path / "sub.jsonl"
+    sub.write_text(_session_meta_line(
+        "2026-05-15T10:00:00Z", session_id="root", thread_id="t",
+        thread_source="subagent"), encoding="utf-8")
+    plain = tmp_path / "plain.jsonl"
+    plain.write_text(_session_meta_line(
+        "2026-05-15T10:00:00Z", session_id="r2", thread_id="r2",
+        source="cli"), encoding="utf-8")
+    legacy = tmp_path / "legacy.jsonl"
+    legacy.write_text(json.dumps({"role": "user", "content": "x"}), encoding="utf-8")
+    assert _read_session_meta(sub) == ("root", True)
+    assert _read_session_meta(plain) == ("r2", False)
+    assert _read_session_meta(legacy) == ("legacy", False)
+    assert _resolve_stream_id(sub) == "root"
+
+
+def test_root_without_operator_input_is_dropped_with_its_subagents(tmp_path):
+    sessions = tmp_path / "codex"
+    sessions.mkdir()
+    root = "root-1"
+    _write(
+        sessions / "rollout-2026-05-15T09-00-00-root.jsonl",
+        _session_meta_line("2026-05-15T09:00:00Z", session_id=root,
+                           thread_id=root, thread_source="user"),
+        _user_line("2026-05-15T09:00:01Z", "# AGENTS.md instructions for /x"),
+        _rollout_line("2026-05-15T09:00:05Z", "message", role="assistant",
+                      content=[{"type": "output_text", "text": "hi"}]),
+    )
+    _write(
+        sessions / "rollout-2026-05-15T10-00-00-sub.jsonl",
+        _session_meta_line("2026-05-15T10:00:00Z", session_id=root,
+                           thread_id="sub-1", thread_source="subagent"),
+        _rollout_line("2026-05-15T10:00:30Z", "function_call",
+                      name="shell", call_id="c1", arguments="{}"),
+    )
+    stats = IngestStats()
+    assert _collect(sessions, stats) == []
+    assert stats.streams_skipped_unattended == 1
+    assert stats.unattended_stream_ids == {root}
+    assert stats.events_emitted == 0
+
+
+def test_legacy_tool_result_user_record_yields_only_tool_result(tmp_path):
+    sessions = tmp_path / "codex"
+    sessions.mkdir()
+    _write(
+        sessions / "s.jsonl",
+        json.dumps({"role": "user", "content": "go",
+                    "timestamp": "2026-05-15T09:00:00Z"}),
+        json.dumps({"role": "user",
+                    "content": [{"type": "function_call_output", "call_id": "c1"}],
+                    "timestamp": "2026-05-15T10:00:00Z"}),
+    )
+    assert _kinds_at_ten(_collect(sessions)) == [ToolResultEvent]
+
+
+def test_legacy_injected_text_is_system(tmp_path):
+    sessions = tmp_path / "codex"
+    sessions.mkdir()
+    _write(
+        sessions / "s.jsonl",
+        json.dumps({"role": "user", "content": "go",
+                    "timestamp": "2026-05-15T09:00:00Z"}),
+        json.dumps({"role": "user",
+                    "content": [{"type": "input_text",
+                                 "text": "<environment_context>x"}],
+                    "timestamp": "2026-05-15T10:00:00Z"}),
+    )
+    assert _kinds_at_ten(_collect(sessions)) == [SystemMessageEvent]
+
+
+def _abort_event_line(ts, reason="interrupted"):
+    return json.dumps({"timestamp": ts, "type": "event_msg",
+                       "payload": {"type": "turn_aborted", "reason": reason}})
+
+
+_ABORTED_TEXT = "<turn_aborted>\nThe user interrupted the previous turn.\n</turn_aborted>"
+
+
+def test_bare_interrupt_event_is_operator_input(tmp_path):
+    sessions = tmp_path / "codex"
+    sessions.mkdir()
+    _write(sessions / "r.jsonl",
+           _user_line("2026-05-15T09:00:00Z", "go"),
+           _abort_event_line("2026-05-15T10:00:00Z"))
+    assert _kinds_at_ten(_collect(sessions)) == [UserMessageEvent]
+
+
+def test_interrupt_event_paired_with_aborted_message_counts_once(tmp_path):
+    sessions = tmp_path / "codex"
+    sessions.mkdir()
+    _write(sessions / "r.jsonl",
+           _user_line("2026-05-15T09:00:00Z", "go"),
+           _user_line("2026-05-15T10:00:00.402Z", _ABORTED_TEXT),
+           _abort_event_line("2026-05-15T10:00:00.403Z"))
+    assert _kinds_at_ten(_collect(sessions)) == [UserMessageEvent]
+
+
+def test_non_interrupt_abort_reasons_are_ignored(tmp_path):
+    sessions = tmp_path / "codex"
+    sessions.mkdir()
+    _write(sessions / "r.jsonl",
+           _user_line("2026-05-15T09:00:00Z", "go"),
+           _abort_event_line("2026-05-15T10:00:00Z", reason="replaced"))
+    assert _kinds_at_ten(_collect(sessions)) == []
+
+
+def test_interrupt_event_in_subagent_file_is_ignored(tmp_path):
+    sessions = tmp_path / "codex"
+    sessions.mkdir()
+    root = "root-1"
+    _write(
+        sessions / "rollout-2026-05-15T09-00-00-root.jsonl",
+        _session_meta_line("2026-05-15T09:00:00Z", session_id=root,
+                           thread_id=root, thread_source="user"),
+        _user_line("2026-05-15T09:00:01Z", "review the MR"),
+    )
+    _write(
+        sessions / "rollout-2026-05-15T10-00-00-sub.jsonl",
+        _session_meta_line("2026-05-15T10:00:00Z", session_id=root,
+                           thread_id="sub-1", thread_source="subagent"),
+        _abort_event_line("2026-05-15T10:00:30Z"),
+    )
+    assert sum(isinstance(ev, UserMessageEvent) for ev, _, _ in _collect(sessions)) == 1

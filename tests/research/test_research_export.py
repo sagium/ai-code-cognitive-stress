@@ -299,8 +299,8 @@ def test_debug_sessions_are_anonymized():
     assert len(dbg["sessions"]) == 2
     row = dbg["sessions"][0]
     assert set(row.keys()) == {
-        "start_hour", "duration_min", "user_msgs", "assistant_msgs",
-        "tool_uses", "tool_results", "tool_errors",
+        "start_hour", "duration_min", "user_msgs", "system_msgs",
+        "assistant_msgs", "tool_uses", "tool_results", "tool_errors",
     }
     # counts preserved, identifiers absent
     assert row["tool_errors"] == 2
@@ -370,9 +370,14 @@ def _export_with_archive(archive_dir, **overrides):
     return build_research_export(_stub_profile(), **defaults)
 
 
-def test_schema_version_is_v4():
+def test_schema_version_is_v5():
     out = _export()
-    assert out["schema"].endswith("v4")
+    assert out["schema"].endswith("v5")
+
+
+def test_day_entry_carries_legacy_input_flag():
+    day = _export()["profile"]["days"][0]
+    assert day["legacy_input"] is False
 
 
 def test_consent_version_bumped():

@@ -66,6 +66,8 @@ def _stream(stream_id, first_ts, last_ts, **counts):
         user_msg_timestamps=counts.get("user_msg_timestamps", ()),
         tool_error_timestamps=counts.get("tool_error_timestamps", ()),
         resume_gaps=counts.get("resume_gaps", ()),
+        agent_gaps=counts.get("agent_gaps", ()),
+        input_classified=counts.get("input_classified", True),
     )
 
 
@@ -191,6 +193,17 @@ def test_alive_intervals_short_gap_not_split():
     )
     assert alive_intervals(s, 180 * 60) == [
         (_utc(2026, 5, 15, 9), _utc(2026, 5, 15, 12)),
+    ]
+
+
+def test_alive_intervals_cut_on_long_agent_gap():
+    s = _stream(
+        "a", _utc(2026, 5, 15, 9), _utc(2026, 5, 15, 13, 20),
+        agent_gaps=((_utc(2026, 5, 15, 13), 210 * 60),),
+    )
+    assert alive_intervals(s, 180 * 60) == [
+        (_utc(2026, 5, 15, 9), _utc(2026, 5, 15, 9, 30)),
+        (_utc(2026, 5, 15, 13), _utc(2026, 5, 15, 13, 20)),
     ]
 
 
@@ -638,6 +651,13 @@ def test_resumption_single_intra_day_gap_scored():
                 resume_gaps=(_gap_minutes(at_hour=12, minutes=60),))
     agg = _agg(date(2026, 5, 15), [s])
     assert _resumption_load(agg, _WIN_START, _WIN_END) == pytest.approx(0.125)
+
+
+def test_agent_gaps_do_not_score_closure():
+    s = _stream("a", _utc(2026, 5, 15, 10), _utc(2026, 5, 15, 14),
+                agent_gaps=(_gap_minutes(at_hour=12, minutes=60),))
+    agg = _agg(date(2026, 5, 15), [s])
+    assert _resumption_load(agg, _WIN_START, _WIN_END) == 0.0
 
 
 def test_resumption_gap_below_threshold_ignored():
@@ -1226,6 +1246,53 @@ def test_build_profile_withholds_percentile_bands_below_calibration_floor():
     assert profile.composite_p90 is None
 
 
+def _legacy_day_agg(day):
+    y, mo, d = day.year, day.month, day.day
+    return _agg(day, [
+        _stream("a", _utc(y, mo, d, 10), _utc(y, mo, d, 16),
+                user_msg_timestamps=tuple(_utc(y, mo, d, h) for h in range(10, 16)),
+                input_classified=False),
+    ])
+
+
+def test_percentile_bands_exclude_legacy_days():
+    base = date(2026, 5, 4)
+    classified = {
+        base + timedelta(days=i): _active_day_agg(base + timedelta(days=i))
+        for i in range(OPTIMUM_MIN_DAYS_OF_DATA - 1)
+    }
+    legacy = {
+        base + timedelta(days=30 + i): _legacy_day_agg(base + timedelta(days=30 + i))
+        for i in range(20)
+    }
+    profile = build_profile({**classified, **legacy}, local_tz=UTC)
+    assert all(m.legacy_input for d, m in profile.days.items() if d in legacy)
+    assert profile.composite_p50 is None
+    assert profile.composite_p90 is None
+
+
+def test_optimum_excludes_legacy_days():
+    base = date(2026, 5, 4)
+    days = {
+        base + timedelta(days=i): DayMetrics(
+            day=base + timedelta(days=i), codl_avg=1.2, closure_deficit=0.1,
+            legacy_input=True,
+        )
+        for i in range(OPTIMUM_MIN_DAYS_OF_DATA + 2)
+    }
+    assert derive_personal_optimum(days) is None
+
+
+def test_day_metrics_carries_legacy_flag():
+    window = WorkWindow(weekday=4, start=time(9), end=time(18))
+    legacy = per_day_metrics(_legacy_day_agg(date(2026, 5, 15)), window, UTC)
+    classified = per_day_metrics(_active_day_agg(date(2026, 5, 15)), window, UTC)
+    empty = per_day_metrics(DayAggregate(day=date(2026, 5, 15)), window, UTC)
+    assert legacy.legacy_input is True
+    assert classified.legacy_input is False
+    assert empty.legacy_input is False
+
+
 def test_build_profile_computes_percentiles_over_active_days():
     # At the calibration floor, alternating light/busy days so the pooled
     # distribution has a real spread.
@@ -1314,6 +1381,46 @@ def test_detect_work_windows_infers_band_from_sufficient_data():
     assert all(w.start <= time(10, 0) for w in windows.values())
     # The inferred end should be at or after the latest message hour.
     assert all(w.end >= time(17, 0) for w in windows.values())
+
+
+def test_detect_work_windows_ignores_legacy_days():
+    """Legacy streams' timestamps include tool results and notifications, so
+    they must not pull the inferred band: 7 classified days at 10-17h plus many
+    legacy days spread over the night still infer 10-17h."""
+    aggs = _make_infer_aggregates(
+        date(2026, 5, 4), n_days=7, msg_hours=[10, 11, 14, 16, 17],
+    )
+    for i in range(20):
+        d = date(2026, 6, 1) + timedelta(days=i)
+        aggs[d] = _agg(d, [
+            _stream("old", _utc(d.year, d.month, d.day, 0),
+                    _utc(d.year, d.month, d.day, 23),
+                    user_msg_timestamps=tuple(
+                        _utc(d.year, d.month, d.day, h) for h in range(0, 24)),
+                    input_classified=False),
+        ])
+    windows = detect_work_windows(aggs, local_tz=UTC)
+    assert all(w.start == time(10, 0) for w in windows.values())
+    assert all(w.end == time(17, 0) for w in windows.values())
+
+
+def test_detect_work_windows_skips_whole_day_when_any_stream_is_legacy():
+    aggs = _make_infer_aggregates(
+        date(2026, 5, 4), n_days=7, msg_hours=[10, 11, 14, 16, 17],
+    )
+    for i in range(20):
+        d = date(2026, 6, 1) + timedelta(days=i)
+        night = tuple(_utc(d.year, d.month, d.day, h) for h in (0, 1, 2, 3))
+        aggs[d] = _agg(d, [
+            _stream("old", _utc(d.year, d.month, d.day, 0),
+                    _utc(d.year, d.month, d.day, 23),
+                    user_msg_timestamps=night, input_classified=False),
+            _stream("new", _utc(d.year, d.month, d.day, 0),
+                    _utc(d.year, d.month, d.day, 23),
+                    user_msg_timestamps=night),
+        ])
+    windows = detect_work_windows(aggs, local_tz=UTC)
+    assert all(w.start == time(10, 0) for w in windows.values())
 
 
 def test_detect_work_windows_infers_same_band_all_7_weekdays():

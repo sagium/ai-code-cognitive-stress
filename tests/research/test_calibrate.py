@@ -8,6 +8,7 @@ import pytest
 
 from ai_code_cognitive_stress.research.calibrate import (
     calibrate,
+    count_legacy_day_records,
     load_exports,
     pool_day_records,
     render_report,
@@ -33,7 +34,7 @@ def _day(codl, interr, closure=0.0, composite=10.0, weekday="Mon",
     return d
 
 
-def _export(days, participant="p1", schema="ai-code-cognitive-stress.research-export.v2"):
+def _export(days, participant="p1", schema="ai-code-cognitive-stress.research-export.v5"):
     return {
         "schema": schema, "participant": participant,
         "profile": {"days": days},
@@ -122,7 +123,8 @@ def test_v1_only_input_degrades_gracefully():
     # No debug block → no peak/session coverage, but everything else works.
     days = [_day(2.0, 3.0), _day(1.0, 1.0)]
     result = calibrate(pool_day_records([_export(
-        days, schema="ai-code-cognitive-stress.research-export.v1")]))
+        days, schema="ai-code-cognitive-stress.research-export.v1")],
+        include_legacy=True))
     assert result["coverage"]["peak_headcount"] is None
     assert result["coverage"]["session_duration_min"] is None
     assert result["n_day_records"] == 2
@@ -298,7 +300,10 @@ def test_pool_day_records_carries_subjective_rating():
 def test_v3_export_no_field_loads_as_none():
     """v3-style exports (no subjective_rating field) load with rating=None."""
     days = [_day(1.0, 2.0)]  # no rating field
-    records = pool_day_records([_export(days, schema="ai-code-cognitive-stress.research-export.v3")])
+    records = pool_day_records(
+        [_export(days, schema="ai-code-cognitive-stress.research-export.v3")],
+        include_legacy=True,
+    )
     assert records[0].subjective_rating is None
 
 
@@ -379,9 +384,45 @@ def test_v3_exports_still_calibrate_without_felt_load():
     """v3 exports (no field) round-trip through calibrate without errors."""
     days = [_day(float(c), 1.0 + c % 3) for c in range(1, 10)]
     records = pool_day_records([_export(
-        days, schema="ai-code-cognitive-stress.research-export.v3")])
+        days, schema="ai-code-cognitive-stress.research-export.v3")],
+        include_legacy=True)
     result = calibrate(records)
     assert result["felt_load"]["n_labeled"] == 0
     assert result["felt_load"]["correlations_with_felt_load"] is None
     # Unsupervised path intact.
     assert result["n_day_records"] == 9
+
+
+# ---------------------------------------------------------------------------
+# Legacy (pre-operator-input-classification) exclusion
+
+_V4 = "ai-code-cognitive-stress.research-export.v4"
+
+
+def test_pre_v5_exports_excluded():
+    old = _export([_day(1.0, 1.0), _day(2.0, 2.0)], participant="old", schema=_V4)
+    new = _export([_day(3.0, 3.0)], participant="new")
+    records = pool_day_records([old, new])
+    assert [r.participant for r in records] == ["new"]
+    assert count_legacy_day_records([old, new]) == 2
+
+
+def test_schema_without_version_is_legacy():
+    exp = _export([_day(1.0, 1.0)], schema="ai-code-cognitive-stress.research-export")
+    assert pool_day_records([exp]) == []
+
+
+def test_legacy_flagged_days_excluded():
+    flagged = dict(_day(1.0, 1.0), legacy_input=True)
+    clean = dict(_day(2.0, 2.0), legacy_input=False)
+    unflagged = _day(3.0, 3.0)
+    exp = _export([flagged, clean, unflagged])
+    assert [r.codl_avg for r in pool_day_records([exp])] == [2.0, 3.0]
+    assert count_legacy_day_records([exp]) == 1
+
+
+def test_include_legacy_pools_everything():
+    old = _export([_day(1.0, 1.0)], schema=_V4)
+    flagged = _export([dict(_day(2.0, 2.0), legacy_input=True)])
+    assert len(pool_day_records([old, flagged], include_legacy=True)) == 2
+    assert len(pool_day_records([old, flagged])) == 0

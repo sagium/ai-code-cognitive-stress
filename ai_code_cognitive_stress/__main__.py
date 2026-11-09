@@ -456,7 +456,8 @@ def main(argv: list[str] | None = None) -> int:
     # collected and crunch the population into suggested scaling.
     if args.calibrate is not None:
         from .research.calibrate import (
-            calibrate, load_exports, pool_day_records, render_report,
+            calibrate, count_legacy_day_records, load_exports,
+            pool_day_records, render_report,
         )
 
         exports, warns = load_exports(args.calibrate)
@@ -468,6 +469,13 @@ def main(argv: list[str] | None = None) -> int:
                 file=sys.stderr,
             )
             return 1
+        excluded = count_legacy_day_records(exports)
+        if excluded:
+            print(
+                f"calibrate: excluded {excluded} day-record(s) aggregated "
+                "without operator-input classification (pre-v5 or legacy_input)",
+                file=sys.stderr,
+            )
         records = pool_day_records(exports)
         if not records:
             print(

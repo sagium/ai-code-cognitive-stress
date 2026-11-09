@@ -35,7 +35,7 @@ from ..pipeline.aggregate import AggregateStats, DayAggregate
 from ..pipeline.metrics import DayMetrics, StressProfile, WorkWindow, per_day_debug
 from ..pipeline.subjective import read_grade
 
-SCHEMA = "ai-code-cognitive-stress.research-export.v4"
+SCHEMA = "ai-code-cognitive-stress.research-export.v5"
 
 CONSENT_VERSION = "6"
 
@@ -228,6 +228,7 @@ def _day_metrics_dict(
         "interruption_rate": m.interruption_rate,
         "closure_deficit": m.closure_deficit,
         "off_hours_minutes": m.off_hours_minutes,
+        "legacy_input": m.legacy_input,
         "work_window": (
             [
                 m.work_window_local[0].strftime("%H:%M"),

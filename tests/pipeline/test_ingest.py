@@ -53,6 +53,10 @@ def _session_record(
     }
 
 
+def _prompt(timestamp: str = "2026-05-15T09:00:00.000Z") -> dict:
+    return _session_record("user", timestamp)
+
+
 def _write_session(path: Path, records: list[dict]) -> None:
     path.write_text(
         "\n".join(json.dumps(r) for r in records) + "\n",
@@ -101,16 +105,18 @@ def test_user_and_assistant_messages_emit_typed_events(tmp_path):
 def test_events_sorted_by_timestamp_across_files(tmp_path):
     proj = _project(tmp_path)
     _write_session(proj / "a.jsonl", [
+        _prompt("2026-05-15T09:00:00.000Z"),
         _session_record("assistant", "2026-05-15T11:00:00.000Z"),
     ])
     _write_session(proj / "b.jsonl", [
-        _session_record("user", "2026-05-15T10:00:00.000Z"),
+        _session_record("user", "2026-05-15T10:00:00.000Z", session_id="sess-2"),
     ])
     events, _ = collect(
         date(2026, 5, 1), date(2026, 5, 31),
         projects_dir=_projects_root(tmp_path),
     )
     assert [e.ts.isoformat() for e in events] == [
+        "2026-05-15T09:00:00+00:00",
         "2026-05-15T10:00:00+00:00",
         "2026-05-15T11:00:00+00:00",
     ]
@@ -191,6 +197,7 @@ def test_non_z_timestamp_with_offset_is_normalised_to_utc(tmp_path):
 def test_tool_use_emitted_from_assistant_content(tmp_path):
     proj = _project(tmp_path)
     _write_session(proj / "sess.jsonl", [
+        _prompt(),
         _session_record(
             "assistant",
             "2026-05-15T10:00:00.000Z",
@@ -213,6 +220,7 @@ def test_tool_use_emitted_from_assistant_content(tmp_path):
 def test_multiple_tool_uses_in_one_assistant_record(tmp_path):
     proj = _project(tmp_path)
     _write_session(proj / "sess.jsonl", [
+        _prompt(),
         _session_record(
             "assistant",
             "2026-05-15T10:00:00.000Z",
@@ -233,6 +241,7 @@ def test_multiple_tool_uses_in_one_assistant_record(tmp_path):
 def test_tool_result_emitted_from_user_content(tmp_path):
     proj = _project(tmp_path)
     _write_session(proj / "sess.jsonl", [
+        _prompt(),
         _session_record(
             "user",
             "2026-05-15T10:00:00.000Z",
@@ -249,12 +258,14 @@ def test_tool_result_emitted_from_user_content(tmp_path):
     results = [e for e in events if isinstance(e, ToolResultEvent)]
     assert len(results) == 1
     assert results[0].tool_use_id == "u1"
+    assert len([e for e in events if isinstance(e, UserMessageEvent)]) == 1
     assert results[0].is_error is False
 
 
 def test_tool_result_carries_is_error_true(tmp_path):
     proj = _project(tmp_path)
     _write_session(proj / "sess.jsonl", [
+        _prompt(),
         _session_record(
             "user",
             "2026-05-15T10:00:00.000Z",
@@ -469,13 +480,13 @@ def test_assistant_with_non_list_content_yields_only_msg(tmp_path):
     proj = _project(tmp_path)
     record = _session_record("assistant", "2026-05-15T10:00:00.000Z")
     record["message"]["content"] = "just a string"  # type: ignore[index]
-    _write_session(proj / "sess.jsonl", [record])
+    _write_session(proj / "sess.jsonl", [_prompt(), record])
     events, _ = collect(
         date(2026, 5, 1), date(2026, 5, 31),
         projects_dir=_projects_root(tmp_path),
     )
-    assert len(events) == 1
-    assert isinstance(events[0], AssistantMessageEvent)
+    assert len(events) == 2
+    assert isinstance(events[1], AssistantMessageEvent)
 
 
 def test_record_without_message_dict_still_emits_top_level(tmp_path):
@@ -500,7 +511,7 @@ def test_content_block_thats_not_a_dict_is_skipped(tmp_path):
         {"type": "tool_use", "id": "u1", "name": "Read"},
         42,
     ]
-    _write_session(proj / "sess.jsonl", [record])
+    _write_session(proj / "sess.jsonl", [_prompt(), record])
     events, _ = collect(
         date(2026, 5, 1), date(2026, 5, 31),
         projects_dir=_projects_root(tmp_path),

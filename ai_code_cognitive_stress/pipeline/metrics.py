@@ -15,7 +15,8 @@ Three axes (per day, computed during work hours only):
                       Mark, Gonzalez & Harris (2005).
     Closure Deficit   resumption load: a loop you couldn't finish in one sitting
                       and had to pick back up later. Each resume (a true-idle gap
-                      in a session within [RESUME_THRESHOLD_MINUTES,
+                      in a session, ended by operator input, within
+                      [RESUME_THRESHOLD_MINUTES,
                       IDLE_CLOSE_MINUTES) — past the upper bound the app was closed
                       and the break is recovery, not a parked loop) carries a
                       severity that saturates with gap length —
@@ -151,8 +152,8 @@ IDLE_CLOSE_MINUTES_DEFAULT: int = 180
 # the gap and must be reconstructed on return. We score the day by summing a
 # per-resume severity that saturates with gap length, then normalising.
 #
-# A *resume* is a true-idle gap in a session's timeline (no user OR agent event)
-# in the band [RESUME_THRESHOLD_MINUTES, IDLE_CLOSE_MINUTES): long enough that the
+# A *resume* is a true-idle gap in a session's timeline (no event of any kind)
+# that ends on operator input, in the band [RESUME_THRESHOLD_MINUTES, IDLE_CLOSE_MINUTES): long enough that the
 # loop was really suspended, but short enough that the app plausibly stayed open
 # and you were still carrying the loop. Each resume's severity is
 # min(1, gap / RESUME_FULL_DECAY_MINUTES): a gap at the full-decay horizon (or
@@ -281,6 +282,10 @@ class DayMetrics:
     off_hours_ranges_local: tuple[tuple[time, time], ...] = ()
     composite: float = 0.0           # 0..100
     work_window_local: tuple[time, time] | None = None
+    # True when any stream of the day was aggregated before operator input was
+    # classified: the day is displayed but kept out of history-derived
+    # quantities (work window, percentile bands, personal optimum).
+    legacy_input: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -348,7 +353,7 @@ def build_profile(
     # keeps the bands and the optimum "calibrating" at the same point.
     composites = [
         m.composite for d, m in days.items()
-        if m.composite > 0
+        if m.composite > 0 and not m.legacy_input
     ]
     if len(composites) >= OPTIMUM_MIN_DAYS_OF_DATA:
         p50 = _percentile(composites, 0.5)
@@ -386,8 +391,9 @@ def detect_work_windows(
     1. OVERRIDE — if config.json supplies a ``work_window`` block, that band
        is returned for all 7 weekdays (``is_default=False``).
 
-    2. INFER — pool the local-time fractional-hour of every user-message
-       timestamp from all aggregates (any day of the week).  If at least
+    2. INFER — pool the local-time fractional-hour of every operator-input
+       timestamp from every day aggregated with operator-input classification
+       (any day of the week).  If at least
        ``min_samples`` *distinct* calendar dates contributed timestamps,
        derive a single stable band applied to all 7 weekdays:
          * start = floor(p10) clamped to [0, 23]
@@ -409,10 +415,12 @@ def detect_work_windows(
         }
 
     # --- 2. Infer from interaction timestamps ---
-    # Collect fractional hours for all user messages on any day of the week.
+    # Collect fractional hours for all operator inputs on any day of the week.
     hours: list[float] = []
     sample_dates: set[date] = set()
     for day, agg in aggregates.items():
+        if agg.legacy_input:
+            continue
         for stream in agg.streams:
             for ts in stream.user_msg_timestamps:
                 local_dt = ts.astimezone(local_tz)
@@ -488,6 +496,7 @@ def per_day_metrics(
         return DayMetrics(
             day=agg.day,
             work_window_local=(work_window.start, work_window.end),
+            legacy_input=agg.legacy_input,
         )
 
     window_start_utc, window_end_utc = _window_utc_bounds(
@@ -618,6 +627,7 @@ def per_day_metrics(
         work_window_local=(
             scored_start_utc.astimezone(local_tz).time(), work_window.end,
         ),
+        legacy_input=agg.legacy_input,
     )
 
 
@@ -695,6 +705,7 @@ def per_day_debug(
             "start_hour": s.first_ts.astimezone(local_tz).hour,
             "duration_min": round(s.active_seconds / 60),
             "user_msgs": s.user_msg_count,
+            "system_msgs": s.system_msg_count,
             "assistant_msgs": s.assistant_msg_count,
             "tool_uses": s.tool_use_count,
             "tool_results": s.tool_result_count,
@@ -744,7 +755,7 @@ def _qualifying_resumes(
     idle_close_seconds: float,
 ) -> list[float]:
     """Gap lengths (seconds) of every intra-day resume that counts toward the
-    day's Closure Deficit: an idle gap (``resume_gaps``) in the band
+    day's Closure Deficit: an idle gap ended by operator input (``resume_gaps``) in the band
     ``[threshold_seconds, idle_close_seconds)`` whose resume instant lands in the
     work window.
 
@@ -971,24 +982,27 @@ def alive_intervals(
     """A stream's wall-clock liveness, split into one interval per continuous
     app-run.
 
-    A resume gap of at least ``idle_close_seconds`` is read as the coding app
-    having been closed (no live process) and reopened: it ends the current run
+    An idle gap of at least ``idle_close_seconds`` is read as the coding app
+    having been closed (no live process) and reopened, whatever event ended it
+    (operator input, a notification, model output): it ends the current run
     at the last event before the gap and starts a new run at the resume instant,
     so the dead span between is not counted as an open session. Shorter idle gaps
     stay inside one run — the app was open, just idle, and a process would still
     be alive. With no qualifying gap this is the single ``[first_ts, last_ts]``
     interval (including the zero-length ``[first_ts, first_ts]`` of a one-event
-    session). The split points come straight from the stream's ``resume_gaps``,
-    so the cutoff retunes against the existing cache — no re-ingest.
+    session). Gaps ended only by tool results are never stored: a result arriving
+    proves the process stayed alive. The split points come straight from the
+    stream's ``resume_gaps`` and ``agent_gaps``, so the cutoff retunes against the existing cache — no re-ingest.
     """
     cuts = sorted(
-        (resume_ts, gap) for resume_ts, gap in stream.resume_gaps
+        (resume_ts, gap)
+        for resume_ts, gap in (*stream.resume_gaps, *stream.agent_gaps)
         if gap >= idle_close_seconds
     )
     intervals: list[tuple[datetime, datetime]] = []
     start = stream.first_ts
     for resume_ts, gap in cuts:
-        # resume_gaps stores (event-after-gap, gap_seconds); the event before the
+        # gaps store (event-after-gap, gap_seconds); the event before the
         # gap — where this run ends — is resume_ts - gap.
         seg_end = resume_ts - timedelta(seconds=gap)
         if seg_end < start:
@@ -1196,7 +1210,7 @@ def derive_personal_optimum(
     rendered report treats that as "calibrating"."""
     active_days = [
         m for m in days.values()
-        if m.codl_avg > 0
+        if m.codl_avg > 0 and not m.legacy_input
     ]
     if len(active_days) < min_days:
         return None

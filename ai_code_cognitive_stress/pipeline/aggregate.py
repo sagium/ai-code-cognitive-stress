@@ -8,7 +8,7 @@ was picked back up) without re-parsing events.
 
 Past days are cached on disk under
     ${XDG_CACHE_HOME:-~/.cache}/ai-code-cognitive-stress/<namespace>/<YYYY>/<YYYY-MM-DD>.json
-where <namespace> = <schema>-<fingerprint> (e.g. "v4-a1b2c3d4e5f6").
+where <namespace> = <schema>-<fingerprint> (e.g. "v5-a1b2c3d4e5f6").
 
   - <schema>       = CACHE_SCHEMA_VERSION — a manually-bumped prefix that
                      acts as a hard override lever (bump forces a new
@@ -55,7 +55,10 @@ survives source recycling, a cache wipe, --rebuild-cache, and code changes.
 Each run merges the live computation into the archive per stream_id
 (``_merge_day``): a recycled stream is retained from the archive, a surviving
 stream keeps whichever side recorded more events (live wins ties — it is
-fresher), and the archive grows monotonically. The archive lives in the XDG
+fresher), and the archive grows monotonically. A live stream always supersedes
+an archived copy written before operator input was classified, and streams the
+adapters drop as unattended (no operator input at all) are removed from the
+archive; archived-only legacy streams are kept and stay flagged. The archive lives in the XDG
 *data* dir (durable) rather than the *cache* dir (which the OS may wipe), and
 archiving is enabled by passing ``archive_dir`` to ``get_day_aggregates`` —
 the production CLI/widget call sites pass ``DEFAULT_DATA_DIR / "archive"``;
@@ -71,9 +74,10 @@ import json
 import os
 import re
 import shutil
+from bisect import bisect_left
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import date, datetime, time, timezone, tzinfo
+from datetime import date, datetime, time, timedelta, timezone, tzinfo
 from pathlib import Path
 from typing import Iterable
 
@@ -83,20 +87,25 @@ from .ingest import (
     AssistantMessageEvent,
     Event,
     IngestStats,
+    SystemMessageEvent,
     ToolResultEvent,
     ToolUseEvent,
     UserMessageEvent,
 )
 
-CACHE_SCHEMA_VERSION = "v4"
+CACHE_SCHEMA_VERSION = "v5"
 
 # Intra-day idle gaps at least this long (no event of any kind) are recorded on
-# each StreamDayActivity as resume markers (see `resume_gaps`). Deliberately far
+# each StreamDayActivity, as `resume_gaps` or `agent_gaps`. Deliberately far
 # below the metrics-layer scoring threshold (RESUME_THRESHOLD_MIN) so the
 # threshold can be lowered via config without forcing a cache rebuild; only
 # lowering it BELOW this floor would. 2 min is short enough to catch every real
 # park yet long enough to exclude normal within-turn pauses.
 RESUME_GAP_STORE_FLOOR_SEC = 120
+
+# Context records a session writes just before the operator's prompt (e.g. on
+# relaunch) can precede it by a fraction of a second.
+OPERATOR_RESUME_SLACK_SEC = 2
 
 # Module-level cache for _module_fingerprint so it is computed once per process.
 _MODULE_FINGERPRINT: str | None = None
@@ -158,7 +167,7 @@ def _module_fingerprint() -> str:
 
 
 # Namespace used for cache path directories.
-# Format: "<schema>-<fingerprint>", e.g. "v4-a1b2c3d4e5f6".
+# Format: "<schema>-<fingerprint>", e.g. "v5-a1b2c3d4e5f6".
 # Bumping CACHE_SCHEMA_VERSION forces a new namespace regardless of fingerprint.
 CACHE_NAMESPACE: str = f"{CACHE_SCHEMA_VERSION}-{_module_fingerprint()}"
 
@@ -245,9 +254,9 @@ class StreamDayActivity:
     tool_use_count: int = 0
     tool_result_count: int = 0
     tool_error_count: int = 0
-    # User-message timestamps in UTC. Needed by metrics.py for CODL engagement
-    # weighting: _stream_weight_at uses them to detect foreground vs background
-    # activity within the grace window.
+    # Operator-input timestamps in UTC (user_msg_count counts the same events).
+    # Needed by metrics.py for CODL engagement weighting: _stream_weight_at uses
+    # them to detect foreground vs background activity within the grace window.
     user_msg_timestamps: tuple[datetime, ...] = ()
     # Tool-error timestamps in UTC, one per errored tool result. metrics.py
     # counts the ones that land inside the work window directly, so an error
@@ -256,16 +265,29 @@ class StreamDayActivity:
     # before this field existed (older archive entries); metrics.py falls back
     # to uniform apportionment across the stream's lifetime for those.
     tool_error_timestamps: tuple[datetime, ...] = ()
-    # Intra-day idle gaps in this stream's timeline: (resume_ts, gap_seconds) for
-    # every span between consecutive events (of ANY kind) that exceeds
-    # RESUME_GAP_STORE_FLOOR_SEC. `resume_ts` is the first event AFTER the gap
-    # (when work resumed). metrics.py reads these as the Closure Deficit's
+    # Intra-day idle gaps in this stream's timeline whose end carries operator
+    # input (at the resume instant, within OPERATOR_RESUME_SLACK_SEC, or after
+    # system-only records that precede it):
+    # (resume_ts, gap_seconds) for every span between consecutive events (of ANY
+    # kind) that exceeds RESUME_GAP_STORE_FLOOR_SEC. `resume_ts` is the first
+    # event AFTER the gap. metrics.py reads these as the Closure Deficit's
     # resumption signal — a parked-and-resumed loop. The floor keeps the cache
     # compact; it sits well below the scoring threshold so the latter can be
     # tuned down without a re-ingest. Cross-day pickups (a session resumed on a
     # later calendar day) are NOT stored here — metrics.py derives those by
     # linking the same stream_id across consecutive DayAggregates.
     resume_gaps: tuple[tuple[datetime, int], ...] = ()
+    # Messages that entered the stream from anything other than the operator.
+    system_msg_count: int = 0
+    # Idle gaps of the same shape as `resume_gaps` that ended WITHOUT operator
+    # input (model output, a notification, injected context). Gaps ended only by
+    # tool results are in neither list. Not resumes, but they still end an
+    # app-run when long enough: metrics.py reads both lists for liveness.
+    agent_gaps: tuple[tuple[datetime, int], ...] = ()
+    # False only for streams deserialized from an entry that predates operator
+    # input classification: their user_msg_timestamps include tool results and
+    # notifications, so history-derived quantities must not read them.
+    input_classified: bool = True
 
     @property
     def active_seconds(self) -> int:
@@ -294,6 +316,14 @@ class DayAggregate:
     @property
     def user_msg_count(self) -> int:
         return sum(s.user_msg_count for s in self.streams)
+
+    @property
+    def system_msg_count(self) -> int:
+        return sum(s.system_msg_count for s in self.streams)
+
+    @property
+    def legacy_input(self) -> bool:
+        return any(not s.input_classified for s in self.streams)
 
     @property
     def assistant_msg_count(self) -> int:
@@ -451,7 +481,9 @@ def get_day_aggregates(
         # streams whose source logs were recycled), persist any growth, and
         # return the merged result.
         archived = _read_archive(archive_dir, day)
-        merged = _merge_day(day, archived, live)
+        merged = _merge_day(
+            day, archived, live, stats.ingest.unattended_stream_ids,
+        )
         aggregates[day] = merged
 
         merged_dict = _aggregate_to_dict(merged)
@@ -460,7 +492,7 @@ def get_day_aggregates(
             # would otherwise have shown empty or understated.
             stats.archive_recovered_days += 1
         archived_dict = _aggregate_to_dict(archived) if archived is not None else None
-        if merged.streams and merged_dict != archived_dict:
+        if (merged.streams or archived is not None) and merged_dict != archived_dict:
             try:
                 _write_archive(archive_dir, day, merged)
                 stats.archive_writes += 1
@@ -472,6 +504,9 @@ def get_day_aggregates(
 
 # ---------------------------------------------------------------------------
 # Reduction
+
+_OPERATOR, _SYSTEM, _TOOL_RESULT, _AGENT = "operator", "system", "tool_result", "agent"
+
 
 def _aggregate_events(
     day: date,
@@ -487,6 +522,7 @@ def _aggregate_events(
         "first_ts": None,
         "last_ts": None,
         "user_msg_count": 0,
+        "system_msg_count": 0,
         "assistant_msg_count": 0,
         "tool_use_count": 0,
         "tool_result_count": 0,
@@ -504,45 +540,46 @@ def _aggregate_events(
             s["first_ts"] = ev.ts
         if s["last_ts"] is None or ev.ts > s["last_ts"]:
             s["last_ts"] = ev.ts
+        role = _AGENT
         if isinstance(ev, UserMessageEvent):
-            kind = "user"
+            role = _OPERATOR
             s["user_msg_count"] += 1
             s["user_msg_timestamps"].append(ev.ts)
+        elif isinstance(ev, SystemMessageEvent):
+            role = _SYSTEM
+            s["system_msg_count"] += 1
         elif isinstance(ev, AssistantMessageEvent):
-            kind = "assistant"
             s["assistant_msg_count"] += 1
         elif isinstance(ev, ToolUseEvent):
-            kind = "tool_use"
             s["tool_use_count"] += 1
         elif isinstance(ev, ToolResultEvent):
-            kind = "tool_result"
+            role = _TOOL_RESULT
             s["tool_result_count"] += 1
             if ev.is_error:
                 s["tool_error_count"] += 1
                 s["tool_error_timestamps"].append(ev.ts)
-        else:
-            kind = "other"
-        # Every event feeds the idle-gap (resumption) scan below; the kind lets
-        # it tell an autonomous tool-execution span from a parked-loop resume.
-        s["gap_events"].append((ev.ts, kind))
+        s["gap_events"].append((ev.ts, role))
 
-    streams = tuple(
-        StreamDayActivity(
+    streams = []
+    for v in sorted(per_stream.values(), key=lambda v: v["first_ts"]):
+        resume_gaps, agent_gaps = _idle_gaps(v["gap_events"])
+        streams.append(StreamDayActivity(
             stream_id=v["stream_id"],
             project=v["project"],
             first_ts=v["first_ts"],
             last_ts=v["last_ts"],
             user_msg_count=v["user_msg_count"],
+            system_msg_count=v["system_msg_count"],
             assistant_msg_count=v["assistant_msg_count"],
             tool_use_count=v["tool_use_count"],
             tool_result_count=v["tool_result_count"],
             tool_error_count=v["tool_error_count"],
             user_msg_timestamps=tuple(sorted(v["user_msg_timestamps"])),
             tool_error_timestamps=tuple(sorted(v["tool_error_timestamps"])),
-            resume_gaps=_idle_gaps(v["gap_events"]),
-        )
-        for v in sorted(per_stream.values(), key=lambda v: v["first_ts"])
-    )
+            resume_gaps=resume_gaps,
+            agent_gaps=agent_gaps,
+        ))
+    streams = tuple(streams)
 
     return DayAggregate(
         day=day,
@@ -553,35 +590,70 @@ def _aggregate_events(
 
 def _idle_gaps(
     gap_events: list[tuple[datetime, str]],
-) -> tuple[tuple[datetime, int], ...]:
-    """From one stream's ``(timestamp, kind)`` events on a day, return the idle
-    gaps that exceed RESUME_GAP_STORE_FLOOR_SEC as ``(resume_ts, gap_seconds)``
-    pairs.
+) -> tuple[
+    tuple[tuple[datetime, int], ...],
+    tuple[tuple[datetime, int], ...],
+]:
+    """From one stream's ``(timestamp, role)`` events on a day (role: operator
+    input, non-operator system message, tool result or any other event), return
+    ``(resume_gaps, agent_gaps)``: the idle gaps that exceed
+    RESUME_GAP_STORE_FLOOR_SEC as ``(resume_ts, gap_seconds)`` pairs.
 
-    A gap is the span between two consecutive events; the loop was dormant
-    across it and ``resume_ts`` is the event that picked it back up. Sub-floor
-    gaps (normal within-turn pauses) are dropped to keep the cache compact.
+    A gap is the span between two consecutive distinct event instants; the loop
+    was dormant across it and ``resume_ts`` is the instant that picked it back
+    up. Sub-floor gaps (normal within-turn pauses) are dropped to keep the cache
+    compact.
 
-    A gap whose resuming event is a ``tool_result`` is the wall-clock execution
-    of a single autonomous tool call (the dormancy ended because the tool
-    returned, not because the operator came back), so it is not a parked-loop
-    resume and is not recorded. A genuine break that happens to overlap a tool
-    run is unaffected: the operator's own return is a later, separately-counted
-    gap whose resuming event is their message. Order follows the sorted
-    timeline; ties keep input order so the resuming event is the one that truly
-    ended the dormancy."""
+    A gap is a resume when the operator came back to it: operator input lands
+    at the resume instant (or within OPERATOR_RESUME_SLACK_SEC after it), or the
+    gap ends on system records the agent never acted on (a relaunch flushing
+    stale notifications) and the operator's input follows them with no agent
+    event and no further floor-sized gap in between. A gap ended only by tool
+    results is a long tool call, proof the process stayed alive, and is not
+    stored. Any other gap, ended by model output or a notification, is
+    agent-side activity and goes to ``agent_gaps``. Records sharing a timestamp
+    are indistinguishable, so the result does not depend on their order."""
     if len(gap_events) < 2:
-        return ()
-    ordered = sorted(gap_events, key=lambda e: e[0])
-    gaps: list[tuple[datetime, int]] = []
-    for (prev_ts, _prev_kind), (cur_ts, cur_kind) in zip(ordered, ordered[1:]):
-        gap = int((cur_ts - prev_ts).total_seconds())
+        return (), ()
+    roles: dict[datetime, set[str]] = defaultdict(set)
+    for ts, role in gap_events:
+        roles[ts].add(role)
+    instants = sorted(roles)
+    operator = sorted(ts for ts, r in roles.items() if _OPERATOR in r)
+    slack = timedelta(seconds=OPERATOR_RESUME_SLACK_SEC)
+    resumes: list[tuple[datetime, int]] = []
+    agent: list[tuple[datetime, int]] = []
+    for i in range(1, len(instants)):
+        cur_ts = instants[i]
+        gap = int((cur_ts - instants[i - 1]).total_seconds())
         if gap < RESUME_GAP_STORE_FLOOR_SEC:
             continue
-        if cur_kind == "tool_result":
-            continue
-        gaps.append((cur_ts, gap))
-    return tuple(gaps)
+        k = bisect_left(operator, cur_ts)
+        if (k < len(operator) and operator[k] <= cur_ts + slack) or _operator_after_flush(
+            instants, roles, i,
+        ):
+            resumes.append((cur_ts, gap))
+        elif roles[cur_ts] != {_TOOL_RESULT}:
+            agent.append((cur_ts, gap))
+    return tuple(resumes), tuple(agent)
+
+
+def _operator_after_flush(
+    instants: list[datetime], roles: dict[datetime, set[str]], start: int,
+) -> bool:
+    """True when instants[start:] are system-only records, each less than the
+    store floor apart, up to an instant carrying operator input."""
+    for j in range(start, len(instants)):
+        if j > start and (
+            (instants[j] - instants[j - 1]).total_seconds() >= RESUME_GAP_STORE_FLOOR_SEC
+        ):
+            return False
+        r = roles[instants[j]]
+        if _OPERATOR in r:
+            return True
+        if r != {_SYSTEM}:
+            return False
+    return False
 
 
 def _peak_concurrent(streams: tuple[StreamDayActivity, ...]) -> int:
@@ -612,6 +684,7 @@ def _stream_events(s: StreamDayActivity) -> int:
     pick the winning side per stream_id when merging live vs archived."""
     return (
         s.user_msg_count
+        + s.system_msg_count
         + s.assistant_msg_count
         + s.tool_use_count
         + s.tool_result_count
@@ -622,16 +695,21 @@ def _merge_day(
     day: date,
     archived: DayAggregate | None,
     live: DayAggregate,
+    drop_ids: frozenset[str] | set[str] = frozenset(),
 ) -> DayAggregate:
     """Merge a day's live aggregate with its durable-archive counterpart.
 
-    Keyed by stream_id: start from the archived streams, then for each live
-    stream keep whichever side recorded more events — live wins ties, being the
-    fresher read of a still-present session. The three cases this covers:
+    Keyed by stream_id: start from the archived streams (minus `drop_ids`, the
+    streams the adapters dropped as unattended), then for each live stream keep
+    whichever side recorded more events — live wins ties, being the fresher
+    read of a still-present session — except that a live stream always
+    supersedes an archived copy written before operator input was classified.
+    The three cases this covers:
       - source grew (append-only)   → live richer  → live wins;
       - source recycled (gone)      → no live entry → archived stream retained;
       - source truncated/compacted  → archived richer → archived retained.
-    Archived-only streams are kept (the data-recovery path). Streams are
+    Archived-only streams are kept (the data-recovery path), legacy ones with
+    `input_classified=False` so history-derived metrics can skip them. Streams are
     re-sorted by first_ts (matching _aggregate_events) and
     peak_concurrent_streams is recomputed from the union.
 
@@ -643,12 +721,20 @@ def _merge_day(
     deliberate: keying the archive by TZ too would defeat recovery whenever the
     zone changes. The live cache still keys on TZ, so live reads stay correct.
     """
-    if archived is None or not archived.streams:
+    if archived is None:
         return live
-    by_id: dict[str, StreamDayActivity] = {s.stream_id: s for s in archived.streams}
+    by_id: dict[str, StreamDayActivity] = {
+        s.stream_id: s for s in archived.streams if s.stream_id not in drop_ids
+    }
+    if not by_id:
+        return live
     for s in live.streams:
         prev = by_id.get(s.stream_id)
-        if prev is None or _stream_events(s) >= _stream_events(prev):
+        if (
+            prev is None
+            or not prev.input_classified
+            or _stream_events(s) >= _stream_events(prev)
+        ):
             by_id[s.stream_id] = s
     streams = tuple(sorted(by_id.values(), key=lambda s: s.first_ts))
     return DayAggregate(
@@ -781,6 +867,7 @@ def _aggregate_to_dict(a: DayAggregate) -> dict:
                 "first_ts": s.first_ts.isoformat(),
                 "last_ts": s.last_ts.isoformat(),
                 "user_msg_count": s.user_msg_count,
+                "system_msg_count": s.system_msg_count,
                 "assistant_msg_count": s.assistant_msg_count,
                 "tool_use_count": s.tool_use_count,
                 "tool_result_count": s.tool_result_count,
@@ -790,6 +877,10 @@ def _aggregate_to_dict(a: DayAggregate) -> dict:
                 "resume_gaps": [
                     [t.isoformat(), g] for t, g in s.resume_gaps
                 ],
+                "agent_gaps": [
+                    [t.isoformat(), g] for t, g in s.agent_gaps
+                ],
+                "input_classified": s.input_classified,
             }
             for s in a.streams
         ],
@@ -805,6 +896,7 @@ def _aggregate_from_dict(d: dict) -> DayAggregate:
             first_ts=datetime.fromisoformat(s["first_ts"]),
             last_ts=datetime.fromisoformat(s["last_ts"]),
             user_msg_count=int(s.get("user_msg_count", 0)),
+            system_msg_count=int(s.get("system_msg_count", 0)),
             assistant_msg_count=int(s.get("assistant_msg_count", 0)),
             tool_use_count=int(s.get("tool_use_count", 0)),
             tool_result_count=int(s.get("tool_result_count", 0)),
@@ -819,6 +911,11 @@ def _aggregate_from_dict(d: dict) -> DayAggregate:
                 (datetime.fromisoformat(t), int(g))
                 for t, g in s.get("resume_gaps", [])
             ),
+            agent_gaps=tuple(
+                (datetime.fromisoformat(t), int(g))
+                for t, g in s.get("agent_gaps", [])
+            ),
+            input_classified=bool(s.get("input_classified", False)),
         )
         for s in d.get("streams", [])
     )
@@ -879,7 +976,6 @@ def _write_archive(archive_dir: Path, day: date, aggregate: DayAggregate) -> Non
 
 
 def _iter_dates(since: date, until: date) -> Iterable[date]:
-    from datetime import timedelta
     d = since
     one_day = timedelta(days=1)
     while d <= until:

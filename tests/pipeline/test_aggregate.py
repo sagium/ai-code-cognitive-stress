@@ -21,6 +21,7 @@ from ai_code_cognitive_stress.pipeline.aggregate import (
 )
 from ai_code_cognitive_stress.pipeline.ingest import (
     AssistantMessageEvent,
+    SystemMessageEvent,
     ToolResultEvent,
     ToolUseEvent,
     UserMessageEvent,
@@ -114,7 +115,8 @@ def test_resume_gaps_capture_idle_spans_above_floor():
 def test_single_long_tool_run_is_not_a_resume():
     """One prompt → one long tool call: a tool_use then its tool_result 45 min
     later, nothing between. The span is autonomous tool execution, not a parked
-    loop, so it must NOT be recorded as a resume gap."""
+    loop: it is neither a resume nor an agent gap, since the result proves the
+    process stayed alive."""
     events = [
         UserMessageEvent(ts=_utc(2026, 5, 15, 9, 0), stream_id="s1", project="p"),
         AssistantMessageEvent(ts=_utc(2026, 5, 15, 9, 0), stream_id="s1", project="p"),
@@ -125,6 +127,7 @@ def test_single_long_tool_run_is_not_a_resume():
     ]
     agg = _aggregate_events(date(2026, 5, 15), events)
     assert agg.streams[0].resume_gaps == ()
+    assert agg.streams[0].agent_gaps == ()
 
 
 def test_human_park_after_tool_run_is_still_a_resume():
@@ -171,6 +174,7 @@ def test_parallel_tool_results_each_excluded():
     ]
     agg = _aggregate_events(date(2026, 5, 15), events)
     assert agg.streams[0].resume_gaps == ()
+    assert agg.streams[0].agent_gaps == ()
 
 
 def test_resume_gaps_empty_for_single_event_stream():
@@ -188,6 +192,132 @@ def test_resume_gaps_survive_cache_round_trip():
     restored = _aggregate_from_dict(_aggregate_to_dict(agg))
     assert restored.streams[0].resume_gaps == agg.streams[0].resume_gaps
     assert restored.streams[0].resume_gaps == ((_utc(2026, 5, 15, 9, 40), 2400),)
+
+
+def test_system_message_counts_and_extends_liveness():
+    events = [
+        UserMessageEvent(ts=_utc(2026, 5, 15, 9, 0), stream_id="s1", project="p"),
+        SystemMessageEvent(ts=_utc(2026, 5, 15, 9, 30), stream_id="s1", project="p"),
+    ]
+    s = _aggregate_events(date(2026, 5, 15), events).streams[0]
+    assert s.system_msg_count == 1
+    assert s.user_msg_count == 1
+    assert s.user_msg_timestamps == (_utc(2026, 5, 15, 9, 0),)
+    assert s.last_ts == _utc(2026, 5, 15, 9, 30)
+
+
+def test_gap_ended_by_system_message_is_agent_gap_not_resume():
+    events = [
+        UserMessageEvent(ts=_utc(2026, 5, 15, 9, 0), stream_id="s1", project="p"),
+        SystemMessageEvent(ts=_utc(2026, 5, 15, 9, 40), stream_id="s1", project="p"),
+    ]
+    s = _aggregate_events(date(2026, 5, 15), events).streams[0]
+    assert s.resume_gaps == ()
+    assert s.agent_gaps == ((_utc(2026, 5, 15, 9, 40), 2400),)
+
+
+def test_gap_ended_by_assistant_is_agent_gap():
+    events = [
+        UserMessageEvent(ts=_utc(2026, 5, 15, 9, 0), stream_id="s1", project="p"),
+        AssistantMessageEvent(ts=_utc(2026, 5, 15, 9, 40), stream_id="s1", project="p"),
+    ]
+    s = _aggregate_events(date(2026, 5, 15), events).streams[0]
+    assert s.resume_gaps == ()
+    assert s.agent_gaps == ((_utc(2026, 5, 15, 9, 40), 2400),)
+
+
+@pytest.mark.parametrize("operator_first", [True, False])
+def test_resume_independent_of_same_timestamp_order(operator_first):
+    at = _utc(2026, 5, 15, 9, 40)
+    pair = [
+        UserMessageEvent(ts=at, stream_id="s1", project="p"),
+        ToolResultEvent(ts=at, stream_id="s1", project="p"),
+    ]
+    if not operator_first:
+        pair.reverse()
+    events = [
+        AssistantMessageEvent(ts=_utc(2026, 5, 15, 9, 0), stream_id="s1", project="p"),
+        *pair,
+    ]
+    s = _aggregate_events(date(2026, 5, 15), events).streams[0]
+    assert s.resume_gaps == ((at, 2400),)
+    assert s.agent_gaps == ()
+
+
+def test_operator_input_within_slack_counts_as_resume():
+    events = [
+        UserMessageEvent(ts=_utc(2026, 5, 15, 9, 0), stream_id="s1", project="p"),
+        SystemMessageEvent(ts=_utc(2026, 5, 15, 9, 40), stream_id="s1", project="p"),
+        UserMessageEvent(ts=_utc(2026, 5, 15, 9, 40) + timedelta(seconds=1),
+                         stream_id="s1", project="p"),
+    ]
+    s = _aggregate_events(date(2026, 5, 15), events).streams[0]
+    assert s.resume_gaps == ((_utc(2026, 5, 15, 9, 40), 2400),)
+    assert s.agent_gaps == ()
+
+
+def test_operator_input_after_system_flush_counts_as_resume():
+    t = _utc(2026, 5, 15, 9, 40)
+    events = [
+        UserMessageEvent(ts=_utc(2026, 5, 15, 9, 0), stream_id="s1", project="p"),
+        SystemMessageEvent(ts=t, stream_id="s1", project="p"),
+        SystemMessageEvent(ts=t, stream_id="s1", project="p"),
+        UserMessageEvent(ts=t + timedelta(seconds=8), stream_id="s1", project="p"),
+    ]
+    s = _aggregate_events(date(2026, 5, 15), events).streams[0]
+    assert s.resume_gaps == ((t, 2400),)
+    assert s.agent_gaps == ()
+
+
+def test_operator_input_after_agent_activity_past_slack_is_agent_gap():
+    t = _utc(2026, 5, 15, 9, 40)
+    events = [
+        UserMessageEvent(ts=_utc(2026, 5, 15, 9, 0), stream_id="s1", project="p"),
+        AssistantMessageEvent(ts=t, stream_id="s1", project="p"),
+        UserMessageEvent(ts=t + timedelta(seconds=5), stream_id="s1", project="p"),
+    ]
+    s = _aggregate_events(date(2026, 5, 15), events).streams[0]
+    assert s.resume_gaps == ()
+    assert s.agent_gaps == ((t, 2400),)
+
+
+def test_system_flush_followed_by_later_operator_input_is_not_double_counted():
+    t = _utc(2026, 5, 15, 9, 40)
+    later = t + timedelta(minutes=30)
+    events = [
+        UserMessageEvent(ts=_utc(2026, 5, 15, 9, 0), stream_id="s1", project="p"),
+        SystemMessageEvent(ts=t, stream_id="s1", project="p"),
+        UserMessageEvent(ts=later, stream_id="s1", project="p"),
+    ]
+    s = _aggregate_events(date(2026, 5, 15), events).streams[0]
+    assert s.agent_gaps == ((t, 2400),)
+    assert s.resume_gaps == ((later, 1800),)
+
+
+def test_new_fields_survive_cache_round_trip():
+    events = [
+        UserMessageEvent(ts=_utc(2026, 5, 15, 9, 0), stream_id="s1", project="p"),
+        SystemMessageEvent(ts=_utc(2026, 5, 15, 9, 40), stream_id="s1", project="p"),
+    ]
+    agg = _aggregate_events(date(2026, 5, 15), events)
+    restored = _aggregate_from_dict(_aggregate_to_dict(agg))
+    s = restored.streams[0]
+    assert s.system_msg_count == 1
+    assert s.agent_gaps == ((_utc(2026, 5, 15, 9, 40), 2400),)
+    assert s.input_classified is True
+    assert restored.legacy_input is False
+
+
+def test_legacy_dict_without_input_classified_loads_as_legacy():
+    agg = _aggregate_events(date(2026, 5, 15), [
+        UserMessageEvent(ts=_utc(2026, 5, 15, 9, 0), stream_id="s1", project="p"),
+    ])
+    d = _aggregate_to_dict(agg)
+    for st in d["streams"]:
+        del st["input_classified"]
+    restored = _aggregate_from_dict(d)
+    assert restored.streams[0].input_classified is False
+    assert restored.legacy_input is True
 
 
 def test_tool_error_increments_only_error_counter():
