@@ -210,9 +210,9 @@ def _year_cell(
     classes = ["year-cell"]
     if is_future:
         classes.append("future")
+    scored = [d for d in days_metrics if not d.legacy_input]
     status = _status_for_composite(
-        sum(d.composite for d in days_metrics) / len(days_metrics)
-        if days_metrics else 0.0,
+        sum(d.composite for d in scored) / len(scored) if scored else 0.0,
         profile,
     )
     if status and not is_future:
@@ -270,7 +270,7 @@ def _year_sparkline(profile: StressProfile, year: int) -> str:
     points: list[tuple[date, float]] = sorted(
         (d, m.composite)
         for d, m in profile.days.items()
-        if d.year == year and m.composite > 0
+        if d.year == year and m.composite > 0 and not m.legacy_input
     )
 
     line_svg = ""
@@ -399,7 +399,7 @@ def _render_month_section(
     active = [
         m for d, m in profile.days.items()
         if d.year == year and d.month == month
-        and m.composite > 0
+        and m.composite > 0 and not m.legacy_input
     ]
     composites = [m.composite for m in active]
     avg_composite = sum(composites) / len(composites) if composites else 0.0
@@ -512,6 +512,13 @@ def _render_heatmap(year: int, month: int, profile: StressProfile) -> str:
     for _ in range(trailing):
         cells.append('<div class="cell outside"></div>')
 
+    has_legacy = any(
+        m.legacy_input for m in profile.days.values()
+        if m.day.year == year and m.day.month == month
+    )
+    legacy_note = (
+        f'<div class="legend">{escape(t("heatmap.legacy"))}</div>' if has_legacy else ""
+    )
     return f"""
 <div class="heatmap">
   {"".join(cells)}
@@ -520,6 +527,7 @@ def _render_heatmap(year: int, month: int, profile: StressProfile) -> str:
   {t("heatmap.legend")}
   <span class="legend-bar"></span>
 </div>
+{legacy_note}
 """.strip()
 
 
@@ -527,6 +535,15 @@ def _heatmap_day_cell(day: date, metrics: DayMetrics | None, profile: StressProf
     # Empty: no metrics, no activity at all.
     if metrics is None or (metrics.composite == 0 and metrics.off_hours_minutes == 0):
         return f'<div class="cell zero"><span class="day-num">{day.day}</span></div>'
+
+    if metrics.legacy_input:
+        return (
+            f'<a class="cell legacy" href="#day-{day.isoformat()}" '
+            f'title="{escape(t("day.legacy_note"), quote=True)}">'
+            f'<span class="day-num">{day.day}</span>'
+            f'<span class="day-val">{composite_label(metrics.composite)}</span>'
+            f'</a>'
+        )
 
     # Any day with non-zero composite → linked drill-down, tinted by score
     # the way the widget card tints its pills: translucent fill + border in
@@ -553,6 +570,7 @@ def _render_recommendations(profile: StressProfile) -> str:
     if not profile.days:
         return ""
     recs: list[str] = []
+    current = [m for m in profile.days.values() if not m.legacy_input]
 
     # Pattern: sustained elevation
     if profile.composite_p75 is not None:
@@ -568,7 +586,7 @@ def _render_recommendations(profile: StressProfile) -> str:
             ))
 
     # Pattern: off-hours activity
-    off_hours_days = sum(1 for m in profile.days.values() if m.off_hours_minutes > 0)
+    off_hours_days = sum(1 for m in current if m.off_hours_minutes > 0)
     if off_hours_days >= 2:
         recs.append(_recommendation(
             title=t("recs.offhours.title", days=off_hours_days),
@@ -581,11 +599,9 @@ def _render_recommendations(profile: StressProfile) -> str:
     # Pattern: peak fan-out. Keyed on the engagement-weighted active peak, not
     # raw headcount — sessions left cooking in the background don't count as
     # exceeding working-memory capacity (you weren't actively tracking them).
-    if profile.days:
-        max_peak = max(m.codl_peak_active for m in profile.days.values())
-        days_at_high_fanout = sum(
-            1 for m in profile.days.values() if m.codl_peak_active >= 4
-        )
+    if current:
+        max_peak = max(m.codl_peak_active for m in current)
+        days_at_high_fanout = sum(1 for m in current if m.codl_peak_active >= 4)
         if days_at_high_fanout >= 3:
             recs.append(_recommendation(
                 title=t("recs.fanout.title", days=days_at_high_fanout),
@@ -624,7 +640,8 @@ def _recommendation(title: str, severity: str, trigger: str, advice: str, citati
 def _max_consecutive_days_above(profile: StressProfile, threshold: float) -> int:
     """Count the longest run of consecutive calendar days with activity above
     threshold. A run extends only when `d` is the immediate next calendar day
-    after `prev`. A missing day (no activity entry) breaks the run."""
+    after `prev`. A missing day (no activity entry) or a legacy-input day
+    breaks the run."""
     from datetime import timedelta as _td
 
     days_sorted = sorted(profile.days.keys())
@@ -633,7 +650,7 @@ def _max_consecutive_days_above(profile: StressProfile, threshold: float) -> int
     prev: date | None = None
     for d in days_sorted:
         m = profile.days[d]
-        if m.composite > threshold:
+        if m.composite > threshold and not m.legacy_input:
             if prev is not None and d == prev + _td(days=1):
                 run += 1
             else:
@@ -680,6 +697,7 @@ def _render_day_section(
         <div><strong>{escape(t("day.composite", value=composite_label(metrics.composite)))}</strong></div>
         <div class="work-window">{escape(window_label)}</div>
       </div>
+      {f'<div class="legend">{escape(t("day.legacy_note"))}</div>' if metrics.legacy_input else ""}
       {_render_day_chart(day, agg, metrics) if agg else ""}
     </div>
     {_render_axis_tiles(metrics, profile)}
@@ -1371,6 +1389,9 @@ _STYLES = """
   .cell { aspect-ratio: 1.4 / 1; border-radius: 8px; background: rgba(255,255,255,.03);
     padding: 7px 9px; position: relative; font-size: 11px; }
   .cell.outside { background: transparent; border: 1px dashed rgba(255,255,255,.06); }
+  .cell.legacy { background: repeating-linear-gradient(135deg,
+    rgba(255,255,255,.05) 0 6px, rgba(255,255,255,.02) 6px 12px);
+    border: 1px solid var(--rule); color: var(--ink-faint); }
   .cell.zero { background: rgba(255,255,255,.03); border: 1px solid var(--rule);
     color: var(--ink-faint); }
   .cell .day-num { font-weight: 600; font-size: 12px; }

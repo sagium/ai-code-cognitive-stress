@@ -97,6 +97,7 @@ def test_profile_to_dict_includes_per_day_metric_fields():
     assert day["interruption_rate"] == 6.04
     assert day["closure_deficit"] == 0.40
     assert day["work_window_local"] == ["09:00", "18:00"]
+    assert day["legacy_input"] is False
 
 
 def test_profile_to_dict_serializes_all_work_windows():

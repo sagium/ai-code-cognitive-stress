@@ -21,6 +21,7 @@ from ai_code_cognitive_stress.output.dayview import (
     personal_baseline,
     score_progression,
 )
+from ai_code_cognitive_stress.output.scales import composite_color
 from ai_code_cognitive_stress.pipeline.metrics import CODL_CAPACITY, DayMetrics, StressProfile
 
 
@@ -49,6 +50,28 @@ def test_build_dayview_active_day():
     assert [a.name for a in dv.axes] == ["CODL", "Interruption Index", "Closure Deficit"]
     assert len(dv.hours) == 24
     assert dv.day_label == "Friday 29 May 2026"
+
+
+def test_build_dayview_legacy_day_has_neutral_status():
+    m = DayMetrics(day=date(2026, 5, 29), composite=80.0, legacy_input=True)
+    dv = build_dayview(m, None, _profile(), timezone.utc)
+    assert dv.composite_status == ""
+    assert dv.legacy_input is True
+    assert dayview_to_dict(dv)["legacy_input"] is True
+
+
+def test_period_view_excludes_legacy_days_from_mean_and_colors_them_neutral():
+    from ai_code_cognitive_stress.output.dayview import build_period_view
+    today = date(2026, 5, 29)
+    old = today - timedelta(days=1)
+    profile = _profile(days={
+        today: DayMetrics(day=today, composite=20.0),
+        old: DayMetrics(day=old, composite=90.0, legacy_input=True),
+    })
+    view, daily = build_period_view(profile, 7, "Week", today)
+    assert view.composite == 20.0
+    legacy_point = next(p for p in daily if p.day == old)
+    assert legacy_point.color == composite_color("")
 
 
 def test_build_dayview_no_activity():
@@ -195,6 +218,23 @@ def test_personal_baseline_needs_three_samples():
         for d in (1, 2, 3)
     })
     assert personal_baseline(three, "codl_avg") == 2.0  # median of 1,2,3
+
+
+def test_personal_baseline_ignores_legacy_days():
+    days = {
+        date(2026, 5, d): DayMetrics(day=date(2026, 5, d), codl_avg=float(d), composite=5.0)
+        for d in (1, 2, 3)
+    }
+    for d in (4, 5, 6, 7):
+        days[date(2026, 5, d)] = DayMetrics(
+            day=date(2026, 5, d), codl_avg=50.0, composite=5.0, legacy_input=True,
+        )
+    assert personal_baseline(_profile(days=days), "codl_avg") == 2.0
+    for d in (1, 2):
+        days[date(2026, 5, d)] = DayMetrics(
+            day=date(2026, 5, d), codl_avg=float(d), composite=5.0, legacy_input=True,
+        )
+    assert personal_baseline(_profile(days=days), "codl_avg") is None
 
 
 # --- hour_counts ------------------------------------------------------------
@@ -497,3 +537,22 @@ def test_compute_today_dayview_reads_today_session(tmp_path):
     assert dv.day == today
     assert len(dv.axes) == 3
     assert len(dv.hours) == 24
+
+
+def test_truncate_aggregate_clips_resume_and_agent_gaps():
+    from ai_code_cognitive_stress.output.dayview import _truncate_aggregate
+    early = datetime(2026, 5, 29, 10, 0, tzinfo=timezone.utc)
+    late = datetime(2026, 5, 29, 14, 0, tzinfo=timezone.utc)
+    cutoff = datetime(2026, 5, 29, 12, 0, tzinfo=timezone.utc)
+    s = StreamDayActivity(
+        stream_id="s", project="p",
+        first_ts=datetime(2026, 5, 29, 9, 0, tzinfo=timezone.utc),
+        last_ts=datetime(2026, 5, 29, 15, 0, tzinfo=timezone.utc),
+        resume_gaps=((early, 3600), (late, 3600)),
+        agent_gaps=((early, 1800), (late, 1800)),
+    )
+    out = _truncate_aggregate(
+        DayAggregate(day=date(2026, 5, 29), streams=(s,)), cutoff,
+    ).streams[0]
+    assert out.resume_gaps == ((early, 3600),)
+    assert out.agent_gaps == ((early, 1800),)

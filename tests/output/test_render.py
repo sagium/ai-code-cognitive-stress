@@ -13,6 +13,7 @@ from ai_code_cognitive_stress.output.render import (
     _color_for_composite,
     _heatmap_day_cell,
     _max_consecutive_days_above,
+    _year_sparkline,
     _status_for_composite,
     _status_for_count,
     report,
@@ -114,6 +115,25 @@ def test_heatmap_day_cell_with_metrics_includes_value_and_background():
     assert ">15<" in cell
     assert ">68<" in cell
     assert "background:" in cell
+
+
+def test_heatmap_day_cell_legacy_day_is_hatched_and_unramped():
+    metrics = DayMetrics(day=date(2026, 5, 15), composite=85.0, legacy_input=True)
+    cell = _heatmap_day_cell(date(2026, 5, 15), metrics, StressProfile())
+    assert 'class="cell legacy"' in cell
+    assert ">85<" in cell
+    assert "#d98c80" not in cell
+    assert "background:" not in cell
+    assert t("day.legacy_note") in cell
+
+
+def test_heatmap_month_notes_legacy_days():
+    from ai_code_cognitive_stress.output.render import _render_heatmap
+    day = date(2026, 5, 15)
+    legacy = StressProfile(days={day: DayMetrics(day=day, composite=50.0, legacy_input=True)})
+    current = StressProfile(days={day: DayMetrics(day=day, composite=50.0)})
+    assert t("heatmap.legacy") in _render_heatmap(2026, 5, legacy)
+    assert t("heatmap.legacy") not in _render_heatmap(2026, 5, current)
 
 
 def test_heatmap_day_cell_high_score_uses_light_red_text():
@@ -314,6 +334,31 @@ def test_report_fan_out_recommendation_fires_when_three_days_at_high_peak():
     profile = StressProfile(days=days)
     html = report(profile, {}, label="May 2026")
     assert "Parallel-stream fan-out" in html
+
+
+def test_report_recommendations_ignore_legacy_days():
+    legacy = {
+        d: DayMetrics(
+            day=d, composite=70, off_hours_minutes=120, codl_peak_active=5.0,
+            legacy_input=True, work_window_local=(time(9), time(18)),
+        )
+        for d in _next_weekdays(date(2026, 5, 4), 7)
+    }
+    profile = StressProfile(days=legacy, composite_p75=40.0)
+    html = report(profile, {}, label="May 2026")
+    assert "Sustained elevated load" not in html
+    assert "Off-hours engagement" not in html
+    assert "Parallel-stream fan-out" not in html
+
+
+def test_max_consecutive_days_above_legacy_day_breaks_run():
+    days = {
+        date(2026, 5, 4): DayMetrics(day=date(2026, 5, 4), composite=80),
+        date(2026, 5, 5): DayMetrics(day=date(2026, 5, 5), composite=80),
+        date(2026, 5, 6): DayMetrics(day=date(2026, 5, 6), composite=80, legacy_input=True),
+        date(2026, 5, 7): DayMetrics(day=date(2026, 5, 7), composite=80),
+    }
+    assert _max_consecutive_days_above(StressProfile(days=days), 70) == 2
 
 
 # ---------------------------------------------------------------------------
@@ -551,3 +596,12 @@ def test_default_month_class_uses_today_when_data_includes_it():
     assert 'class="month-view month-default"' not in (
         html.replace('id="month-2026-04" class="month-view month-default"', "")
     )
+
+
+def test_year_sparkline_skips_legacy_days():
+    days = {
+        date(2026, 5, 4): DayMetrics(day=date(2026, 5, 4), composite=40),
+        date(2026, 5, 5): DayMetrics(day=date(2026, 5, 5), composite=90, legacy_input=True),
+    }
+    svg = _year_sparkline(StressProfile(days=days), 2026)
+    assert svg.count("<circle") == 1

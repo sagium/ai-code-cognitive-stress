@@ -115,4 +115,5 @@ def _day_metrics_dict(m: DayMetrics) -> dict[str, Any]:
             ]
             if m.work_window_local else None
         ),
+        "legacy_input": m.legacy_input,
     }

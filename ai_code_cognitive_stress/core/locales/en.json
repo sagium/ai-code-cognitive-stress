@@ -123,6 +123,8 @@
   "note.optimum": "optimum {value} CODL &middot; aim to stay near",
   "note.p90": "your p90 = {value}",
 
+  "heatmap.legacy": "Hatched days were scored before operator-input classification and are not comparable with other days.",
+  "day.legacy_note": "Scored before operator-input classification: not comparable with other days.",
   "heatmap.legend": "Daily composite stress &middot; low to high",
 
   "recs.heading": "Patterns detected",

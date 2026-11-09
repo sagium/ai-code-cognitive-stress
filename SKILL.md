@@ -62,6 +62,9 @@ This writes `~/stress-2026.html` (without an analysis panel) and
 
 `~/stress-2026.json` carries the full StressProfile: per-day metrics,
 work windows, percentiles, personal optimum, and ingest coverage stats.
+Days with `"legacy_input": true` were scored before operator-input
+classification and read higher than current days: never compare them with
+current days or cite them as peaks or trends.
 
 ### 3. Write a TIGHT advice-only markdown to a temp file
 

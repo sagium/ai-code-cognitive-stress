@@ -197,6 +197,9 @@ class DayView:
     # Today's stored subjective grade (0=chill, 1=heated, 2=cooked), or None
     # when no grade has been recorded. Non-today views always carry None.
     grade_value: int | None = None
+    # The day was aggregated before operator input was classified; its score is
+    # shown but is not comparable with current days, so it carries no status.
+    legacy_input: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -207,11 +210,11 @@ def _clamp01(x: float) -> float:
 
 
 def personal_baseline(profile: StressProfile, attr: str) -> float | None:
-    """Median of `attr` across active days (>=3 samples), else None.
-    Lifted verbatim from render.py so both UIs show the same 'typical day'."""
+    """Median of `attr` across active, classified days (>=3 samples), else
+    None. Lifted from render.py so both UIs show the same 'typical day'."""
     values = sorted(
         getattr(m, attr) for m in profile.days.values()
-        if m.composite > 0
+        if m.composite > 0 and not m.legacy_input
         and getattr(m, attr, None) is not None and getattr(m, attr) > 0
     )
     if len(values) < 3:
@@ -442,6 +445,7 @@ def _truncate_aggregate(agg: DayAggregate, cutoff: datetime) -> DayAggregate:
                 t for t in s.user_msg_timestamps if t <= cutoff
             ),
             resume_gaps=tuple(g for g in s.resume_gaps if g[0] <= cutoff),
+            agent_gaps=tuple(g for g in s.agent_gaps if g[0] <= cutoff),
         )
         for s in agg.streams
         if s.first_ts <= cutoff
@@ -527,7 +531,11 @@ def build_dayview(
     # its composite still rounds to 0.0.  Presence is an ingest fact, not a
     # stress-score threshold, so keep that session visible in the daily view.
     has_activity = any(counts) or metrics.composite > 0
-    status = composite_status(metrics.composite, profile.composite_p75, profile.composite_p90)
+    status = (
+        ""
+        if metrics.legacy_input
+        else composite_status(metrics.composite, profile.composite_p75, profile.composite_p90)
+    )
 
     # Off-hours nag: shown when off-hours engagement is meaningfully driving the
     # composite (≥ 15 min → ≥ ~5 pts). States the contribution explicitly — and
@@ -596,6 +604,7 @@ def build_dayview(
         axes_frozen=axes_frozen,
         grade_prompt=grade_prompt,
         grade_value=grade_value,
+        legacy_input=metrics.legacy_input,
     )
 
 
@@ -658,6 +667,7 @@ def dayview_to_dict(dv: DayView) -> dict:
         "axes_frozen": dv.axes_frozen,
         "grade_prompt": dv.grade_prompt,
         "grade_value": dv.grade_value,
+        "legacy_input": dv.legacy_input,
     }
 
 
@@ -726,7 +736,9 @@ def build_period_view(
     for d in window:
         m = profile.days.get(d)
         comp = m.composite if m else 0.0
-        if comp > 0:
+        if comp > 0 and m.legacy_input:
+            color = composite_color("")
+        elif comp > 0:
             color = composite_color(
                 composite_status(comp, profile.composite_p75, profile.composite_p90)
             )
@@ -738,6 +750,7 @@ def build_period_view(
     active = [
         profile.days[d] for d in window
         if d in profile.days and profile.days[d].composite > 0
+        and not profile.days[d].legacy_input
     ]
     has_activity = bool(active)
     if has_activity:
@@ -816,7 +829,7 @@ def build_year_view(
     by_month: dict[tuple[int, int], list[float]] = {m: [] for m in months}
     for d, m in data_profile.days.items():
         key = (d.year, d.month)
-        if key in month_set and m.composite > 0:
+        if key in month_set and m.composite > 0 and not m.legacy_input:
             by_month[key].append(m.composite)
 
     monthly: list[MonthlyPoint] = []
@@ -834,6 +847,7 @@ def build_year_view(
     active = [
         m for d, m in data_profile.days.items()
         if (d.year, d.month) in month_set and m.composite > 0
+        and not m.legacy_input
     ]
     has_activity = bool(active)
     if has_activity:
