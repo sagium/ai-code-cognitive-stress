@@ -9,6 +9,13 @@ dynamically by the build.
 
 ## [Unreleased]
 
+## [0.2.7] - 2026-11-09
+
+### Fixed
+- Widget year view: months that only hold legacy days (scored before
+  operator-input classification) show again, as neutral bars, instead of
+  empty months. The year average still uses recomputed days only.
+
 ## [0.2.6] - 2026-11-09
 
 ### Fixed
@@ -138,7 +145,8 @@ First public release.
 - Pure Python standard library at runtime — zero third-party dependencies.
 - No network calls: the tool reads local logs and writes a report to disk.
 
-[Unreleased]: https://github.com/sagium/ai-code-cognitive-stress/compare/v0.2.6...HEAD
+[Unreleased]: https://github.com/sagium/ai-code-cognitive-stress/compare/v0.2.7...HEAD
+[0.2.7]: https://github.com/sagium/ai-code-cognitive-stress/compare/v0.2.6...v0.2.7
 [0.2.6]: https://github.com/sagium/ai-code-cognitive-stress/compare/v0.2.5...v0.2.6
 [0.2.5]: https://github.com/sagium/ai-code-cognitive-stress/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/sagium/ai-code-cognitive-stress/compare/v0.2.3...v0.2.4
