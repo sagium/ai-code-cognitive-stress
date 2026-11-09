@@ -9,6 +9,8 @@ dynamically by the build.
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-11-09
+
 ### Fixed
 - Claude Code and Codex: only the operator's own input counts as a user
   message. Tool results, background-agent and peer notifications, injected
@@ -136,7 +138,8 @@ First public release.
 - Pure Python standard library at runtime — zero third-party dependencies.
 - No network calls: the tool reads local logs and writes a report to disk.
 
-[Unreleased]: https://github.com/sagium/ai-code-cognitive-stress/compare/v0.2.5...HEAD
+[Unreleased]: https://github.com/sagium/ai-code-cognitive-stress/compare/v0.2.6...HEAD
+[0.2.6]: https://github.com/sagium/ai-code-cognitive-stress/compare/v0.2.5...v0.2.6
 [0.2.5]: https://github.com/sagium/ai-code-cognitive-stress/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/sagium/ai-code-cognitive-stress/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/sagium/ai-code-cognitive-stress/compare/v0.2.2...v0.2.3
