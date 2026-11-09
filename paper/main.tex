@@ -312,13 +312,19 @@ Figure~\ref{fig:pipeline}; the remainder of this section defines each stage.
 \subsection{Data model}
 The input consists of session transcripts that coding tools already store locally. A
 pluggable adapter maps each tool's log into a common interface of typed events
-(user message, assistant message, tool use, tool result/error) with UTC
-timestamps. Events are reduced to per-day
+(operator input, agent-side message, assistant message, tool use, tool
+result/error) with UTC timestamps. Events are reduced to per-day
 \emph{stream} records: one stream is one session on one day, summarised by its
 first/last event timestamps $[a_s,b_s]$, per-type counts, the multiset of
-the user's own message timestamps $U_s$, and the timestamps of any errored tool
-results. All processing is local; no session data leaves the machine
-(\S\ref{sec:impl}).
+the operator's own input timestamps $U_s$, and the timestamps of any errored tool
+results. Operator input is what the operator themselves gave the session: typed
+or queued prompts and commands, interrupts, and answers to the agent's own
+questions, plan and permission prompts. Tool results, background-task and
+peer-agent notifications, injected context, and messages a parent agent writes
+into a sub-agent thread are agent-side. A session with no operator input at all
+(a scripted headless run) is not an attentional stream and is excluded. Each
+adapter reads operator provenance from its tool's own markers. All processing is
+local; no session data leaves the machine (\S\ref{sec:impl}).
 
 \begin{figure}[t]
 \centering
@@ -330,7 +336,7 @@ results. All processing is local; no session data leaves the machine
   every path/.style={draw, ->}
 ]
 \node[pbox] (logs) {Local session logs: one adapter per coding tool};
-\node[pbox, below=of logs] (events) {Typed events: operator messages, assistant messages, tool use / result / error, each timestamped};
+\node[pbox, below=of logs] (events) {Typed events: operator input, assistant messages, tool use / result / error, each timestamped};
 \node[pbox, below=of events] (agg) {Per-day aggregate: per-stream span $[a_s,b_s]$, operator-message times, tool-error times, and intra-stream idle gaps};
 \node[pbox, below=of agg] (sample) {One-minute \emph{engagement-weighted} sampling inside the scored work window: $e_s(t)\!\in\!\{1,\beta,0\}$,\; $C(t)=\sum_s e_s(t)$};
 \node[pbox, below=of sample] (axes) {Three axes: CODL $\cdot$ Interruption Index $\cdot$ Closure Deficit};
@@ -352,9 +358,9 @@ Before the event streams can be compared across days, the method establishes a
 personal work window. The axes are computed inside a daily window
 $W=[w_0,w_1]$ \emph{inferred per
 operator}: $w_0=\lfloor p_{10}\rfloor$ and $w_1=\lceil p_{90}\rceil$ are the
-$p_{10}$ and $p_{90}$ of the local-time hours at which the operator sends
-messages, floored and ceiled \emph{outward} to whole hours so the band is never
-narrower than the percentile span. The message hours are pooled over the baseline
+$p_{10}$ and $p_{90}$ of the local-time hours at which the operator gives
+input, floored and ceiled \emph{outward} to whole hours so the band is never
+narrower than the percentile span. The input hours are pooled over the baseline
 window, and the resulting stable band is applied to \emph{every} calendar day. A
 degenerate or empty band falls back to the cold-start default below.
 The window is therefore individual to the operator rather than a property of
@@ -390,8 +396,11 @@ weight on \emph{how much} an open stream costs.
 A stream is \emph{live} only across its run intervals. The session logs record
 activity, not process liveness, so a sufficiently long silence is treated as a
 closed and later relaunched process: an idle gap of
-at least a cutoff $\theta$ (default $3$\,h) splits $[a_s,b_s]$ into separate runs,
-and the dead span between them counts as no open session. Shorter gaps stay
+at least a cutoff $\theta$ (default $3$\,h) splits
+$[a_s,b_s]$ into separate runs,
+and the dead span between them counts as no open session. A gap ended only by a tool result is the exception: the
+result arriving shows the process stayed alive through a long tool call, so it
+never splits a run. Shorter gaps stay
 inside one run, where the tool plausibly remained open and a process would still
 be alive. Let $L_s$ be the union of stream $s$'s run intervals.
 
@@ -651,10 +660,11 @@ re-entered parked sessions, weighted by how cold each had gone.
 
 A \emph{resume} is a true-idle gap in a single session's event timeline whose
 length falls in the band $[\tau,\theta)$: a span during which no event of any kind
-(user message, model message, or tool call) was recorded and whose resuming event
-is the operator or model re-engaging rather than a single long-running tool call
-returning its result. A span that ends only because a tool returned is the agent's
-own working time, not a parked loop, and is excluded. Below the lower bound
+(operator input, model message, tool call, or notification) was recorded and
+whose ending instant carries operator input, or is followed within seconds by
+operator input after only records the agent did not act on. A span that ends on a tool result,
+model output, or background notification is agent-side activity, not a parked
+loop, and is not a resume. Below the lower bound
 $\tau$ ($=30$\,min by default) the loop was paused, not suspended. At or above
 the upper bound $\theta$ (the same close cutoff that bounds a live run,
 \S\ref{sec:codl}, $3$\,h by default), the method treats the break as recovery
@@ -946,7 +956,10 @@ anonymized, consent-gated \emph{research export}: a per-user file of derived
 daily metrics (and their components) with the timezone dropped and calendar
 dates randomly shifted, which the operator may choose to upload manually; the
 tool itself transmits nothing, preserving the privacy invariant. The export
-also carries, for any day the operator chose to grade, an optional
+also carries a per-day provenance flag for days whose archived aggregates were
+built without operator-input classification; such days are displayed but
+excluded from work-window inference, personal bands and optimum, and population
+calibration. It further carries, for any day the operator chose to grade, an optional
 self-reported felt-stress rating on a coarse three-level scale ($0$--$2$),
 entered by a single action in the desktop companion and otherwise kept on the
 operator's machine; the field is a small integer or null, so it adds no
@@ -1127,11 +1140,14 @@ makes it independent of concurrency: two days with identical $C(t)$ score
 differently if one reloaded its loops cold and the other did not. The axis has
 its own limitations, stated plainly. First, the gap is a \emph{proxy}: it is
 genuine wall-clock dormancy (no event of any kind), so a long \emph{autonomous}
-agent turn is correctly \emph{not} counted as a resume. A gap that ends only
-because a single long-running tool call returned its result is also excluded: the
-resume is read from whether the operator or model re-engaged rather than a tool
-returning, so that span counts as the agent's own working time, not a parked loop.
-The converse failure remains unobservable from the logs: stepping away while a
+agent turn is correctly \emph{not} counted as a resume. A gap that ends on a tool
+result, model output, or background notification is also excluded: the resume is
+read from whether the operator gave input at the ending instant, or within seconds
+after it following only records the agent did not act on, so that span
+counts as the agent's own working time, not a parked loop. The measure
+understates in one direction: a notification landing while the operator is away
+splits the park, and only the operator-ended remainder is scored. The converse
+failure remains unobservable from the logs: stepping away while a
 session is mid-turn, or leaving a session idle in the foreground, is
 indistinguishable from a deliberate suspension. The upper bound $\theta$ is a proxy in the same
 spirit: the logs record activity, not process liveness, so a gap at least $\theta$
@@ -1171,8 +1187,10 @@ The tool-error term carries the symmetric caveat: an error is counted at the
 instant it is logged, whether or not the operator observed it in real time.
 
 \paragraph{Engagement is interaction-anchored by design.} Foreground is proxied
-by proximity to the operator's own messages within a grace window $g$. Silent
-engagement (reading, thinking, reviewing diffs without typing) leaves no message
+by proximity to the operator's own messages within a grace window $g$. Operator
+input includes the answers and approvals the logs record; a decision that leaves
+no record is silent engagement. Silent
+engagement (reading, thinking, reviewing diffs without typing) leaves no input
 event, so it earns no \emph{foreground} weight: while the session is live it still
 counts at the background weight $\beta$, and counts nothing only once the tool is
 closed (\S\ref{sec:codl}). What is out of scope by construction, rather than a
@@ -1182,7 +1200,7 @@ This omission tends to understate the operator's total cognitive load. A high
 score therefore shows that agent supervision alone consumed substantial measured
 capacity, while any unrecorded work adds demands that the index does not capture.
 The principal bias in the other direction is that any
-operator message (including a perfunctory acknowledgement) grants full
+operator input (including a perfunctory acknowledgement) grants full
 foreground weight for the whole window, so a trivial message can be over-weighted
 by up to $g$. The $5$-minute grace is a default, not fitted; like $\beta$ it is a
 configurable, auditable parameter rather than a hidden constant, and both the
@@ -1190,19 +1208,22 @@ value of engagement weighting and the sensitivity to $g$ are validation targets
 (\S\ref{sec:validation}).
 
 \paragraph{Cross-tool comparability is partial.} Each adapter maps its tool's
-logs onto one shared event vocabulary (user and assistant messages, tool
-invocations, tool results), so the axes consume semantically typed events rather
+logs onto one shared event vocabulary (operator input, agent-side messages,
+assistant messages, tool invocations, tool results), so the axes consume semantically typed events rather
 than raw, tool-specific log lines, and the quantities they are built from are
 deliberately count-independent: CODL is a headcount of concurrently active
 sessions, the Closure Deficit is wall-clock idle time, and the interruption rate
 excludes routine tool calls entirely (\S\ref{sec:codl}, \S\ref{sec:closure}).
-Two adapter-specific definitions that feed the axes directly remain only partly
+Three adapter-specific definitions that feed the axes directly remain only partly
 comparable. First, a \emph{tool error} is whatever each tool chooses to record
 as one, and that signal feeds the interruption rate, so tools that surface or
 log failures differently are not on a common scale. Second, the boundary that
 delimits one \emph{session} (and hence the concurrency headcount and the idle
 gaps between resumes) is set per adapter, so two tools can partition the same
-span of work into different numbers of streams. Because the index is
+span of work into different numbers of streams. Third, which messages count as
+operator input follows each tool's own provenance markers, so tools that log
+less about who sent a message, or that surface approvals differently, are not on
+a common scale. Because the index is
 single-subject and per-operator, the practical concern is one operator mixing
 tools on a single timeline rather than comparison across people. Aggregating those
 streams without a shared error and session-boundary convention still risks

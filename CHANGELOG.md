@@ -9,6 +9,21 @@ dynamically by the build.
 
 ## [Unreleased]
 
+### Fixed
+- Claude Code and Codex: only the operator's own input counts as a user
+  message. Tool results, background-agent and peer notifications, injected
+  context and compaction summaries no longer inflate foreground load,
+  off-hours minutes, the inferred work window or resume detection; queued
+  prompts and answers or approvals of agent prompts now count. A resume needs
+  operator input at the moment the idle gap ends.
+- Headless `claude -p` runs and notification-only sessions are no longer
+  counted as attentional streams.
+- The durable archive replaces pre-fix streams with the corrected live data;
+  recycled days stay visible but are flagged and kept out of work-window
+  inference, personal bands and the personal optimum.
+- Research export is schema v5 (adds a per-day `legacy_input` flag);
+  `--calibrate` skips pre-v5 exports and flagged days.
+
 ## [0.2.5] - 2026-09-03
 
 ### Added
